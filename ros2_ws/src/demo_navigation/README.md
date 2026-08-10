@@ -15,9 +15,14 @@ separately in `learn` mode.
 sudo apt install -y ros-jazzy-navigation2 ros-jazzy-nav2-bringup ros-jazzy-slam-toolbox
 ```
 
-## Generating the map (once per world)
+## The map is already generated
 
-`navigation.launch.py` needs a static map that does not exist until you make it.
+`maps/warehouse.yaml` + `maps/warehouse.pgm` are committed (477 × 475 cells at
+5 cm, origin `[-12.077, -12.215, 0]`). You only need the procedure below if the
+world changes.
+
+## Regenerating the map (only if the world changes)
+
 Three terminals:
 
 ```bash
@@ -34,9 +39,24 @@ ros2 run nav2_map_server map_saver_cli -f \
     ros2_ws/src/demo_navigation/maps/warehouse
 ```
 
-Commit both `warehouse.yaml` and `warehouse.pgm`. After that, SLAM is only
-needed again if the world changes. The module runs AMCL over the saved map and
-never runs SLAM.
+Commit both `warehouse.yaml` and `warehouse.pgm`. The module runs AMCL over the
+saved map and never runs SLAM.
+
+### Two things that will waste your afternoon
+
+**slam_toolbox is a lifecycle node.** It starts in `unconfigured` and stays
+there. The process runs and logs `Node using stack size 40000000`, then does
+nothing: no scan subscription, no map, no `map → odom`, and no error.
+`slam.launch.py` drives the `configure` → `activate` transitions with chained
+lifecycle events. Check with `ros2 lifecycle get /slam_toolbox` — it must say
+`active`. If you ever see it stuck in `unconfigured`, that is this bug.
+
+**The scan topic is set by remap, not by parameter.** slam_toolbox reads
+`scan_topic` while declaring parameters, and setting it from an external params
+file does not reliably take effect — the node comes up subscribed to `/clock`
+and nothing else. `slam.launch.py` remaps `/scan → /demo/scan` instead, which
+rclcpp applies before the subscription is created. Verify with
+`ros2 node info /slam_toolbox`; `/demo/scan` must appear under Subscribers.
 
 ## Parameters
 
@@ -90,6 +110,18 @@ The launch delegates to `nav2_bringup`'s `bringup_launch.py` rather than
 instantiating each server by hand: lifecycle-manager wiring and node ordering
 are exactly what upstream maintains, and a hand-rolled copy would rot. What this
 package owns is the parameter file, the map, and the namespace choices.
+
+## docking_server
+
+The params file configures `docking_server` even though the demo has no
+charging dock. It is in Nav2 Jazzy's default node list, and without
+`dock_plugins` it fails to configure — which makes the lifecycle manager
+**abort the entire bringup**. The symptom is `map_server` and `amcl` reaching
+`active` while planner, controller and bt_navigator sit in `inactive` forever.
+
+Note that `docks` is *omitted*, not set to `[]`. An empty YAML list arrives at
+launch as a Python tuple and aborts with
+`Expected 'value' to be one of [float, int, str, bool, bytes], but got '()'`.
 
 ## Verifying
 

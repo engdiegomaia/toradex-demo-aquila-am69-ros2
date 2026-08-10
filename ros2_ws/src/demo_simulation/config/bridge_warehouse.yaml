@@ -22,31 +22,45 @@
 
 # Velocity commands. Nav2 (or teleop) -> Gazebo. The one topic that makes the
 # diff-drive/quadruped swap in ML3.5 cheap.
+#
+# UNSCOPED ON PURPOSE — verified with `gz topic -i`, do not "fix" to
+# /model/demo_robot/cmd_vel. The DiffDrive plugin's <topic>, <odom_topic> and
+# <tf_topic> elements (see demo_description/urdf/demo_robot.urdf.xacro) take
+# the name literally and are NOT model-scoped. Gazebo also advertises
+# /model/demo_robot/{cmd_vel,odom,tf} as its default names, which is the trap:
+# those exist in `gz topic -l` and look right, but nothing is attached to them.
+# Bridging to the scoped names produced a robot that never moved and odometry
+# that never published, with no error anywhere.
 - ros_topic_name: "/demo/cmd_vel"
-  gz_topic_name: "/model/demo_robot/cmd_vel"
+  gz_topic_name: "/cmd_vel"
   ros_type_name: "geometry_msgs/msg/Twist"
   gz_type_name: "gz.msgs.Twist"
   direction: ROS_TO_GZ
 
-# Wheel odometry from the DiffDrive plugin.
+# Wheel odometry from the DiffDrive plugin. Unscoped — see the note above.
 - ros_topic_name: "/demo/odom"
-  gz_topic_name: "/model/demo_robot/odom"
+  gz_topic_name: "/odom"
   ros_type_name: "nav_msgs/msg/Odometry"
   gz_type_name: "gz.msgs.Odometry"
   direction: GZ_TO_ROS
 
 # odom -> base_footprint transform, published by the DiffDrive plugin.
 # Bridged to /tf directly: this is the only owner of that edge (see
-# demo_description/README.md TF ownership table).
+# demo_description/README.md TF ownership table). Unscoped — see the note above.
 - ros_topic_name: "/tf"
-  gz_topic_name: "/model/demo_robot/tf"
+  gz_topic_name: "/tf"
   ros_type_name: "tf2_msgs/msg/TFMessage"
   gz_type_name: "gz.msgs.Pose_V"
   direction: GZ_TO_ROS
 
 # Wheel joint angles -> robot_state_publisher, so the wheel TFs animate.
+# Unscoped for the same reason as cmd_vel/odom/tf above: the
+# JointStatePublisher plugin's <topic>joint_states</topic> is literal. The
+# world-scoped /world/warehouse/model/demo_robot/joint_state is advertised too
+# but carries no publisher — and being world-scoped it would also have broken
+# the moment the world was renamed.
 - ros_topic_name: "/joint_states"
-  gz_topic_name: "/world/warehouse/model/demo_robot/joint_state"
+  gz_topic_name: "/joint_states"
   ros_type_name: "sensor_msgs/msg/JointState"
   gz_type_name: "gz.msgs.Model"
   direction: GZ_TO_ROS

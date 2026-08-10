@@ -13,7 +13,11 @@ nothing else. Nav2 and perception are composed on top by demo_bringup.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    TimerAction,
+)
 from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
@@ -112,33 +116,54 @@ def generate_launch_description() -> LaunchDescription:
 
     # Spawns from the /robot_description topic rather than a file, so the model
     # in Gazebo is byte-identical to the one robot_state_publisher is using.
-    spawn_robot = Node(
-        package='ros_gz_sim',
-        executable='create',
-        name='spawn_demo_robot',
-        output='screen',
-        arguments=[
-            '-topic', 'robot_description',
-            '-name', LaunchConfiguration('robot_name'),
-            '-x', LaunchConfiguration('x'),
-            '-y', LaunchConfiguration('y'),
-            '-z', '0.1',
-            '-Y', LaunchConfiguration('yaw'),
-        ],
+    #
+    # DELAYED ON PURPOSE — do not remove the TimerAction.
+    # `create` first calls Gazebo's "list of world names" service. Started at
+    # t=0 that service does not exist yet, and the client retries every 5 s
+    # forever instead of failing. The warehouse world takes ~10 s to load its
+    # 50+ meshes, so a t=0 spawner never completes its handshake.
+    #
+    # The robot still appears in the world (the async create service accepts
+    # it), which makes this look like it worked: sensors publish, `gz model
+    # --list` shows demo_robot. But the DiffDrive and JointStatePublisher
+    # system plugins never initialize, so /model/demo_robot/odom and
+    # .../joint_state advertise and then stay permanently silent — no
+    # odometry, no wheel TF, and Nav2 with nothing to localize against.
+    spawn_robot = TimerAction(
+        period=12.0,
+        actions=[Node(
+            package='ros_gz_sim',
+            executable='create',
+            name='spawn_demo_robot',
+            output='screen',
+            arguments=[
+                '-topic', 'robot_description',
+                '-name', LaunchConfiguration('robot_name'),
+                '-x', LaunchConfiguration('x'),
+                '-y', LaunchConfiguration('y'),
+                '-z', '0.1',
+                '-Y', LaunchConfiguration('yaw'),
+            ],
+        )],
     )
 
-    bridge = Node(
-        package='ros_gz_bridge',
-        executable='parameter_bridge',
-        name='ros_gz_bridge',
-        output='screen',
-        parameters=[{
-            'config_file': PathJoinSubstitution([
-                FindPackageShare('demo_simulation'),
-                'config', 'bridge_warehouse.yaml',
-            ]),
-            'use_sim_time': True,
-        }],
+    # Started after the spawn for the same reason: the model-scoped gz topics
+    # (/model/demo_robot/...) only exist once the robot is in the world.
+    bridge = TimerAction(
+        period=15.0,
+        actions=[Node(
+            package='ros_gz_bridge',
+            executable='parameter_bridge',
+            name='ros_gz_bridge',
+            output='screen',
+            parameters=[{
+                'config_file': PathJoinSubstitution([
+                    FindPackageShare('demo_simulation'),
+                    'config', 'bridge_warehouse.yaml',
+                ]),
+                'use_sim_time': True,
+            }],
+        )],
     )
 
     return LaunchDescription([

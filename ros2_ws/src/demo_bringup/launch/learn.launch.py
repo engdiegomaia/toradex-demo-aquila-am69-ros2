@@ -9,13 +9,21 @@ hard enough to debug without Docker in the way.
 
 Composition order matters and is enforced with timers rather than luck:
 
-    t=0s   simulation  — Gazebo, robot spawn, ros_gz_bridge
-    t=5s   perception  — needs /demo/camera/image_raw to exist
-    t=8s   navigation  — needs /clock, /demo/scan and TF to exist
+    t=0s    simulation  — Gazebo starts loading the world
+    t=12s   (robot spawn, inside simulation.launch.py)
+    t=15s   (ros_gz_bridge, inside simulation.launch.py)
+    t=20s   perception  — needs /demo/camera/image_raw to be bridged
+    t=25s   navigation  — needs /clock, /demo/scan and TF to be bridged
+
+The internal 12 s and 15 s delays are explained in simulation.launch.py; the
+short version is that the warehouse world takes ~10 s to load and a spawner
+started before it is ready retries forever without ever completing its
+handshake. Everything here has to clear those two marks.
 
 Nav2 started too early comes up before /clock is publishing and every lifecycle
 node stalls waiting for a transform that has no timestamps yet. The delays are
-generous on purpose; this is a demo, not a boot-time benchmark.
+generous on purpose; this is a demo, not a boot-time benchmark. On a slower
+machine, or with a heavier world, raise all of these together.
 
 There is one launch file per mode, with no cross-mode conditionals — project
 convention. emul.launch.py and target.launch.py arrive with ML4, when the same
@@ -72,7 +80,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     perception = TimerAction(
-        period=5.0,
+        period=20.0,
         actions=[IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('demo_perception'), 'launch', 'perception.launch.py',
@@ -82,7 +90,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     navigation = TimerAction(
-        period=8.0,
+        period=25.0,
         actions=[IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([
                 FindPackageShare('demo_navigation'), 'launch', 'navigation.launch.py',
@@ -99,7 +107,7 @@ def generate_launch_description() -> LaunchDescription:
     # displays wired up. demo_description's config is for viewing the model
     # alone and has no map frame.
     rviz = TimerAction(
-        period=8.0,
+        period=25.0,
         actions=[Node(
             package='rviz2',
             executable='rviz2',

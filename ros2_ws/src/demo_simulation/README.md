@@ -37,28 +37,40 @@ name lives under `/demo`, per the topic contract.
 | Gazebo | ROS 2 | Direction |
 | --- | --- | --- |
 | `/clock` | `/clock` | gz → ros |
-| `/model/demo_robot/cmd_vel` | `/demo/cmd_vel` | ros → gz |
-| `/model/demo_robot/odom` | `/demo/odom` | gz → ros |
-| `/model/demo_robot/tf` | `/tf` | gz → ros |
-| `/world/warehouse/model/demo_robot/joint_state` | `/joint_states` | gz → ros |
+| `/cmd_vel` | `/demo/cmd_vel` | ros → gz |
+| `/odom` | `/demo/odom` | gz → ros |
+| `/tf` | `/tf` | gz → ros |
+| `/joint_states` | `/joint_states` | gz → ros |
 | `/scan` | `/demo/scan` | gz → ros |
 | `/camera/image_raw` | `/demo/camera/image_raw` | gz → ros |
 | `/camera/camera_info` | `/demo/camera/camera_info` | gz → ros |
 
-Two naming traps live here:
+**Every gz-side name here is unscoped, and that is not an oversight.**
 
-- **Sensor topics are short by choice.** The `<topic>` values in
-  `demo_description/urdf/_sensors.xacro` override Gazebo's auto-generated scoped
-  names like `/world/warehouse/model/demo_robot/link/laser_frame/sensor/lidar/scan`,
-  which embed the world name and break this file the moment the world changes.
-- **Plugin topics are scoped and cannot be shortened.** `DiffDrive` and
-  `JointStatePublisher` publish under `/model/<robot_name>/...`, which is why
-  `robot_name` must match the `-name` passed to `ros_gz_sim create`. The
-  `joint_state` entry additionally embeds the **world name** — if you switch
-  away from a world called `warehouse`, that one line must change.
+The `<topic>`, `<odom_topic>` and `<tf_topic>` elements in the DiffDrive and
+JointStatePublisher plugin blocks are taken *literally*. The plugins subscribe
+to `/cmd_vel` and publish on `/odom`, `/tf` and `/joint_states` — no model
+prefix, no world prefix.
 
-Always confirm the gz side with `gz topic -l` while the simulator runs. A name
-mismatch is silent: the bridge starts fine and the topic simply never publishes.
+The trap: Gazebo **also** advertises `/model/demo_robot/{cmd_vel,odom,tf}` and
+`/world/warehouse/model/demo_robot/joint_state` as its default names. Those show
+up in `gz topic -l`, look more "correct", and have nothing attached to them.
+Bridging to them produces a robot that never moves and odometry that never
+publishes, with no error printed anywhere.
+
+`gz topic -l` alone will not tell you which is which — it lists both. Use
+`gz topic -i -t <name>` and look for a real publisher/subscriber:
+
+```bash
+gz topic -i -t /cmd_vel                    # Subscribers: [address]  <- the live one
+gz topic -i -t /model/demo_robot/cmd_vel   # No subscribers on topic  <- the decoy
+```
+
+Sensor topics are short for a different reason: the `<topic>` values in
+`demo_description/urdf/_sensors.xacro` deliberately override Gazebo's
+auto-generated
+`/world/warehouse/model/demo_robot/link/laser_frame/sensor/lidar/scan`, which
+embeds the world name and would break the moment the world changes.
 
 ## TF ownership
 
@@ -66,6 +78,23 @@ This package publishes no transforms itself. It starts
 `robot_state_publisher` (fixed edges, from the URDF) and bridges
 `odom → base_footprint` out of the `DiffDrive` plugin. `map → odom` belongs to
 AMCL in `demo_navigation`. Full table in `demo_description/README.md`.
+
+## Startup timing
+
+`simulation.launch.py` delays the spawner to t=12 s and the bridge to t=15 s.
+Do not remove those timers. `ros_gz_sim create` first calls Gazebo's
+"list of world names" service; started at t=0 that service does not exist yet
+and the client retries every 5 s **forever** instead of failing. The warehouse
+world needs ~10 s to load its meshes.
+
+The failure mode is deceptive: the robot still appears in the world (the async
+create service accepts it) and the sensors publish, so `gz model --list` shows
+`demo_robot` and everything looks healthy — but the DiffDrive and
+JointStatePublisher plugins never initialize, and odometry and joint states stay
+silent forever.
+
+On a slower machine, raise both timers (and the matching ones in
+`demo_bringup/launch/learn.launch.py`).
 
 ## Running
 

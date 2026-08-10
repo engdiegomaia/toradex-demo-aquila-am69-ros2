@@ -14,6 +14,8 @@
 
   <depend>launch</depend>
   <depend>launch_ros</depend>
+  <!-- Transition constants for the slam_toolbox lifecycle autostart. -->
+  <depend>lifecycle_msgs</depend>
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
   <exec_depend>navigation2</exec_depend>

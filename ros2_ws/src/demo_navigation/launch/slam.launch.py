@@ -26,9 +26,14 @@ only needed if the world changes.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument
-from launch.substitutions import LaunchConfiguration
-from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandler
+from launch.events.matchers import matches_action
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import LifecycleNode
+from launch_ros.event_handlers import OnStateTransition
+from launch_ros.events.lifecycle import ChangeState
+from launch_ros.substitutions import FindPackageShare
+from lifecycle_msgs.msg import Transition
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -38,30 +43,69 @@ def generate_launch_description() -> LaunchDescription:
         description='Follow /clock. True whenever Gazebo drives the demo.',
     )
 
-    # Parameters are inline rather than in a YAML file: this is a throwaway
-    # mapping run, and the project's "config in YAML" rule targets the Nav2
-    # parameters that ship with the demo.
-    slam_toolbox_node = Node(
+    params_arg = DeclareLaunchArgument(
+        'params_file',
+        default_value=PathJoinSubstitution([
+            FindPackageShare('demo_navigation'), 'config', 'slam_params.yaml',
+        ]),
+        description='slam_toolbox parameter file.',
+    )
+
+    # The bulk of the tuning comes from the params file; the scan topic is
+    # remapped instead of being passed as a parameter.
+    #
+    # slam_toolbox reads `scan_topic` when it declares parameters, and setting
+    # it from an external params file does not reliably take effect — the node
+    # comes up subscribed to nothing but /clock, logs no error, and never
+    # publishes a map or map->odom. A remap is applied by rclcpp before the
+    # node's own subscription is created, so it always wins. Verified: with the
+    # parameter alone, `ros2 node info /slam_toolbox` showed no scan
+    # subscriber at all.
+    slam_toolbox_node = LifecycleNode(
         package='slam_toolbox',
         executable='async_slam_toolbox_node',
         name='slam_toolbox',
+        namespace='',
         output='screen',
-        parameters=[{
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'odom_frame': 'odom',
-            'map_frame': 'map',
-            'base_frame': 'base_footprint',
-            'scan_topic': '/demo/scan',
-            'mode': 'mapping',
-            'resolution': 0.05,
-            'max_laser_range': 12.0,
-            'minimum_travel_distance': 0.2,
-            'minimum_travel_heading': 0.2,
-            'transform_publish_period': 0.02,
-        }],
+        parameters=[
+            LaunchConfiguration('params_file'),
+            {'use_sim_time': LaunchConfiguration('use_sim_time')},
+        ],
+        remappings=[('/scan', '/demo/scan')],
+    )
+
+    # slam_toolbox is a LIFECYCLE node on Jazzy and comes up `unconfigured`.
+    # Left there it looks alive — the process runs and logs "Node using stack
+    # size" — but it creates no scan subscription and publishes no map or
+    # map->odom, silently. These two transitions are what actually start it.
+    #
+    # Chained deliberately: activate is emitted only after configure reports
+    # success, instead of firing both on a timer and hoping.
+    configure_slam = EmitEvent(
+        event=ChangeState(
+            lifecycle_node_matcher=matches_action(slam_toolbox_node),
+            transition_id=Transition.TRANSITION_CONFIGURE,
+        )
+    )
+
+    activate_slam_on_configure = RegisterEventHandler(
+        OnStateTransition(
+            target_lifecycle_node=slam_toolbox_node,
+            start_state='configuring',
+            goal_state='inactive',
+            entities=[EmitEvent(
+                event=ChangeState(
+                    lifecycle_node_matcher=matches_action(slam_toolbox_node),
+                    transition_id=Transition.TRANSITION_ACTIVATE,
+                )
+            )],
+        )
     )
 
     return LaunchDescription([
         use_sim_time_arg,
+        params_arg,
         slam_toolbox_node,
+        activate_slam_on_configure,
+        configure_slam,
     ])

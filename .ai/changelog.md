@@ -5,7 +5,7 @@ Formato: mais recente primeiro.
 
 ---
 
-## 2026-08-10 — ML3: simulação e navegação nativas (código entregue, aceitação pendente)
+## 2026-08-10 — ML3: simulação e navegação nativas (concluída)
 
 **Entregue:** quatro pacotes novos — `demo_simulation`, `demo_navigation`,
 `demo_perception`, `demo_bringup`. Tudo no host x86; nada toca o módulo.
@@ -28,20 +28,63 @@ Formato: mais recente primeiro.
 | YAML do Nav2 e do bridge parseiam | OK |
 | Pipeline de percepção ao vivo | 10 imagens → 10 detecções → 10 nuvens; header preservado; 5 pontos empilhados a 2.0 m |
 
-**NÃO verificado — a aceitação do ML3 continua aberta.** `navigation2`,
-`nav2_bringup`, `nav2_minimal_tb4_sim` e `slam_toolbox` não estão instalados
-(exigem `sudo`, que o agente não tem). Logo, os quatro critérios de aceitação —
-teleop, troca de mensagens em odom/scan/TF/comandos, Nav2 em estado `active` e
-goal concluído — **não foram executados**. O código está escrito contra a API
-documentada do Nav2 Jazzy, não contra uma execução real.
+**Aceitação do ML3 — executada de verdade em 10/08/2026**, depois que o operador
+instalou os pacotes do Nav2:
 
-Para fechar o milestone:
+| Critério | Resultado |
+| --- | --- |
+| Robô teleoperável | OK — `/demo/cmd_vel` levou o robô de (0,0) a (0.82, 2.31) |
+| Odom, scan, TF, comandos trocam mensagens | OK — `/demo/odom` 27.6 Hz, `/demo/scan` 9.97 Hz, `/joint_states` ativo, `odom→base_footprint` e `base_link→laser_frame` corretos |
+| Nav2 em estado `active` | OK — os 7 servidores (`map_server`, `amcl`, `planner_server`, `controller_server`, `bt_navigator`, `behavior_server`, `velocity_smoother`) |
+| Goal concluído | OK — `SUCCEEDED`, `error_code: 0`, (0,0) → (2.43, 0.20) para um goal em (2.0, 0.5) |
 
-```bash
-sudo apt install -y ros-jazzy-navigation2 ros-jazzy-nav2-bringup \
-  ros-jazzy-nav2-minimal-tb4-sim ros-jazzy-slam-toolbox liburdfdom-tools
-# depois: gerar o mapa (demo_navigation/README.md) e rodar learn.launch.py
-```
+Extra verificado: a costura percepção→costmap está viva sob o Nav2 —
+`/demo/perception/detection_cloud` a 15.15 Hz com **`Subscription count: 2`**,
+os dois costmaps consumindo. Mapa do armazém gerado por SLAM (477×475 células,
+5 cm) e commitado em `demo_navigation/maps/`.
+
+### Cinco falhas silenciosas encontradas na primeira execução
+
+Todas tinham a mesma assinatura: nenhum erro em lugar nenhum, tudo "parecendo"
+funcionar. Registradas porque cada uma custou tempo e todas voltam se alguém
+"limpar" o código.
+
+1. **Spawn cedo demais.** `ros_gz_sim create` chama primeiro o serviço de lista
+   de mundos; em t=0 ele não existe e o cliente **retenta a cada 5 s para
+   sempre** em vez de falhar. O robô ainda aparece no mundo (o create assíncrono
+   aceita), então `gz model --list` mostra `demo_robot` e os sensores publicam —
+   mas os plugins DiffDrive e JointStatePublisher nunca inicializam. Corrigido
+   com `TimerAction` de 12 s (spawn) e 15 s (bridge).
+
+2. **Nomes de tópico gz não são escopados.** Os elementos `<topic>`,
+   `<odom_topic>` e `<tf_topic>` do DiffDrive são **literais**: o plugin escuta
+   em `/cmd_vel` e publica em `/odom` e `/tf`, sem prefixo de modelo. O Gazebo
+   *também* anuncia `/model/demo_robot/{cmd_vel,odom,tf}` como nomes padrão —
+   eles aparecem em `gz topic -l` e parecem certos, mas não têm ninguém
+   conectado. A `bridge_warehouse.yaml` apontava para os escopados: robô não
+   andava, odom não publicava, zero erros. Diagnóstico veio de
+   `gz topic -i -t ...` → `No subscribers on topic`. Mesmo problema no
+   `joint_state` (que ainda por cima embutia o nome do mundo).
+
+3. **slam_toolbox é lifecycle node.** Sobe em `unconfigured` e fica lá. O
+   processo roda, loga "Node using stack size 40000000", e **não cria assinatura
+   de scan nem publica mapa ou `map→odom`**. `ros2 node info` mostrava só
+   `/clock`. Corrigido com `LifecycleNode` + `EmitEvent`/`OnStateTransition`
+   encadeados (activate só depois de configure OK).
+
+4. **`docking_server` sem `dock_plugins` derruba o bringup inteiro.** Faz parte
+   da lista padrão do Nav2 Jazzy; sem configuração ele falha no configure e o
+   lifecycle manager **aborta tudo** — `map_server` e `amcl` ficavam `active` e
+   o resto parado em `inactive`. A demo não tem dock; configurado o mínimo.
+
+5. **Lista YAML vazia quebra o launch.** `docks: []` chega ao launch como tupla
+   Python e aborta com `Expected 'value' to be one of [float, int, str, bool,
+   bytes], but got '()'`. A chave tem de ser omitida, não esvaziada.
+
+Correção de rumo: o comentário original em `slam.launch.py` dizia que parâmetros
+inline bastavam "por ser uma execução descartável". Estava errado — viraram
+`config/slam_params.yaml`, e o `scan_topic` acabou resolvido por **remap**, que
+o rclcpp aplica antes de o nó criar a assinatura.
 
 ### Decisão: adaptador `PointCloud2` em vez de plugin C++ de costmap
 
