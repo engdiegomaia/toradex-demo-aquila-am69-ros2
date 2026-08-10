@@ -104,7 +104,15 @@ Imagens são multi-arch. `platform` é declarado explicitamente no compose, nunc
 
 ## Onde estamos
 
-Fase atual: **L1, fundamentos de ROS 2 no host x86.**
+Fase atual: **L3, Gazebo e Nav2 no host x86.** L1 e L2 concluídas.
+
+- **L1 (ML1)** — `demo_tutorials`: heartbeat pub/sub, serviço, launch, testes. Concluída 31/07/2026.
+- **L2 (ML2)** — `demo_description`: xacro diff-drive parametrizado, árvore TF, RViz. Concluída 07/08/2026. Pendente do operador: `sudo apt install liburdfdom-tools` e confirmação visual no RViz.
+- **L3 (ML3)** — próxima: mundo de armazém, spawn, bridge, Nav2, stub de percepção.
+
+**Robô:** diff-drive, não quadrúpede. Nenhum projeto mantido entrega quadrúpede + Jazzy + Harmonic + Nav2 funcionando hoje (CHAMP upstream é ROS 1; o melhor fork Jazzy tem Nav2 "coming soon" desde mai/2025). O contrato `/demo/cmd_vel` torna a troca posterior barata — rastreado como ML3.5. Justificativa completa em `changelog.md`.
+
+**Cenário:** `warehouse.sdf` de `nav2_minimal_tb4_sim` (mantido pela org do Nav2, SDF nativo Harmonic). O world do AWS RoboMaker foi arquivado em jul/2026 e é Gazebo Classic — não usar.
 
 A equipe não tem experiência prévia com ROS 2. As fases L1 a L3 são feitas com ROS 2 **instalado nativamente no host, sem container**, de propósito: container sobre um sistema desconhecido torna impossível separar falha do ROS de falha do Docker. A containerização entra na L4.
 

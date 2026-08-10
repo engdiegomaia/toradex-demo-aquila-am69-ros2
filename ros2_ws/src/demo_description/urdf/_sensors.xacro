@@ -1,0 +1,143 @@
+<?xml version="1.0"?>
+<!--
+  Sensor macros: 2D lidar and RGB camera.
+
+  Each macro emits both the URDF link/joint (consumed by robot_state_publisher
+  for TF, ML2) and the Gazebo <sensor> block (consumed by gz sim, ML3).
+
+  IMPORTANT — topic naming:
+  Each <sensor> sets an explicit short <topic>. Without it, Gazebo auto-generates
+  a long scoped name like
+      /world/warehouse/model/demo_robot/link/laser_frame/sensor/lidar/scan
+  which is brittle: it embeds the world name and breaks the ros_gz_bridge config
+  the moment the world changes. The short names below are what
+  demo_simulation/config/bridge_warehouse.yaml binds to. Verify with `gz topic -l`
+  while gz sim is running before trusting them.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    2D lidar. Feeds /demo/scan, which Nav2 costmaps consume.
+    Frame: laser_frame, fixed to base_link.
+  -->
+  <xacro:macro name="lidar_sensor"
+               params="x_offset z_offset size mass update_rate samples range_min range_max gz_topic">
+    <link name="laser_frame">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${size}" length="${size}"/>
+        </geometry>
+        <material name="demo_sensor_orange"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <cylinder radius="${size}" length="${size}"/>
+        </geometry>
+      </collision>
+      <xacro:wheel_inertia mass="${mass}" radius="${size}" length="${size}"/>
+    </link>
+
+    <joint name="laser_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="laser_frame"/>
+      <origin xyz="${x_offset} 0 ${z_offset}" rpy="0 0 0"/>
+    </joint>
+
+    <gazebo reference="laser_frame">
+      <sensor name="lidar" type="gpu_lidar">
+        <topic>${gz_topic}</topic>
+        <update_rate>${update_rate}</update_rate>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+        <!--
+          gz_frame_id must match the URDF link name, otherwise the LaserScan
+          arrives in ROS 2 with a frame_id the TF tree does not contain and every
+          costmap silently drops it.
+        -->
+        <gz_frame_id>laser_frame</gz_frame_id>
+        <lidar>
+          <scan>
+            <horizontal>
+              <samples>${samples}</samples>
+              <resolution>1</resolution>
+              <min_angle>${-pi}</min_angle>
+              <max_angle>${pi}</max_angle>
+            </horizontal>
+            <vertical>
+              <samples>1</samples>
+              <resolution>1</resolution>
+              <min_angle>0</min_angle>
+              <max_angle>0</max_angle>
+            </vertical>
+          </scan>
+          <range>
+            <min>${range_min}</min>
+            <max>${range_max}</max>
+            <resolution>0.01</resolution>
+          </range>
+          <noise>
+            <type>gaussian</type>
+            <mean>0.0</mean>
+            <stddev>0.01</stddev>
+          </noise>
+        </lidar>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+  <!--
+    Forward-facing RGB camera. Feeds /demo/camera/image_raw, the input side of
+    the perception contract. demo_perception must never know this is its origin.
+    Frame: camera_link, fixed to base_link.
+  -->
+  <xacro:macro name="camera_sensor"
+               params="x_offset z_offset size mass update_rate width height hfov gz_topic">
+    <link name="camera_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${size} ${size*2} ${size}"/>
+        </geometry>
+        <material name="demo_sensor_orange"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <box size="${size} ${size*2} ${size}"/>
+        </geometry>
+      </collision>
+      <xacro:box_inertia mass="${mass}" x="${size}" y="${size*2}" z="${size}"/>
+    </link>
+
+    <joint name="camera_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="camera_link"/>
+      <origin xyz="${x_offset} 0 ${z_offset}" rpy="0 0 0"/>
+    </joint>
+
+    <gazebo reference="camera_link">
+      <sensor name="camera" type="camera">
+        <topic>${gz_topic}</topic>
+        <update_rate>${update_rate}</update_rate>
+        <always_on>true</always_on>
+        <visualize>false</visualize>
+        <gz_frame_id>camera_link</gz_frame_id>
+        <camera>
+          <horizontal_fov>${hfov}</horizontal_fov>
+          <image>
+            <width>${width}</width>
+            <height>${height}</height>
+            <format>R8G8B8</format>
+          </image>
+          <clip>
+            <near>0.1</near>
+            <far>100.0</far>
+          </clip>
+        </camera>
+      </sensor>
+    </gazebo>
+  </xacro:macro>
+
+</robot>

@@ -1,0 +1,202 @@
+<?xml version="1.0"?>
+<!--
+  demo_robot — differential-drive robot for the Aquila AM69 ROS 2 demo.
+
+  Runs on: x86 host only (Gazebo/RViz2 never run on the module — CLAUDE.md rule 1).
+
+  Frame tree produced by this model (via robot_state_publisher):
+
+      base_footprint                 ground projection, Nav2's robot_base_frame
+        └── base_link                chassis origin, at wheel-axle height
+              ├── laser_frame
+              ├── camera_link
+              ├── left_wheel_link
+              ├── right_wheel_link
+              └── caster_wheel_link
+
+  odom -> base_footprint is published by the Gazebo DiffDrive plugin (ML3).
+  map  -> odom          is published by Nav2's amcl (ML3).
+  Neither is this file's job. See README.md for the full TF ownership table.
+
+  Every dimension below is a xacro arg — nothing is hardcoded. Override at
+  launch time, e.g.:
+      xacro demo_robot.urdf.xacro wheel_separation:=0.40
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="demo_robot">
+
+  <!-- ============================ Parameters ============================ -->
+
+  <!-- Identity. Must match the -name passed to `ros_gz_sim create` in ML3,
+       because the DiffDrive plugin's gz topics are scoped /model/<name>/... -->
+  <xacro:arg name="robot_name" default="demo_robot"/>
+
+  <!-- Chassis -->
+  <xacro:arg name="chassis_length" default="0.40"/>
+  <xacro:arg name="chassis_width"  default="0.30"/>
+  <xacro:arg name="chassis_height" default="0.15"/>
+  <xacro:arg name="chassis_mass"   default="6.0"/>
+
+  <!-- Driven wheels. wheel_separation is THE critical DiffDrive parameter:
+       it must equal the actual track width or odometry rotation will be wrong. -->
+  <xacro:arg name="wheel_radius"        default="0.05"/>
+  <xacro:arg name="wheel_width"         default="0.03"/>
+  <xacro:arg name="wheel_separation"    default="0.35"/>
+  <xacro:arg name="wheel_mass"          default="0.5"/>
+  <xacro:arg name="wheel_base_offset_x" default="-0.05"/>
+
+  <!-- Passive caster -->
+  <xacro:arg name="caster_radius" default="0.025"/>
+  <xacro:arg name="caster_mass"   default="0.2"/>
+
+  <!-- Lidar -->
+  <xacro:arg name="lidar_offset_x" default="0.15"/>
+  <xacro:arg name="lidar_offset_z" default="0.10"/>
+  <xacro:arg name="lidar_samples"  default="360"/>
+  <xacro:arg name="lidar_range_max" default="12.0"/>
+
+  <!-- Camera -->
+  <xacro:arg name="camera_offset_x" default="0.18"/>
+  <xacro:arg name="camera_offset_z" default="0.05"/>
+  <xacro:arg name="camera_width"    default="640"/>
+  <xacro:arg name="camera_height"   default="480"/>
+
+  <!-- Bind args to properties so macros can do arithmetic on them. -->
+  <xacro:property name="robot_name"          value="$(arg robot_name)"/>
+  <xacro:property name="chassis_length"      value="$(arg chassis_length)"/>
+  <xacro:property name="chassis_width"       value="$(arg chassis_width)"/>
+  <xacro:property name="chassis_height"      value="$(arg chassis_height)"/>
+  <xacro:property name="chassis_mass"        value="$(arg chassis_mass)"/>
+  <xacro:property name="wheel_radius"        value="$(arg wheel_radius)"/>
+  <xacro:property name="wheel_width"         value="$(arg wheel_width)"/>
+  <xacro:property name="wheel_separation"    value="$(arg wheel_separation)"/>
+  <xacro:property name="wheel_mass"          value="$(arg wheel_mass)"/>
+  <xacro:property name="wheel_base_offset_x" value="$(arg wheel_base_offset_x)"/>
+  <xacro:property name="caster_radius"       value="$(arg caster_radius)"/>
+  <xacro:property name="caster_mass"         value="$(arg caster_mass)"/>
+  <xacro:property name="lidar_offset_x"      value="$(arg lidar_offset_x)"/>
+  <xacro:property name="lidar_offset_z"      value="$(arg lidar_offset_z)"/>
+  <xacro:property name="lidar_samples"       value="$(arg lidar_samples)"/>
+  <xacro:property name="lidar_range_max"     value="$(arg lidar_range_max)"/>
+  <xacro:property name="camera_offset_x"     value="$(arg camera_offset_x)"/>
+  <xacro:property name="camera_offset_z"     value="$(arg camera_offset_z)"/>
+  <xacro:property name="camera_width"        value="$(arg camera_width)"/>
+  <xacro:property name="camera_height"       value="$(arg camera_height)"/>
+
+  <!-- ============================== Includes ============================ -->
+
+  <xacro:include filename="$(find demo_description)/urdf/_materials.xacro"/>
+  <xacro:include filename="$(find demo_description)/urdf/_inertia.xacro"/>
+  <xacro:include filename="$(find demo_description)/urdf/_wheel.xacro"/>
+  <xacro:include filename="$(find demo_description)/urdf/_sensors.xacro"/>
+
+  <!-- ============================== Links =============================== -->
+
+  <!--
+    base_footprint is the ROOT and the parent of base_link, following the
+    standard ROS convention (same as turtlebot3 / nav2_minimal_tb4). It is a
+    massless, collision-free frame at ground level; Nav2 uses it as
+    robot_base_frame so that costmap footprints sit on the floor plane.
+  -->
+  <link name="base_footprint"/>
+
+  <link name="base_link">
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+      <material name="demo_chassis_grey"/>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="${chassis_length} ${chassis_width} ${chassis_height}"/>
+      </geometry>
+    </collision>
+    <xacro:box_inertia mass="${chassis_mass}"
+                       x="${chassis_length}" y="${chassis_width}" z="${chassis_height}"/>
+  </link>
+
+  <!-- base_link sits one wheel-radius above the ground plane. -->
+  <joint name="base_footprint_joint" type="fixed">
+    <parent link="base_footprint"/>
+    <child link="base_link"/>
+    <origin xyz="0 0 ${wheel_radius}" rpy="0 0 0"/>
+  </joint>
+
+  <xacro:drive_wheel prefix="left"  y_offset="${ wheel_separation/2}"
+                     x_offset="${wheel_base_offset_x}"
+                     radius="${wheel_radius}" length="${wheel_width}" mass="${wheel_mass}"/>
+
+  <xacro:drive_wheel prefix="right" y_offset="${-wheel_separation/2}"
+                     x_offset="${wheel_base_offset_x}"
+                     radius="${wheel_radius}" length="${wheel_width}" mass="${wheel_mass}"/>
+
+  <!-- Caster hangs below base_link so its lowest point touches the floor
+       alongside the wheels: z = -(wheel_radius - caster_radius). -->
+  <xacro:caster_wheel x_offset="${chassis_length/2 - caster_radius*2}"
+                      z_offset="${-(wheel_radius - caster_radius)}"
+                      radius="${caster_radius}" mass="${caster_mass}"/>
+
+  <xacro:lidar_sensor x_offset="${lidar_offset_x}" z_offset="${lidar_offset_z}"
+                      size="0.03" mass="0.1" update_rate="10"
+                      samples="${lidar_samples}"
+                      range_min="0.12" range_max="${lidar_range_max}"
+                      gz_topic="scan"/>
+
+  <xacro:camera_sensor x_offset="${camera_offset_x}" z_offset="${camera_offset_z}"
+                       size="0.03" mass="0.1" update_rate="15"
+                       width="${camera_width}" height="${camera_height}"
+                       hfov="1.089"
+                       gz_topic="camera/image_raw"/>
+
+  <!-- ========================= Gazebo plugins ==========================
+       Inert in ML2 (RViz ignores <gazebo> tags); active from ML3 onward.
+
+       Chosen over gz_ros2_control deliberately: the native system plugin is
+       already present on the host and needs no ros2_control/controller_manager
+       stack. Swapping it later does not change /demo/cmd_vel, which is the
+       whole point of the topic contract. See plan decision 2.
+  -->
+
+  <gazebo>
+    <plugin filename="gz-sim-diff-drive-system" name="gz::sim::systems::DiffDrive">
+      <left_joint>left_wheel_joint</left_joint>
+      <right_joint>right_wheel_joint</right_joint>
+      <wheel_separation>${wheel_separation}</wheel_separation>
+      <wheel_radius>${wheel_radius}</wheel_radius>
+      <odom_publish_frequency>30</odom_publish_frequency>
+      <max_linear_acceleration>1.0</max_linear_acceleration>
+      <topic>cmd_vel</topic>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf</tf_topic>
+      <frame_id>odom</frame_id>
+      <child_frame_id>base_footprint</child_frame_id>
+    </plugin>
+
+    <!-- Publishes wheel joint angles so robot_state_publisher can animate the
+         wheel TFs. Without this, wheels render frozen even while the robot moves. -->
+    <plugin filename="gz-sim-joint-state-publisher-system"
+            name="gz::sim::systems::JointStatePublisher">
+      <topic>joint_states</topic>
+      <joint_name>left_wheel_joint</joint_name>
+      <joint_name>right_wheel_joint</joint_name>
+    </plugin>
+  </gazebo>
+
+  <!-- Wheel contact properties. Driven wheels need grip; without explicit mu
+       the robot slips and odometry diverges from ground truth. -->
+  <gazebo reference="left_wheel_link">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+  </gazebo>
+  <gazebo reference="right_wheel_link">
+    <mu1>1.0</mu1>
+    <mu2>1.0</mu2>
+  </gazebo>
+  <gazebo reference="caster_wheel_link">
+    <mu1>0.0</mu1>
+    <mu2>0.0</mu2>
+  </gazebo>
+
+</robot>

@@ -1,0 +1,85 @@
+<?xml version="1.0"?>
+<!--
+  Wheel macros: two driven wheels and one passive caster.
+
+  The driven wheels use continuous joints about Y. Their names
+  (left_wheel_joint / right_wheel_joint) are referenced verbatim by the Gazebo
+  DiffDrive plugin in demo_robot.urdf.xacro — renaming a joint here without
+  updating that plugin block silently breaks locomotion in ML3.
+-->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!--
+    One driven wheel.
+      prefix    : 'left' or 'right' — drives both link and joint names
+      y_offset  : signed lateral position, ±wheel_separation/2
+  -->
+  <xacro:macro name="drive_wheel" params="prefix y_offset x_offset radius length mass">
+    <link name="${prefix}_wheel_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${radius}" length="${length}"/>
+        </geometry>
+        <material name="demo_wheel_black"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <geometry>
+          <cylinder radius="${radius}" length="${length}"/>
+        </geometry>
+      </collision>
+      <xacro:wheel_inertia mass="${mass}" radius="${radius}" length="${length}"/>
+    </link>
+
+    <joint name="${prefix}_wheel_joint" type="continuous">
+      <parent link="base_link"/>
+      <child link="${prefix}_wheel_link"/>
+      <origin xyz="${x_offset} ${y_offset} 0" rpy="0 0 0"/>
+      <axis xyz="0 1 0"/>
+      <dynamics damping="0.01" friction="0.0"/>
+    </joint>
+  </xacro:macro>
+
+  <!--
+    Passive caster, modeled as a low-friction sphere on a fixed joint.
+
+    Deliberately a fixed joint, not a steerable one: the DiffDrive plugin derives
+    motion from the two driven wheels only. A caster with its own joint would add
+    an unconstrained DOF that the plugin never commands, which shows up as jitter.
+    Support comes from contact physics, not from articulation.
+  -->
+  <xacro:macro name="caster_wheel" params="x_offset z_offset radius mass">
+    <link name="caster_wheel_link">
+      <visual>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <sphere radius="${radius}"/>
+        </geometry>
+        <material name="demo_caster_silver"/>
+      </visual>
+      <collision>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
+        <geometry>
+          <sphere radius="${radius}"/>
+        </geometry>
+        <surface>
+          <friction>
+            <ode>
+              <mu>0.0</mu>
+              <mu2>0.0</mu2>
+            </ode>
+          </friction>
+        </surface>
+      </collision>
+      <xacro:sphere_inertia mass="${mass}" radius="${radius}"/>
+    </link>
+
+    <joint name="caster_wheel_joint" type="fixed">
+      <parent link="base_link"/>
+      <child link="caster_wheel_link"/>
+      <origin xyz="${x_offset} 0 ${z_offset}" rpy="0 0 0"/>
+    </joint>
+  </xacro:macro>
+
+</robot>
