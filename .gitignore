@@ -1,0 +1,26 @@
+# colcon build artifacts.
+# These must never be committed: with --symlink-install they contain absolute
+# paths, so a checkout on another machine (or the same repo moved to a new
+# directory) inherits broken symlinks pointing at the original location.
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Environment overrides — .env.example is committed, .env is not.
+.env
+
+# Generated diagnostics
+frames.gv
+frames.pdf
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
