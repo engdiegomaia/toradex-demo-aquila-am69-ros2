@@ -1,0 +1,32 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>demo_simulation</name>
+  <version>0.1.0</version>
+  <description>
+    Gazebo Harmonic simulation for the Aquila AM69 ROS 2 demo (ML3).
+    Warehouse world, robot spawn, ros_gz_bridge mappings and keyboard teleop.
+    x86 host only — Gazebo is an OGRE 2 application and never runs on the module.
+  </description>
+  <maintainer email="diego.maia@toradex.com">Diego Maia</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <exec_depend>demo_description</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
+  <exec_depend>ros2launch</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>teleop_twist_keyboard</exec_depend>
+  <exec_depend>xacro</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

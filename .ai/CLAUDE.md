@@ -49,9 +49,9 @@ Invariante do projeto. Existe para que a NPU entre depois sem refatoração.
 
 | Tópico | Tipo | Produtor | Consumidores |
 | --- | --- | --- | --- |
-| `/camera/image_raw` | `sensor_msgs/Image` | Gazebo, câmera USB ou rosbag | `demo_perception` |
-| `/perception/detections` | `vision_msgs/Detection2DArray` | `demo_perception` | costmap layer, HMI |
-| `/cmd_vel` | `geometry_msgs/Twist` | Nav2 | Gazebo ou driver real |
+| `/demo/camera/image_raw` | `sensor_msgs/Image` | Gazebo, câmera USB ou rosbag | `demo_perception` |
+| `/demo/perception/detections` | `vision_msgs/Detection2DArray` | `demo_perception` | costmap layer, HMI |
+| `/demo/cmd_vel` | `geometry_msgs/Twist` | Nav2 | Gazebo ou driver real |
 
 `demo_perception` hoje é stub e publica detecções sintéticas. Ele **nunca** deve saber a origem da imagem, e nenhum consumidor deve saber se a detecção veio de stub ou de inferência real. Trocar o stub por TIDL precisa ser troca de container, não mudança de interface.
 
@@ -104,11 +104,12 @@ Imagens são multi-arch. `platform` é declarado explicitamente no compose, nunc
 
 ## Onde estamos
 
-Fase atual: **L3, Gazebo e Nav2 no host x86.** L1 e L2 concluídas.
+Fase atual: **L3, Gazebo e Nav2 no host x86.** Código entregue; aceitação pendente de execução.
 
 - **L1 (ML1)** — `demo_tutorials`: heartbeat pub/sub, serviço, launch, testes. Concluída 31/07/2026.
 - **L2 (ML2)** — `demo_description`: xacro diff-drive parametrizado, árvore TF, RViz. Concluída 07/08/2026. Pendente do operador: `sudo apt install liburdfdom-tools` e confirmação visual no RViz.
-- **L3 (ML3)** — próxima: mundo de armazém, spawn, bridge, Nav2, stub de percepção.
+- **L3 (ML3)** — `demo_simulation`, `demo_navigation`, `demo_perception`, `demo_bringup` escritos em 10/08/2026. Build limpo, 36 testes passando, pipeline de percepção validado end-to-end ao vivo. **Aceitação não executada**: Nav2 e o mundo de armazém não estão instalados na máquina (exigem `sudo`), então teleop, estado ativo do Nav2 e conclusão de goal continuam por verificar. Ver `changelog.md`.
+- **L4 (ML4)** — próxima, após a aceitação da L3: containers e emulação arm64.
 
 **Robô:** diff-drive, não quadrúpede. Nenhum projeto mantido entrega quadrúpede + Jazzy + Harmonic + Nav2 funcionando hoje (CHAMP upstream é ROS 1; o melhor fork Jazzy tem Nav2 "coming soon" desde mai/2025). O contrato `/demo/cmd_vel` torna a troca posterior barata — rastreado como ML3.5. Justificativa completa em `changelog.md`.
 

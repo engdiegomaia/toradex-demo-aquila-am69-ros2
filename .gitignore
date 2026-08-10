@@ -2,9 +2,15 @@
 # These must never be committed: with --symlink-install they contain absolute
 # paths, so a checkout on another machine (or the same repo moved to a new
 # directory) inherits broken symlinks pointing at the original location.
-ros2_ws/build/
-ros2_ws/install/
-ros2_ws/log/
+#
+# Unanchored on purpose. Running colcon from the wrong working directory (e.g.
+# from ros2_ws/src/ instead of ros2_ws/) drops these trees one level deeper,
+# where a `ros2_ws/build/`-anchored pattern would not match them and they would
+# be committed silently. A COLCON_IGNORE marker is written into build/ and
+# install/, so ignoring these names everywhere costs nothing.
+build/
+install/
+log/
 
 # Python
 __pycache__/

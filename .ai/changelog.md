@@ -5,6 +5,80 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-10 — ML3: simulação e navegação nativas (código entregue, aceitação pendente)
+
+**Entregue:** quatro pacotes novos — `demo_simulation`, `demo_navigation`,
+`demo_perception`, `demo_bringup`. Tudo no host x86; nada toca o módulo.
+
+| Pacote | Conteúdo |
+| --- | --- |
+| `demo_simulation` | `simulation.launch.py` (gz sim + spawn + bridge), `teleop.launch.py`, `config/bridge_warehouse.yaml` (8 mapeamentos) |
+| `demo_navigation` | `config/nav2_params.yaml` (13 blocos de servidor), `navigation.launch.py`, `slam.launch.py` |
+| `demo_perception` | `detection_stub`, `detections_to_cloud`, `perception.launch.py` |
+| `demo_bringup` | `learn.launch.py` com ordenação por timer |
+
+**Verificado nesta máquina:**
+
+| Verificação | Resultado |
+| --- | --- |
+| `colcon build` | 6 pacotes, limpo |
+| `colcon test` | 36 testes, 0 falhas (16 novos em `demo_perception`) |
+| Os 6 launch files geram `LaunchDescription` | OK |
+| xacro expande com plugins gz | OK, 320 linhas |
+| YAML do Nav2 e do bridge parseiam | OK |
+| Pipeline de percepção ao vivo | 10 imagens → 10 detecções → 10 nuvens; header preservado; 5 pontos empilhados a 2.0 m |
+
+**NÃO verificado — a aceitação do ML3 continua aberta.** `navigation2`,
+`nav2_bringup`, `nav2_minimal_tb4_sim` e `slam_toolbox` não estão instalados
+(exigem `sudo`, que o agente não tem). Logo, os quatro critérios de aceitação —
+teleop, troca de mensagens em odom/scan/TF/comandos, Nav2 em estado `active` e
+goal concluído — **não foram executados**. O código está escrito contra a API
+documentada do Nav2 Jazzy, não contra uma execução real.
+
+Para fechar o milestone:
+
+```bash
+sudo apt install -y ros-jazzy-navigation2 ros-jazzy-nav2-bringup \
+  ros-jazzy-nav2-minimal-tb4-sim ros-jazzy-slam-toolbox liburdfdom-tools
+# depois: gerar o mapa (demo_navigation/README.md) e rodar learn.launch.py
+```
+
+### Decisão: adaptador `PointCloud2` em vez de plugin C++ de costmap
+
+O `CLAUDE.md` exige que as detecções alimentem uma camada de costmap do Nav2, não
+só a tela da HMI. A `ObstacleLayer` de fábrica lê `LaserScan` ou `PointCloud2` —
+não lê `Detection2DArray`. As duas saídas eram um plugin C++ de costmap ou a
+conversão para uma mensagem que a camada já aceita.
+
+Escolhido o adaptador em Python (`detections_to_cloud`), porque a convenção do
+projeto é Python por padrão e C++ só onde houver desempenho medido no hardware —
+e nada foi medido no AM69 ainda. Trocar por um plugin C++ nativo depois não muda
+nada dos dois lados: `demo_perception` continua publicando `Detection2DArray` e o
+Nav2 continua marcando as mesmas células.
+
+**Limitação assumida:** uma bounding box 2D não carrega profundidade. O adaptador
+assume distância fixa (`assumed_range_m`, 2.0 m) e usa o modelo pinhole para
+converter a posição horizontal em azimute. É honesto para um stub e suficiente
+para provar a costura do costmap; não substitui profundidade. Daí
+`clearing: false` (a projeção é grosseira demais para apagar obstáculos reais do
+lidar) e `observation_persistence: 1.0` (detecções expiram em vez de deixar
+rastro de obstáculos fantasma).
+
+### Nota: mundo de armazém não vendorizado
+
+O `warehouse.sdf` vem do pacote de sistema `nav2_minimal_tb4_sim`, não copiado
+para o repo. `demo_simulation/worlds/` tem só um `.gitkeep` explicando como
+apontar o launch para a cópia instalada.
+
+### Correção de escopo
+
+A tabela de contrato de tópicos em `.ai/CLAUDE.md` ainda listava
+`/camera/image_raw`, `/perception/detections` e `/cmd_vel` sem o prefixo
+`/demo`, divergindo da convenção de namespace da §5.2 do `AGENTS.md` e do que o
+código implementa. Alinhada.
+
+---
+
 ## 2026-08-07 — ML2: modelo de robô e TF
 
 **Entregue:** pacote `demo_description` — xacro diff-drive parametrizado,

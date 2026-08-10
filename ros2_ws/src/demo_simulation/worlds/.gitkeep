@@ -1,0 +1,3 @@
+# Placeholder. The warehouse world comes from ros-jazzy-nav2-minimal-tb4-sim
+# (system package, not vendored). See ../README.md for how to point the launch
+# at the installed copy or place a world file here.

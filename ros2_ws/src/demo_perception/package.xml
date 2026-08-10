@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>demo_perception</name>
+  <version>0.1.0</version>
+  <description>
+    Deterministic synthetic-detection stub for the Aquila AM69 ROS 2 demo (ML3).
+    Consumes /demo/camera/image_raw, publishes /demo/perception/detections, and
+    adapts those detections into a PointCloud2 the Nav2 costmap can consume.
+    Separated from day one because it defines the OTA update granularity: the
+    future TIDL/NPU inference replaces this package as a container swap.
+  </description>
+  <maintainer email="diego.maia@toradex.com">Diego Maia</maintainer>
+  <license>Apache-2.0</license>
+
+  <depend>launch</depend>
+  <depend>launch_ros</depend>
+  <depend>rclpy</depend>
+  <depend>sensor_msgs</depend>
+  <depend>vision_msgs</depend>
+  <exec_depend>ros2launch</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>
