@@ -35,27 +35,41 @@ jitter and unexplained localization failure. Exactly one owner per transform:
 
 | Transform | Owner | Machine | Mechanism |
 | --- | --- | --- | --- |
-| `base_footprint → base_link`<br>`base_link → {laser_frame, camera_link, wheels}` | `robot_state_publisher` | x86 host | Computed from this package's URDF. Wheel angles arrive on `/joint_states`, published by Gazebo's `JointStatePublisher` system plugin (ML3) or by `joint_state_publisher_gui` (ML2). |
-| `odom → base_footprint` | Gazebo `DiffDrive` system plugin | x86 host, inside `gz sim` | **Not** `robot_state_publisher`'s job — RSP never knows the odom frame. Configured in `demo_robot.urdf.xacro`; reaches ROS 2 through `ros_gz_bridge` (ML3). |
-| `map → odom` | Nav2 `amcl` | x86 host (ML3); Aquila from M2 | Standard AMCL behavior once a map is loaded. |
+| `base_link → base_footprint`<br>`base_link → {rplidar_link, oakd_*, imu_link, wheels}` | `robot_state_publisher` | x86 host | Computed from this package's URDF. Wheel angles arrive on `/joint_states`, published by Gazebo's `JointStatePublisher` system plugin (ML3) or by `joint_state_publisher_gui` (ML2). |
+| `odom → base_link` | Gazebo `DiffDrive` system plugin | x86 host, inside `gz sim` | **Not** `robot_state_publisher`'s job — RSP never knows the odom frame. Hardcoded upstream in `icreate/create3.urdf.xacro`; reaches ROS 2 through `ros_gz_bridge` (ML3). |
+| `map → odom` | Nav2 `amcl` (or `slam_toolbox`) | x86 host (ML3); Aquila from M2 | Standard AMCL behavior once a map is loaded. |
 
 In ML2 there is no `map` frame and no `odom` frame. That is correct: neither
-simulation nor localization is running yet. The RViz fixed frame is
-`base_footprint`.
+simulation nor localization is running yet. The RViz fixed frame is `base_link`.
 
 ## Frame tree
 
+The robot is the upstream TurtleBot 4 (`nav2_minimal_tb4_description`); this
+package only wraps it. See the header of `urdf/demo_robot.urdf.xacro` for why.
+
 ```
-base_footprint            ground projection; Nav2's robot_base_frame
-  └── base_link           chassis origin, one wheel-radius above ground
-        ├── laser_frame   2D lidar   → /demo/scan
-        ├── camera_link   RGB camera → /demo/camera/image_raw
-        ├── left_wheel_link    (continuous, driven)
-        ├── right_wheel_link   (continuous, driven)
-        └── caster_wheel_link  (fixed, passive)
+base_link                       ROOT; Nav2's robot_base_frame
+  ├── base_footprint            IDENTITY transform (xyz 0 0 0, rpy 0 0 0)
+  ├── shell_link
+  │     ├── rplidar_link                        2D lidar → /demo/scan
+  │     └── oakd_camera_bracket → oakd_link
+  │           └── oakd_rgb_camera_frame → …_optical_frame
+  │                                             RGBD    → /demo/camera/image_raw
+  ├── imu_link                                  IMU     → /demo/imu
+  ├── left_wheel / right_wheel  (continuous, driven)
+  └── front_caster_link         (fixed, passive)
 ```
 
-`base_footprint` is the **parent** of `base_link`, following the standard ROS
+**Note the inversion.** Upstream makes `base_link` the root with
+`base_footprint` as its *child* — the opposite of the usual ROS convention and of
+this package's earlier hand-built model. Nav2 therefore uses `base_link` as
+`robot_base_frame`, because upstream's `DiffDrive` hardcodes that child frame with
+no xacro arg to override it. The two frames coincide numerically
+(`base_footprint_joint` is an identity transform), and
+`test/test_urdf_parses.py::test_base_footprint_coincides_with_base_link` fails if
+an upstream bump ever breaks that equivalence.
+
+Historical note — the old hand-built model made `base_footprint` the **parent** of `base_link`, following the standard ROS
 convention used by `turtlebot3` and `nav2_minimal_tb4`. The tree diagram in
 `.ai/AGENTS.md` §5.3 is ambiguous on nesting; the documented invariant is that
 both frames exist and connect correctly.
@@ -71,20 +85,52 @@ xacro demo_robot.urdf.xacro wheel_separation:=0.40 lidar_range_max:=8.0
 | Group | Args |
 | --- | --- |
 | Identity | `robot_name` |
-| Chassis | `chassis_length`, `chassis_width`, `chassis_height`, `chassis_mass` |
-| Wheels | `wheel_radius`, `wheel_width`, `wheel_separation`, `wheel_mass`, `wheel_base_offset_x` |
-| Caster | `caster_radius`, `caster_mass` |
-| Lidar | `lidar_offset_x`, `lidar_offset_z`, `lidar_samples`, `lidar_range_max` |
-| Camera | `camera_offset_x`, `camera_offset_z`, `camera_width`, `camera_height` |
+| Compatibility | `use_meshes` (accepted, **ignored**) |
 
-`wheel_separation` is the critical one: it is consumed both by the geometry and
-by the Gazebo `DiffDrive` plugin. If the two disagree, Gazebo reports odometry
-that does not match physical motion, and Nav2 localization degrades in a way
-that is very hard to trace back to the URDF. `test_urdf_parses.py` asserts they
-match.
+The long list of dimension args (`chassis_*`, `shell_*`, `wheel_*`, `lidar_*`,
+`camera_*`, `standoff_*`, …) is **gone**. Those existed to parameterize the
+hand-built assembly; geometry now comes from the upstream model and is not
+re-parameterized here. To change a dimension, change it upstream or fork the
+upstream xacro — do not reintroduce local offsets, which is what scattered the
+parts before.
 
-`robot_name` must equal the `-name` passed to `ros_gz_sim create` in ML3, because
-the DiffDrive plugin scopes its topics under `/model/<name>/`.
+`use_meshes` is accepted and ignored, so existing launch files and documented
+commands that pass it keep working instead of dying on an unknown-argument error.
+Upstream is mesh-only; there is no primitives fallback to switch to. Nothing on
+the module side depends on it — no OGRE 2 application ever runs on the Aquila, so
+the module never renders this model at all.
+
+`wheel_separation` (0.233 m) and `wheel_radius` (0.03575 m) remain the critical
+values: they are consumed both by the geometry and by the Gazebo `DiffDrive`
+plugin. If the two disagree, Gazebo reports odometry that does not match physical
+motion, and Nav2 localization degrades in a way that is very hard to trace back to
+the URDF. Inheriting both from upstream keeps them locked to the meshes by
+definition, and `test_urdf_parses.py` still asserts they match.
+
+Note that `robot_name` does **not** scope the DiffDrive gz topics — `<topic>`,
+`<odom_topic>` and `<tf_topic>` are literal. See the note in
+`demo_simulation/config/bridge_warehouse.yaml`.
+
+## Visuals: meshes and the primitive fallback
+
+Visuals come from `nav2_minimal_tb4_description` DAE meshes, referenced via
+`package://` and **not vendored** — ~25 MB of binaries that do not belong in
+git. The package is Apache-2.0, Nav2-maintained, and already required for the
+warehouse world.
+
+```bash
+ros2 launch demo_description view_robot.launch.py                              # meshes
+ros2 launch demo_description view_robot.launch.py xacro_args:="use_meshes:=false"
+```
+
+Two rules when editing `_visuals.xacro`:
+
+1. **Visual and collision are different geometry on purpose.** Visual is a
+   mesh; collision is a primitive. A mesh collision makes physics far more
+   expensive for no gain — a cylinder describes a round chassis well.
+2. **Keep the `use_meshes:=false` path working.** It is the escape hatch for a
+   host without the package, and what an ML4 arm64 image uses if the meshes are
+   dropped. Collision, inertia, TF and odometry are identical either way.
 
 ## Gazebo plugin choice
 

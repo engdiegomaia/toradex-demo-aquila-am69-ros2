@@ -19,6 +19,15 @@
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>rviz2</exec_depend>
   <exec_depend>xacro</exec_depend>
+  <!--
+    Supplies the DAE meshes referenced by _visuals.xacro via package://.
+    Apache-2.0, maintained by the Nav2 organization, and already required for
+    the warehouse world in demo_simulation — so this adds no new upstream.
+
+    Only needed to RENDER. Collision, inertia, TF and odometry are identical
+    without it; expand with use_meshes:=false on a host that lacks it.
+  -->
+  <exec_depend>nav2_minimal_tb4_description</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

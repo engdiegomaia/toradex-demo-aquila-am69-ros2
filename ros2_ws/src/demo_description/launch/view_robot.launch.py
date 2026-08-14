@@ -44,10 +44,27 @@ def generate_launch_description() -> LaunchDescription:
         description='Start RViz2. Set false when only TF is being inspected.',
     )
 
+    # Passthrough for xacro arguments, so dimensions and the mesh/primitive
+    # switch can be tried without editing the model:
+    #
+    #   xacro_args:="use_meshes:=false"
+    #   xacro_args:="wheel_separation:=0.30 chassis_radius:=0.20"
+    #
+    # Space-separated key:=value pairs, exactly as xacro takes them on the
+    # command line. Empty by default, which expands the model as committed.
+    xacro_args_arg = DeclareLaunchArgument(
+        'xacro_args',
+        default_value='',
+        description='Extra xacro arguments, e.g. "use_meshes:=false".',
+    )
+
     # ParameterValue(..., value_type=str) is required: without it the expanded
     # URDF is interpreted as a YAML document and robot_state_publisher rejects it.
     robot_description = ParameterValue(
-        Command(['xacro ', LaunchConfiguration('model')]),
+        Command([
+            'xacro ', LaunchConfiguration('model'),
+            ' ', LaunchConfiguration('xacro_args'),
+        ]),
         value_type=str,
     )
 
@@ -83,6 +100,7 @@ def generate_launch_description() -> LaunchDescription:
         model_arg,
         gui_arg,
         rviz_arg,
+        xacro_args_arg,
         robot_state_publisher_node,
         joint_state_publisher_gui_node,
         rviz_node,

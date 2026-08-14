@@ -5,16 +5,31 @@
 #
 # Derived from the Nav2 Jazzy defaults, changed only where this robot differs:
 #   - topics live in the /demo namespace (topic contract, CLAUDE.md)
-#   - robot_base_frame is base_footprint (see demo_description TF table)
-#   - footprint and velocity limits match demo_robot.urdf.xacro
+#   - robot_base_frame is base_link (see below, and demo_description TF table)
+#   - footprint and velocity limits match the upstream TurtleBot 4 model
 #   - both costmaps carry a perception layer fed by demo_perception
+#
+# WHY base_link AND NOT base_footprint:
+# The robot is the upstream TurtleBot 4 (nav2_minimal_tb4_description). Its
+# DiffDrive plugin hardcodes child_frame_id = base_link in
+# icreate/create3.urdf.xacro, and there is no xacro arg to change it. Pointing
+# Nav2 at base_footprint would make it plan against a frame nothing publishes:
+# the costmaps stay empty and no error is printed anywhere.
+# The two frames coincide (base_footprint_joint is an identity transform), so
+# nothing is lost. demo_description/test/test_urdf_parses.py fails if a future
+# upstream bump gives that joint a real offset and breaks the equivalence.
+#
+# Velocity limits are capped by the SIMULATOR, not just by this file: upstream's
+# DiffDrive clamps to 0.5 m/s and 2.0 rad/s internally. Raising the numbers here
+# above those makes the controller command speeds the robot silently never
+# reaches, which reads as a controller tuning problem and is not one.
 #
 # Keep parameters here, never in code — project convention.
 
 amcl:
   ros__parameters:
     use_sim_time: true
-    base_frame_id: "base_footprint"
+    base_frame_id: "base_link"
     odom_frame_id: "odom"
     global_frame_id: "map"
     scan_topic: /demo/scan
@@ -65,7 +80,7 @@ bt_navigator:
   ros__parameters:
     use_sim_time: true
     global_frame: map
-    robot_base_frame: base_footprint
+    robot_base_frame: base_link
     odom_topic: /demo/odom
     bt_loop_duration: 10
     default_server_timeout: 20
@@ -99,48 +114,152 @@ controller_server:
       yaw_goal_tolerance: 0.25
       stateful: true
 
-    # DWB. Velocity and acceleration limits below are the robot's, not Nav2
-    # defaults: a 0.35 m wheel separation cannot honour the stock 2.5 m/s.
+    # MPPI (Model Predictive Path Integral), replacing DWB.
+    #
+    # WHY THE SWAP:
+    # DWB scores a fixed lattice of constant-curvature arcs. On a diff-drive robot
+    # in narrow warehouse aisles that produces two visible artefacts: it hunts
+    # between neighbouring samples (the robot wobbles down a straight aisle), and
+    # it cannot represent a manoeuvre that needs the velocity to change sign
+    # mid-trajectory, so tight corners degrade into stop-rotate-go.
+    #
+    # MPPI samples 2000 noisy trajectories per cycle and takes a cost-weighted
+    # average, so the command is continuous rather than snapped to a lattice
+    # sample. It handles the aisle case far better and is the current Nav2
+    # recommendation for diff-drive.
+    #
+    # COST: MPPI is significantly heavier than DWB. It is fine on the x86 host
+    # (learn mode). On the Aquila AM69 in target mode this is the single most
+    # expensive node in the stack, and whether 20 Hz holds there CANNOT be
+    # answered from this file, from learn mode, or from arm64 emulation
+    # (CLAUDE.md rule 5 — emulation does not measure performance). It must be
+    # measured on the real module. If it does not hold, drop batch_size to 1000
+    # before lowering controller_frequency; halving the batch costs less accuracy
+    # than halving the control rate.
     FollowPath:
-      plugin: "dwb_core::DWBLocalPlanner"
-      debug_trajectory_details: true
-      min_vel_x: 0.0
-      min_vel_y: 0.0
-      max_vel_x: 0.5
-      max_vel_y: 0.0
-      max_vel_theta: 1.5
-      min_speed_xy: 0.0
-      max_speed_xy: 0.5
-      min_speed_theta: 0.0
-      acc_lim_x: 2.0
-      acc_lim_y: 0.0
-      acc_lim_theta: 3.2
-      decel_lim_x: -2.0
-      decel_lim_y: 0.0
-      decel_lim_theta: -3.2
-      vx_samples: 20
-      vy_samples: 1
-      vtheta_samples: 20
-      sim_time: 1.5
-      linear_granularity: 0.05
-      angular_granularity: 0.025
+      plugin: "nav2_mppi_controller::MPPIController"
+      time_steps: 56
+      model_dt: 0.05
+      # 2000 x 56 steps at 20 Hz. See the performance note above.
+      batch_size: 2000
+      # Sampling spread. vx/wz must be wide enough to explore useful manoeuvres
+      # but not so wide that most samples are immediately rejected as invalid.
+      vx_std: 0.2
+      vy_std: 0.2
+      wz_std: 0.4
+      # HARD CEILING: upstream's DiffDrive plugin clamps to 0.5 m/s and
+      # 2.0 rad/s. Raising these makes MPPI plan trajectories the simulator
+      # silently refuses to execute, which looks like a tracking bug.
+      vx_max: 0.5
+      vx_min: -0.35
+      vy_max: 0.0
+      wz_max: 1.9
+      ax_max: 2.0
+      ax_min: -2.0
+      az_max: 3.0
+      iteration_count: 1
+      prune_distance: 1.7
       transform_tolerance: 0.2
-      xy_goal_tolerance: 0.25
-      trans_stopped_velocity: 0.25
-      short_circuit_trajectory_evaluation: true
-      stateful: true
-      critics: ["RotateToGoal", "Oscillation", "BaseObstacle", "GoalAlign",
-                "PathAlign", "PathDist", "GoalDist"]
-      BaseObstacle.scale: 0.02
-      PathAlign.scale: 32.0
-      PathAlign.forward_point_distance: 0.1
-      GoalAlign.scale: 24.0
-      GoalAlign.forward_point_distance: 0.1
-      PathDist.scale: 32.0
-      GoalDist.scale: 24.0
-      RotateToGoal.scale: 32.0
-      RotateToGoal.slowing_factor: 5.0
-      RotateToGoal.lookahead_time: -1.0
+      temperature: 0.3
+      gamma: 0.015
+      # DiffDrive, NOT Omni: this robot cannot strafe. Declaring Omni here lets
+      # MPPI sample lateral velocities the robot cannot execute, and it then
+      # tracks a path it can never follow.
+      motion_model: "DiffDrive"
+      visualize: false
+      regenerate_noises: true
+
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+
+      # Critic names verified against libmppi_critics.so — a misspelled critic is
+      # not loaded and no error is printed, it simply stops contributing.
+      critics: ["ConstraintCritic", "CostCritic", "GoalCritic",
+                "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic",
+                "PathAngleCritic", "PreferForwardCritic"]
+
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+
+      # CostCritic reads the costmap directly. Preferred over ObstaclesCritic for
+      # this demo because it respects the inflation layer's gradient instead of
+      # applying its own footprint model, so the inflation_radius tuned below is
+      # actually what steers the robot.
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        critical_cost: 300.0
+        # MUST stay false while the costmaps use robot_radius.
+        #
+        # consider_footprint: true makes the critic do polygon collision checks
+        # against the costmap's footprint. Both costmaps here declare
+        # robot_radius (a circle) and never publish a footprint polygon, so the
+        # critic dereferences an empty polygon and the whole nav2_container dies
+        # with SIGSEGV a few ms after "Created controller : MPPIController".
+        #
+        # Nav2 warns first — "Inconsistent configuration in collision checking.
+        # Please verify the robot's shape settings in both the costmap and the
+        # cost critic" — and then crashes. That warning is the only hint, and it
+        # does not name this parameter.
+        #
+        # With false, the critic samples costmap cell cost at the trajectory
+        # points instead. For a round 0.18 m robot whose inflation_radius (0.35)
+        # already exceeds the footprint that is the correct model anyway; the
+        # inflation gradient does the standoff work.
+        #
+        # To turn this on, first replace robot_radius with an explicit footprint
+        # polygon in BOTH costmaps.
+        consider_footprint: false
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 14.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        mode: 0
 
 local_costmap:
   local_costmap:
@@ -149,13 +268,16 @@ local_costmap:
       update_frequency: 5.0
       publish_frequency: 2.0
       global_frame: odom
-      robot_base_frame: base_footprint
+      robot_base_frame: base_link
       rolling_window: true
       width: 3
       height: 3
       resolution: 0.05
-      # Circumscribed radius of the 0.40 x 0.30 chassis, rounded up.
-      robot_radius: 0.25
+      # Real TurtleBot 4 chassis radius is 0.17 m (shell_radius 0.12 + bumper).
+      # 0.18 keeps a 1 cm margin without the 5 cm of phantom width that the old
+      # 0.22 added: an over-large radius makes the robot refuse gaps it physically
+      # fits through, which in a warehouse aisle looks like a planner failure.
+      robot_radius: 0.18
       # perception_layer sits between obstacles and inflation so that
       # detections are inflated like any other obstacle.
       plugins: ["obstacle_layer", "perception_layer", "inflation_layer"]
@@ -170,10 +292,21 @@ local_costmap:
           clearing: true
           marking: true
           data_type: "LaserScan"
-          raytrace_max_range: 12.0
+          # Ranges must not exceed the sensor's real reach or the layer stops
+          # clearing cells it never actually observed, leaving stale obstacles
+          # frozen in the costmap. The upstream RPLIDAR A1 reports
+          # range_max = 20.0 (verify: gz topic -e -t /scan -n 1), well above the
+          # 12.0 the old hand-built lidar declared.
+          #
+          # obstacle_max_range stays BELOW raytrace_max_range on purpose: mark
+          # obstacles conservatively, clear freespace generously.
+          raytrace_max_range: 20.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 10.0
-          obstacle_min_range: 0.0
+          obstacle_max_range: 15.0
+          # Above the lidar's 0.164 m minimum. Returns closer than that are
+          # measurement artefacts, and marking them plants obstacles inside the
+          # robot's own footprint, which triggers spurious recovery behaviours.
+          obstacle_min_range: 0.17
 
       # The perception -> costmap seam required by CLAUDE.md. Fed by
       # demo_perception's detections_to_cloud adapter, so detections steer
@@ -203,8 +336,19 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        # 3.0 is a shallow decay that keeps mid-range cells expensive. Raised to
+        # 5.0 so cost falls off faster with distance, letting the planner commit
+        # to the centre of a free aisle instead of treating most of it as costly.
+        cost_scaling_factor: 5.0
+        # Was 0.55 — over 3x the robot radius. In the warehouse world the aisles
+        # are narrow enough that a 0.55 m skirt on both walls made the whole aisle
+        # lethal-adjacent, so the global planner routed around aisles the robot
+        # fits through, and the local planner oscillated inside them.
+        #
+        # 0.35 clears the 0.18 m footprint with ~0.17 m of standoff. Do not drop
+        # this below robot_radius: inflation smaller than the footprint lets the
+        # planner draw paths whose corners clip obstacles.
+        inflation_radius: 0.35
 
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
@@ -219,8 +363,9 @@ global_costmap:
       update_frequency: 1.0
       publish_frequency: 1.0
       global_frame: map
-      robot_base_frame: base_footprint
-      robot_radius: 0.25
+      robot_base_frame: base_link
+      # Same value as the local costmap — see the note there.
+      robot_radius: 0.18
       resolution: 0.05
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "perception_layer", "inflation_layer"]
@@ -239,10 +384,11 @@ global_costmap:
           clearing: true
           marking: true
           data_type: "LaserScan"
-          raytrace_max_range: 12.0
+          # Matched to the sensor's real 20 m reach — see the local costmap note.
+          raytrace_max_range: 20.0
           raytrace_min_range: 0.0
-          obstacle_max_range: 10.0
-          obstacle_min_range: 0.0
+          obstacle_max_range: 15.0
+          obstacle_min_range: 0.17
 
       perception_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -263,8 +409,12 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.55
+        # Must match the local costmap. Divergent inflation between the two is a
+        # classic source of "the global plan goes somewhere the local planner
+        # refuses to follow": the global planner routes through a corridor the
+        # local costmap considers blocked, and the robot stalls mid-aisle.
+        cost_scaling_factor: 5.0
+        inflation_radius: 0.35
 
       always_send_full_costmap: true
 
@@ -285,12 +435,35 @@ map_saver:
 planner_server:
   ros__parameters:
     use_sim_time: true
-    expected_planner_frequency: 20.0
+    # 1.0, not the Nav2 stock 20.0.
+    #
+    # This value does NOT make the planner faster — it only sets the rate that
+    # triggers "Planner loop missed its desired rate of 20.0000 Hz. Current loop
+    # rate is 1.0225 Hz" warnings. NavFn over a 477x475 costmap takes ~1 s per
+    # plan on this machine, so 20 Hz was never achievable and the log filled with
+    # warnings about a target nothing had asked for.
+    #
+    # The BT replans on its own cadence anyway; a global plan once per second is
+    # ample for a 0.5 m/s robot. Raise this only if you also make planning
+    # cheaper (Smac Planner, coarser costmap resolution).
+    expected_planner_frequency: 1.0
     planner_plugins: ["GridBased"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
+      # Goal snapping radius when the exact goal cell is unreachable.
+      #
+      # NOTE: tolerance does NOT rescue a goal placed in UNKNOWN space. 55% of
+      # warehouse.pgm is unknown (value 205) because SLAM only mapped the aisles
+      # the robot drove through. A goal there fails with
+      #     "Failed to create a plan from potential when a legal potential was
+      #      found. This shouldn't happen."
+      # which reads like an internal planner bug and is not one — there is simply
+      # no free-space corridor to the goal. Verify a goal before blaming tuning:
+      #     see docs/analise-sensores-navegacao.md ("Metas em espaco desconhecido")
       tolerance: 0.5
       use_astar: false
+      # Lets the planner traverse unknown cells it can still reach. It does not
+      # help when the goal AND its whole neighbourhood are unknown.
       allow_unknown: true
 
 smoother_server:
@@ -324,7 +497,7 @@ behavior_server:
       plugin: "nav2_behaviors::AssistedTeleop"
     local_frame: odom
     global_frame: map
-    robot_base_frame: base_footprint
+    robot_base_frame: base_link
     transform_tolerance: 0.1
     simulate_ahead_time: 2.0
     max_rotational_vel: 1.5
@@ -378,7 +551,7 @@ docking_server:
 collision_monitor:
   ros__parameters:
     use_sim_time: true
-    base_frame_id: "base_footprint"
+    base_frame_id: "base_link"
     odom_frame_id: "odom"
     cmd_vel_in_topic: "cmd_vel_smoothed"
     cmd_vel_out_topic: "/demo/cmd_vel"

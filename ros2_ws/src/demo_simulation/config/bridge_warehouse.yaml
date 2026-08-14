@@ -5,9 +5,11 @@
 # Every ROS-side name is inside the /demo namespace, per the topic contract in
 # CLAUDE.md. The gz-side names are the short <topic> values declared in
 # demo_description's URDF (_sensors.xacro) and in the DiffDrive plugin block.
-# The DiffDrive/JointStatePublisher plugins scope their topics under
-# /model/<robot_name>/..., which is why those entries carry the model prefix
-# while the sensor entries do not.
+#
+# NO entry here is model-scoped, and that is deliberate — every gz name below
+# is a literal short topic. Gazebo advertises /model/<robot_name>/... lookalikes
+# that carry no publisher; see the detailed note on /demo/cmd_vel below before
+# "fixing" any name in this file.
 #
 # Verify the gz side with `gz topic -l` while the sim runs before trusting this
 # file — a silent name mismatch shows up as a topic that simply never publishes.
@@ -44,7 +46,15 @@
   gz_type_name: "gz.msgs.Odometry"
   direction: GZ_TO_ROS
 
-# odom -> base_footprint transform, published by the DiffDrive plugin.
+# odom -> base_link transform, published by the DiffDrive plugin.
+#
+# base_link, NOT base_footprint: upstream's create3.urdf.xacro hardcodes that
+# child_frame_id and there is no xacro arg to change it. Nav2 is configured with
+# robot_base_frame: base_link to match. The two frames coincide anyway
+# (base_footprint_joint is an identity transform), and a test in
+# demo_description/test/test_urdf_parses.py fails if a future upstream bump gives
+# that joint a real offset.
+#
 # Bridged to /tf directly: this is the only owner of that edge (see
 # demo_description/README.md TF ownership table). Unscoped — see the note above.
 - ros_topic_name: "/tf"
@@ -75,16 +85,65 @@
 # Camera -> demo_perception. The input side of the perception contract:
 # demo_perception must never learn that this bridge is where its images
 # come from.
+#
+# The gz-side name is /rgbd_camera/image, NOT /camera/image_raw. The robot is now
+# the upstream TurtleBot 4 (see demo_description/urdf/demo_robot.urdf.xacro),
+# whose sensor is an OAK-D Pro declared as a single `rgbd_camera` sensor. Gazebo
+# derives all four topics below from that one sensor name. The ROS-side name stays
+# /demo/camera/image_raw because that is the topic contract in CLAUDE.md — the
+# whole point is that demo_perception does not change when the source does.
 - ros_topic_name: "/demo/camera/image_raw"
-  gz_topic_name: "/camera/image_raw"
+  gz_topic_name: "/rgbd_camera/image"
   ros_type_name: "sensor_msgs/msg/Image"
   gz_type_name: "gz.msgs.Image"
   direction: GZ_TO_ROS
 
-# Camera intrinsics. Gazebo derives this topic from the image topic by
-# replacing the last segment with camera_info.
+# Camera intrinsics. Gazebo derives this topic from the sensor name by appending
+# camera_info.
 - ros_topic_name: "/demo/camera/camera_info"
-  gz_topic_name: "/camera/camera_info"
+  gz_topic_name: "/rgbd_camera/camera_info"
   ros_type_name: "sensor_msgs/msg/CameraInfo"
   gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
+# Depth image. New capability: the old hand-built model had a mono RGB camera
+# only. Not consumed by anything yet — demo_perception is still the deterministic
+# synthetic-detection stub — but bridged so the TIDL work (MX-TIDL) has a depth
+# source without touching this file, and so RViz2 can show it during the demo.
+- ros_topic_name: "/demo/camera/depth_image"
+  gz_topic_name: "/rgbd_camera/depth_image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+# Depth point cloud, derived by Gazebo from the same RGBD sensor.
+#
+# Bandwidth warning: this is by far the heaviest topic in this file (~640x480
+# XYZRGB at 10 Hz). It is bridged because a 3D obstacle source is the single
+# biggest available navigation improvement (see docs/analise-sensores-navegacao.md),
+# but on the `target` mode the DDS traffic crosses the network to the module.
+# Comment this entry out if the demo does not need 3D obstacles.
+- ros_topic_name: "/demo/camera/points"
+  gz_topic_name: "/rgbd_camera/points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
+
+# IMU at 200 Hz. New capability from the upstream model — the old one had none.
+#
+# This only publishes if the WORLD loads gz-sim-imu-system. The bundled
+# nav2_minimal_tb4_sim warehouse.sdf does; a hand-written world may not, and the
+# sensor then stays silent with no error anywhere. Verify with
+# `gz topic -l | grep imu` before blaming this file.
+#
+# NOT YET CONSUMED by anything. It is bridged so the data is visible and
+# measurable now, but no EKF is wired up: fusing it would move ownership of the
+# odom -> base_link TF edge from the Gazebo DiffDrive plugin to an
+# robot_localization ekf_node, and two publishers on the same edge produce a
+# jittering robot with no error message. That is a deliberate follow-up, not an
+# oversight — see docs/analise-sensores-navegacao.md ("Otimizacao 4").
+- ros_topic_name: "/demo/imu"
+  gz_topic_name: "/imu"
+  ros_type_name: "sensor_msgs/msg/Imu"
+  gz_type_name: "gz.msgs.IMU"
   direction: GZ_TO_ROS

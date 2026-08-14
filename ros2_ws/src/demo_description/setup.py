@@ -15,6 +15,11 @@ setup(
         (os.path.join('share', package_name), ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'urdf'), glob('urdf/*.xacro')),
+        # weld_fixed_joints.py is invoked by demo_simulation's launch file via a
+        # share-path lookup, so it must be installed here and not only exist in
+        # the source tree. Without it Gazebo spawns the robot as 13 loose physics
+        # bodies and it falls apart — see the note in demo_robot.urdf.xacro.
+        (os.path.join('share', package_name, 'scripts'), glob('scripts/*.py')),
         (os.path.join('share', package_name, 'rviz'), glob('rviz/*.rviz')),
     ],
     install_requires=['setuptools'],

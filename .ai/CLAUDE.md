@@ -24,20 +24,29 @@ Estas existem porque violá-las custa dias. Não são preferências.
 
 A mesma imagem e o mesmo código funcionam nos três modos. O que muda é `platform` e em qual máquina cada serviço sobe. Se uma mudança exigir código diferente por modo, o desenho está errado.
 
-| Modo | Arquivo | Simulador | Stack | Uso |
+| Modo | Invocação | Simulador | Stack | Uso |
 | --- | --- | --- | --- | --- |
-| `learn` | `compose/learn.yaml` | amd64 nativo, host | amd64, host | Aprendizado e desenvolvimento |
-| `emul` | `compose/emul.yaml` | amd64 nativo, host | arm64 emulado, host | Validar build e grafo antes do hardware |
-| `target` | `compose/target.yaml` | amd64 no host | arm64 no AM69 | Demo real |
+| `learn` | `compose.host.yml --profile learn` | amd64 nativo, host | amd64, host | Aprendizado e desenvolvimento |
+| `hil` | `compose.host.yml` (host) + `compose.module.yml` (módulo) | amd64 no host | arm64 no AM69 | Hardware-in-the-loop; entregável do ML3.5 |
+| `deploy` | `compose.module.yml` | nenhum | arm64 no AM69 | A1 físico; fora de escopo |
+
+Os composes são divididos por **máquina**, não por modo: `docker/compose.host.yml`
+e `docker/compose.module.yml`. O modo é escolhido por profile do Compose e por
+qual arquivo se invoca em qual máquina. O layout antigo `compose/{learn,emul,target}.yaml`
+foi substituído no ML3.5 — ver `docs/ml35/guia-ml35-docker.md`. O modo `emul` caiu
+junto: imagens arm64 continuam sendo construídas sob QEMU, mas não há mais um
+compose dedicado para rodar a stack emulada.
 
 ---
 
 ## Estrutura
 
 ```
-docker/base|navigation|perception|hmi|simulation
+docker/base|sim|nav|perception|viz|tools|hw
+docker/compose.host.yml|compose.module.yml
+docker/cyclonedds/host.xml|module.xml
 ros2_ws/src/demo_description|demo_bringup|demo_navigation|demo_perception|demo_simulation
-compose/learn.yaml|emul.yaml|target.yaml
+docs/ml35/guia-ml35-docker.md
 .ai/
 ```
 
@@ -73,10 +82,10 @@ docker buildx create --use --name multiarch
 # imagens multi-arch
 docker buildx build --platform linux/amd64,linux/arm64 -t <reg>/<img>:<tag> --push docker/<dir>
 
-# execucao
-docker compose -f compose/learn.yaml up
-docker compose -f compose/emul.yaml up
-docker compose -f compose/target.yaml up
+# execucao (a partir de docker/)
+docker compose -f compose.host.yml --profile learn up --build   # learn: tudo no host
+docker compose -f compose.host.yml up sim viz                   # hil: lado host
+docker compose -f compose.module.yml up -d                      # hil: no modulo
 
 # diagnostico ROS 2
 ros2 topic list && ros2 topic hz <topic> && ros2 node list
@@ -104,14 +113,21 @@ Imagens são multi-arch. `platform` é declarado explicitamente no compose, nunc
 
 ## Onde estamos
 
-Fase atual: **L4, containers e emulação arm64.** L1, L2 e L3 concluídas.
+Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 concluídas.
 
 - **L1 (ML1)** — `demo_tutorials`: heartbeat pub/sub, serviço, launch, testes. Concluída 31/07/2026.
 - **L2 (ML2)** — `demo_description`: xacro diff-drive parametrizado, árvore TF, RViz. Concluída 07/08/2026. Pendente do operador: `sudo apt install liburdfdom-tools` e confirmação visual no RViz.
 - **L3 (ML3)** — `demo_simulation`, `demo_navigation`, `demo_perception`, `demo_bringup`. Concluída 10/08/2026, **com os quatro critérios de aceitação executados de verdade**: teleop move o robô por `/demo/cmd_vel`; odom/scan/TF/comandos trocam mensagens; os sete servidores do Nav2 chegam a `active`; e um goal terminou `SUCCEEDED` (0,0 → 2.43,0.20). Mapa do armazém gerado por SLAM e commitado. Ver `changelog.md` para as cinco falhas silenciosas encontradas no caminho.
-- **L4 (ML4)** — próxima: containers e emulação arm64.
+- **ML3.1** — aparência do robô e guia. Concluída 10/08/2026. `demo_robot.urdf.xacro` virou **wrapper fino sobre o TurtleBot 4 upstream** (`nav2_minimal_tb4_description`, via `package://`, sem binários no repo); a montagem peça a peça por mesh foi tentada e abandonada. A causa real do "robô com partes separadas" era o **RViz** (`RobotModel: Enabled: false` + 33 triedros de TF), não o modelo — daí `demo_bringup/rviz/demo_view.rviz`. Mais três pendências do ML3 e dois documentos em `docs/`. Pendente do operador: confirmação visual em RViz2/Gazebo com GUI.
+- **ML3.5** — em curso: locomoção quadrúpede A1 real + containerização. Spec em
+  `docs/ml35/guia-ml35-docker.md`. Fases F0 (ponto de retorno) a F6 (fallback e
+  testes), com portão em cada uma. Base de locomoção: `legubiao/quadruped_ros2_control`
+  (Apache-2.0, branch default Jazzy) — a confirmar na árvore em F2, não pelo README.
+  A containerização entra em F1, **antes** da troca do robô, para separar risco de
+  Docker/DDS de risco de marcha.
+- **L4 (ML4)** — depois: absorvida em grande parte pelo F1 do ML3.5.
 
-**Robô:** diff-drive, não quadrúpede. Nenhum projeto mantido entrega quadrúpede + Jazzy + Harmonic + Nav2 funcionando hoje (CHAMP upstream é ROS 1; o melhor fork Jazzy tem Nav2 "coming soon" desde mai/2025). O contrato `/demo/cmd_vel` torna a troca posterior barata — rastreado como ML3.5. Justificativa completa em `changelog.md`.
+**Robô:** diff-drive hoje, quadrúpede A1 em curso no ML3.5. Continua verdade (verificado em 14/08/2026) que **ninguém entrega quadrúpede + Jazzy + Harmonic + Nav2 funcionando**: CHAMP upstream é ROS 1, e os dois forks Go2 em Jazzy listam Nav2 como "coming soon" **e não declaram licença** — bloqueador para demo comercial, mesmo critério que eliminou o Tugbot no ML3.1. A base escolhida é `legubiao/quadruped_ros2_control` (Apache-2.0, `ros2_control` nativo, branch default Jazzy); a integração com Nav2 é **nossa**, ninguém entrega pronta. O diff-drive validado permanece selecionável por launch arg. Justificativa completa em `changelog.md`.
 
 **Cenário:** `warehouse.sdf` de `nav2_minimal_tb4_sim` (mantido pela org do Nav2, SDF nativo Harmonic). O world do AWS RoboMaker foi arquivado em jul/2026 e é Gazebo Classic — não usar.
 

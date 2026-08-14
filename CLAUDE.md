@@ -9,18 +9,26 @@ The authoritative guides live in `.ai/`. Read them before editing:
 - `.ai/CLAUDE.md` — short operational contract in Portuguese. The invariants below come from it.
 - `.ai/AGENTS.md` (mirrored as `.ai/codex.md`) — full implementation contract: milestones (M0, ML1-ML4, M0-HW, M1-M5, MX-TIDL), Definition of Done, naming, launch/compose conventions, HMI/perception specs, ADR format, completion-report format.
 - `.ai/demo-ros2-aquila-am69.md` — project rationale, hardware/software premises, phases, risks.
+- `docs/guia-operacao.md` — how to run and edit the demo (Portuguese). Written for someone new to ROS 2; documents each known silent-failure trap at the point where it would be hit.
 
-The repo is currently a scaffold: `docker/{base,navigation,perception,hmi,simulation}/`, `ros2_ws/src/demo_{description,bringup,navigation,perception,simulation}/`, and `compose/{learn,emul,target}.yaml` exist as empty directories/files. M0 (repository foundation) has not been executed yet. Implement one milestone per session and stop.
+`ros2_ws/src/demo_{tutorials,description,bringup,navigation,perception,simulation}/` are implemented (ML1–ML3.1). The container layer under `docker/` is built in ML3.5 F1. Implement one milestone per session and stop.
 
 ## Project shape
 
 Robotics demo on Torizon OS running on the Aquila AM69 (arm64) with Gazebo Harmonic replacing the physical robot. Same source tree and application images support three modes; the only thing that changes between them is `platform:` and which machine each service starts on:
 
-| Mode | Compose file | Simulator | Robotics stack | Purpose |
+| Mode | Compose invocation | Simulator | Robotics stack | Purpose |
 | --- | --- | --- | --- | --- |
-| `learn` | `compose/learn.yaml` | amd64 native, host | amd64, host | Learning / development |
-| `emul` | `compose/emul.yaml` | amd64 native, host | arm64 emulated (QEMU), host | Validate build & DDS graph pre-hardware |
-| `target` | `compose/target.yaml` | amd64 on host | arm64 on Aquila AM69 | Real demo |
+| `learn` | `compose.host.yml --profile learn` | amd64 native, host | amd64, host | Learning / development |
+| `hil` | `compose.host.yml` (host) + `compose.module.yml` (module) | amd64 on host | arm64 on Aquila AM69 | Hardware-in-the-loop; the ML3.5 deliverable |
+| `deploy` | `compose.module.yml` | none | arm64 on Aquila AM69 | Real A1 hardware; out of scope |
+
+Compose files are split by **machine**, not by mode: `docker/compose.host.yml`
+and `docker/compose.module.yml`. Modes are selected with Compose profiles and by
+which file you invoke on which machine. The older `compose/{learn,emul,target}.yaml`
+layout was replaced in ML3.5 — see `docs/ml35/guia-ml35-docker.md`. The `emul`
+mode was dropped with it: arm64 images are still built under QEMU, but there is
+no longer a dedicated compose file for running the stack emulated.
 
 If a change would require different code per mode, the design is wrong.
 
@@ -65,7 +73,7 @@ When proposing a change, always state which of the two machines the code runs on
 ## Conventions
 
 - ROS package prefix: `demo_`. Python with `ament_python` by default; C++ only where hardware-measured performance justifies it.
-- One explicit launch file per mode in `demo_bringup` (`learn.launch.py`, `emul.launch.py`, `target.launch.py`). No single launch file full of conditionals.
+- One explicit launch file per container role in `demo_bringup` (`sim.launch.py`, `nav.launch.py`, `perception.launch.py`, `viz.launch.py`), each the entrypoint of one service. `learn.launch.py` remains the native, non-containerized composition. No single launch file full of conditionals.
 - Nav2 parameters in YAML under `demo_navigation`, never embedded in code.
 - Each container has a single responsibility. `demo_perception` is separated from day one, stub or not, because it defines the OTA update granularity.
 - Multi-arch images. `platform:` is declared explicitly in compose, never inferred.
@@ -87,10 +95,10 @@ docker buildx create --use --name multiarch
 # Multi-arch images
 docker buildx build --platform linux/amd64,linux/arm64 -t <reg>/<img>:<tag> --push docker/<dir>
 
-# Run a mode
-docker compose -f compose/learn.yaml up
-docker compose -f compose/emul.yaml up
-docker compose -f compose/target.yaml up
+# Run a mode (from docker/)
+docker compose -f compose.host.yml --profile learn up --build   # learn: all on host
+docker compose -f compose.host.yml up sim viz                   # hil: host side
+docker compose -f compose.module.yml up -d                      # hil: on the module
 
 # ROS 2 diagnostics
 ros2 topic list && ros2 topic hz <topic> && ros2 node list

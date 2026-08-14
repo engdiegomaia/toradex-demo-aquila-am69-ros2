@@ -5,6 +5,146 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-10 — ML3.1: aparência do robô e guia de operação
+
+**Motivo:** a demo tem público externo (cliente, feira, vídeo). O robô era
+caixa + dois cilindros + esfera — funcionalmente correto, mas não sustenta uma
+apresentação.
+
+**Entregue:** `demo_robot.urdf.xacro` virou um wrapper fino sobre o TurtleBot 4
+upstream, três correções pendentes do ML3, `docs/guia-operacao.md` e
+`docs/analise-sensores-navegacao.md`.
+
+### A causa real do "robô com partes separadas" era o RViz, não o modelo
+
+Registrado primeiro porque foi o que custou mais tempo, e porque a ordem em que
+descobrimos foi a errada.
+
+O sintoma era um amontoado de peças flutuando em vez de um robô. **Duas trocas
+de modelo e uma correção de física foram gastas perseguindo isso antes de
+alguém abrir a configuração do RViz.** O `nav2_default_view.rviz` do
+`nav2_bringup`, que o `learn.launch.py` usava, vem com:
+
+| Display | Valor upstream | Efeito na tela |
+| --- | --- | --- |
+| `RobotModel` | `Enabled: false` | **o corpo do robô não é desenhado** |
+| `TF` | `Enabled: true`, Show Axes + Names | **33 triedros rotulados** flutuando |
+
+Ou seja: nenhum corpo, e 33 marcadores de eixo espalhados pelos links. Isso é
+indistinguível, a olho, de um robô mal montado.
+
+Daí `demo_bringup/rviz/demo_view.rviz`, com `RobotModel` ligado e `TF` desligado,
+e o cabeçalho do arquivo documentando as duas inversões contra o upstream.
+
+**Lição, e é a mesma do ML3:** o sintoma apareceu na camada de visualização e foi
+tratado como se fosse da camada de modelo. Antes de mexer no URDF por causa de
+algo que se vê na tela, verifique o que a tela foi configurada para desenhar.
+
+### O modelo agora é wrapper do TurtleBot 4 upstream
+
+A versão anterior montava o robô peça por peça a partir dos meshes individuais
+do TB4, com offsets derivados de medição de bounding box. Essa abordagem foi
+**abandonada**: cada mesh carrega origem e rotação internas próprias, então
+reparentar as peças numa árvore de links nossa espalhava o conjunto, e cada nova
+medição consertava uma peça movendo outra.
+
+`demo_robot.urdf.xacro` hoje inclui o modelo já montado:
+
+```
+nav2_minimal_tb4_description/urdf/standard/turtlebot4.urdf.xacro
+```
+
+Mantido pela equipe Nav2, offsets corretos por construção, e traz DiffDrive +
+JointStatePublisher mais um conjunto de sensores mais rico (RPLIDAR A1, OAK-D
+RGBD, IMU) do que o que tínhamos. Os quatro sub-xacros da montagem manual
+(`_wheel`, `_sensors`, `_inertia`, `_materials`) foram removidos.
+
+Nenhum binário entra no repo: as meshes são resolvidas por `package://`, e
+`nav2_minimal_tb4_sim` já era dependência por causa do mundo do armazém.
+
+**Não re-adicione meshes peça a peça aqui.** Se o robô parecer errado, a ordem é:
+conferir o RViz primeiro, depois sobrescrever uma junta abaixo do include.
+
+### O que o wrapper sobrescreve, e uma armadilha do xacro
+
+Upstream é um TurtleBot 4, não "o nosso" robô. O ponto que não é óbvio:
+
+**Re-declarar o plugin DiffDrive não o substitui.** O xacro não funde nem
+substitui blocos `<gazebo>` — ele **concatena**. Tentar sobrescrever produz uma
+URDF expandida com **dois** plugins DiffDrive dirigindo as mesmas duas juntas.
+Foi tentado e rejeitado.
+
+Como o `child_frame_id` é hard-coded em `create3.urdf.xacro` sem argumento de
+xacro, a reconciliação foi feita do lado do Nav2: `robot_base_frame: base_link`
+em `nav2_params.yaml`. Isso é seguro, não concessão — `base_footprint_joint` é
+uma transformada identidade, então `odom -> base_link` e `odom -> base_footprint`
+são numericamente a mesma aresta.
+
+Teste `test_exactly_one_of_each_gz_system_plugin` conta **elementos**, não
+ocorrências de texto: qualquer grep também casa com os comentários que explicam
+a armadilha.
+
+### Três correções pendentes do ML3
+
+1. **`worlds/warehouse.sdf` não existia.** Era o default dos dois launch files, e
+   `setup.py` instalava `glob('worlds/*.sdf')`, que casava com nada. Funcionava
+   nesta máquina só porque o operador copiara o arquivo localmente; um clone
+   limpo falhava com erro do Gazebo que não nomeia o arquivo ausente. Default
+   agora resolve para `nav2_minimal_tb4_sim`, e a dependência foi declarada.
+2. **Três comentários afirmavam o oposto do descoberto no ML3** — que os tópicos
+   do DiffDrive são escopados em `/model/<name>/`. Era exatamente a armadilha
+   corrigida em `da53167`; quem lesse "consertaria" o YAML de volta. Corrigidos
+   em `simulation.launch.py`, `bridge_warehouse.yaml` e no URDF.
+3. **`xacro_args` não existia** em `view_robot.launch.py`, e `use_meshes` não era
+   propagado por `simulation.launch.py`. Ambos implementados.
+
+### `weld_fixed_joints.py`
+
+Expande o xacro e remove `<preserveFixedJoint>` para que o Gazebo solde as juntas
+fixas. Detalhe que custa uma sessão de debug se ignorado: **em sucesso o script é
+silencioso**, porque a substituição `Command` do launch aborta o launch inteiro
+se o comando escrever qualquer coisa em stderr.
+
+### Avaliado e descartado: modelos prontos do Gazebo Fuel
+
+**Tugbot (MovAi)** era o melhor candidato — AMR de armazém completo, com
+DiffDrive, lidars, câmeras RGBD e IMU montados. **Descartado por licença:** o
+`model.config` não declara nenhuma, mas a API do Fuel informa **CC BY-NC-ND 4.0**.
+Para demo comercial, `NonCommercial` e `NoDerivatives` são ambos bloqueadores.
+
+**MARBLE_HUSKY** é CC BY 4.0, sem impedimento legal, mas é skid-steer de 4 rodas
+**sem plugin DiffDrive** e usa `gpu_ray`, nome do Fortress removido no Harmonic.
+
+Fica registrado: a licença de um modelo do Fuel **não está no `model.config`**;
+consulte `https://fuel.gazebosim.org/1.0/<owner>/models/<nome>`.
+
+### Verificado
+
+| Verificação | Resultado |
+| --- | --- |
+| `colcon build` | 6 pacotes, limpo |
+| `colcon test` | 39 testes, 0 falhas |
+| Launch files geram `LaunchDescription` | OK |
+| `check_urdf`, meshes e fallback | ambos os caminhos parseiam |
+| Meshes resolvem por `package://` | OK |
+| World default resolve | OK |
+| Robô carrega no Gazebo headless | OK — tópicos do contrato publicando |
+| Locomoção | OK — `/demo/cmd_vel` moveu o robô, `y ≈ 0` |
+
+**NÃO verificado:** confirmação visual em RViz2/Gazebo com GUI, que depende de
+sessão gráfica interativa. Pendente do operador — ver `docs/guia-operacao.md`.
+
+### Documentação
+
+`docs/guia-operacao.md` — guia de operação e edição, escrito para quem chega sem
+experiência prévia de ROS 2. Cada comando documentado foi executado antes de
+entrar no arquivo; foi assim que as três correções acima apareceram.
+
+`docs/analise-sensores-navegacao.md` — o que exatamente sai do Gazebo, por onde
+passa até o Nav2, e como o comando volta aos atuadores. Números medidos, não
+copiados de documentação.
+---
+
 ## 2026-08-10 — ML3: simulação e navegação nativas (concluída)
 
 **Entregue:** quatro pacotes novos — `demo_simulation`, `demo_navigation`,

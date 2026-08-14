@@ -44,10 +44,11 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
+    # Same source as simulation.launch.py's default — see the note there.
     world_arg = DeclareLaunchArgument(
         'world',
         default_value=PathJoinSubstitution([
-            FindPackageShare('demo_simulation'), 'worlds', 'warehouse.sdf',
+            FindPackageShare('nav2_minimal_tb4_sim'), 'worlds', 'warehouse.sdf',
         ]),
         description='SDF world to load.',
     )
@@ -103,9 +104,17 @@ def generate_launch_description() -> LaunchDescription:
         )],
     )
 
-    # Nav2's own RViz config: it already has the costmap, plan and goal-tool
-    # displays wired up. demo_description's config is for viewing the model
-    # alone and has no map frame.
+    # This package's own RViz config — a copy of Nav2's with the RobotModel
+    # display ENABLED and the TF display DISABLED.
+    #
+    # DO NOT point this back at nav2_bringup/rviz/nav2_default_view.rviz.
+    # That file ships with RobotModel disabled and TF enabled with Show Axes +
+    # Show Names, so RViz draws no robot body and 33 labelled axis triads
+    # floating where the robot should be. It looks precisely like a robot that
+    # has come apart, and it is not — see the header of rviz/demo_view.rviz.
+    #
+    # demo_description's config is for viewing the model alone and has no map
+    # frame, so it is not a substitute here.
     rviz = TimerAction(
         period=25.0,
         actions=[Node(
@@ -114,7 +123,7 @@ def generate_launch_description() -> LaunchDescription:
             name='rviz2',
             output='screen',
             arguments=['-d', PathJoinSubstitution([
-                FindPackageShare('nav2_bringup'), 'rviz', 'nav2_default_view.rviz',
+                FindPackageShare('demo_bringup'), 'rviz', 'demo_view.rviz',
             ])],
             parameters=[{'use_sim_time': True}],
             condition=IfCondition(LaunchConfiguration('rviz')),

@@ -44,20 +44,37 @@ Visualization Manager:
       Enabled: true
       Name: RobotModel
       Visual Enabled: true
+    # TF is OFF by default, deliberately.
+    #
+    # This robot has 33 frames (four tower standoffs, four weight blocks, six
+    # bumper zones, six OAK-D camera frames, IMU, wheels, caster). With Show Axes
+    # + Show Names + Show Arrows on, RViz draws 33 labelled axis triads scattered
+    # around and above the body, which reads as "the robot has separate/floating
+    # parts" even though the RobotModel underneath is perfectly assembled.
+    #
+    # That is a real trap: it looks exactly like a broken URDF, and it survives
+    # changing the robot model, re-measuring mesh offsets, and welding fixed
+    # joints, because none of those touch this file.
+    #
+    # Tick the TF checkbox in the RViz sidebar when you actually need to debug
+    # frames, then untick it.
     - Class: rviz_default_plugins/TF
-      Enabled: true
+      Enabled: false
       Frame Timeout: 15
       Marker Scale: 0.3
       Name: TF
-      Show Arrows: true
+      Show Arrows: false
       Show Axes: true
-      Show Names: true
+      Show Names: false
       Update Interval: 0
-      Value: true
+      Value: false
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
-    Fixed Frame: base_footprint
+    # base_link, not base_footprint: the upstream TurtleBot 4 roots its tree at
+    # base_link (see demo_description/README.md). A fixed frame that does not
+    # exist leaves the view empty with only a "frame does not exist" warning.
+    Fixed Frame: base_link
     Frame Rate: 30
   Name: root
   Tools:

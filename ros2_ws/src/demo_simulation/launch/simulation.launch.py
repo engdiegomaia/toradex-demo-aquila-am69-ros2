@@ -27,10 +27,18 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
+    # Resolved from nav2_minimal_tb4_sim, NOT from this package's worlds/ dir.
+    # The world is not vendored (see README): it ships with
+    # ros-jazzy-nav2-minimal-tb4-sim, is Apache-2.0 and ~40 MB of meshes that
+    # have no business in this repo. Pointing the default at a local worlds/
+    # file that is not committed means a clean clone fails with a Gazebo error
+    # that does not name the missing file.
+    #
+    # To use your own world, drop it anywhere and pass world:=/abs/path.
     world_arg = DeclareLaunchArgument(
         'world',
         default_value=PathJoinSubstitution([
-            FindPackageShare('demo_simulation'), 'worlds', 'warehouse.sdf',
+            FindPackageShare('nav2_minimal_tb4_sim'), 'worlds', 'warehouse.sdf',
         ]),
         description='Absolute path to the SDF world to load.',
     )
@@ -39,9 +47,10 @@ def generate_launch_description() -> LaunchDescription:
         'robot_name',
         default_value='demo_robot',
         description=(
-            'Model name in Gazebo. Must match the robot_name baked into the '
-            'bridge config: the DiffDrive plugin scopes its gz topics under '
-            '/model/<robot_name>/.'
+            'Model name in Gazebo. Note that the DiffDrive plugin does NOT '
+            'scope its gz topics under /model/<robot_name>/ — its <topic>, '
+            '<odom_topic> and <tf_topic> are literal. See the note in '
+            'config/bridge_warehouse.yaml before changing this.'
         ),
     )
 
@@ -57,6 +66,17 @@ def generate_launch_description() -> LaunchDescription:
         description='Run Gazebo with its GUI. Set false for headless CI runs.',
     )
 
+    # Forwarded to the xacro. Collision, inertia, TF and odometry are identical
+    # either way — only rendering changes. See demo_description/_visuals.xacro.
+    use_meshes_arg = DeclareLaunchArgument(
+        'use_meshes',
+        default_value='true',
+        description=(
+            'Render the robot from nav2_minimal_tb4_description meshes. '
+            'Set false to fall back to primitives.'
+        ),
+    )
+
     model_arg = DeclareLaunchArgument(
         'model',
         default_value=PathJoinSubstitution([
@@ -65,13 +85,36 @@ def generate_launch_description() -> LaunchDescription:
         description='Absolute path to the robot xacro to spawn.',
     )
 
+    # The expanded URDF is piped through weld_fixed_joints.py before it reaches
+    # either robot_state_publisher or Gazebo.
+    #
+    # THIS PIPE IS LOAD-BEARING — do not simplify it back to a bare `xacro` call.
+    # Upstream tags 21 fixed joints with <preserveFixedJoint>, which makes Gazebo
+    # spawn the robot as 13 separate physics bodies instead of one rigid body. The
+    # shell, tower standoffs, sensor plate, lidar and camera then drift apart under
+    # gravity and the robot visibly comes to pieces. See the long note in
+    # demo_description/urdf/demo_robot.urdf.xacro.
+    #
+    # The script writes its own status line to stderr and exits non-zero if any
+    # tag survives, so a silent partial weld is not possible.
+    #
+    # It is invoked INSTEAD of xacro, not piped into it: Command runs its string
+    # through shlex.split rather than a shell, so a `|` here would reach xacro as
+    # a literal argument. The script takes the xacro path plus its args, runs
+    # xacro itself, and filters the output — one process, no shell needed.
+    #
     # value_type=str is required — without it the expanded URDF is parsed as
     # YAML and robot_state_publisher rejects it. Same reasoning as in
     # demo_description/launch/view_robot.launch.py.
+    weld_script = PathJoinSubstitution([
+        FindPackageShare('demo_description'), 'scripts', 'weld_fixed_joints.py',
+    ])
+
     robot_description = ParameterValue(
         Command([
-            'xacro ', LaunchConfiguration('model'),
+            'python3 ', weld_script, ' ', LaunchConfiguration('model'),
             ' robot_name:=', LaunchConfiguration('robot_name'),
+            ' use_meshes:=', LaunchConfiguration('use_meshes'),
         ]),
         value_type=str,
     )
@@ -173,6 +216,7 @@ def generate_launch_description() -> LaunchDescription:
         y_arg,
         yaw_arg,
         gui_arg,
+        use_meshes_arg,
         model_arg,
         gz_sim,
         gz_sim_headless,

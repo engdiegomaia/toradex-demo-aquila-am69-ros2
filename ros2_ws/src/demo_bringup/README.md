@@ -48,9 +48,27 @@ Nav2 started too early comes up before `/clock` publishes, and every lifecycle
 node stalls waiting for a transform whose timestamps do not yet exist. The
 delays are generous deliberately — this is a demo, not a boot-time benchmark.
 
-RViz uses `nav2_bringup`'s `nav2_default_view.rviz`, which already has costmap,
-plan, and goal-tool displays wired. `demo_description`'s config is for viewing
-the model alone and has no `map` frame.
+RViz uses this package's `rviz/demo_view.rviz` — a copy of `nav2_bringup`'s
+`nav2_default_view.rviz` (costmap, plan and goal-tool displays already wired) with
+exactly two changes:
+
+| Display | Upstream | Here |
+| --- | --- | --- |
+| `RobotModel` | `Enabled: false` | `Enabled: true` |
+| `TF` | `Enabled: true`, Show Axes + Names | `Enabled: false` |
+
+**Do not point this back at the upstream file.** With Nav2's defaults RViz draws
+**no robot body** and **33 labelled axis triads** (four tower standoffs, four
+weight blocks, six bumper zones, six OAK-D frames, IMU, wheels, caster) floating
+where the robot should be. That looks exactly like a robot whose parts have come
+apart — and it is not; it is a cloud of TF markers with the body switched off.
+
+This symptom survives changing the robot model, re-measuring mesh offsets and
+welding fixed joints, because none of those touch the RViz config. Tick `TF` in
+the sidebar when you need to debug frames, then untick it.
+
+`demo_description`'s config is for viewing the model alone and has no `map` frame,
+so it is not a substitute here.
 
 ## Acceptance (ML3) — passed 2026-08-10
 

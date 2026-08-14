@@ -14,6 +14,10 @@ setup(
             ['resource/' + package_name]),
         (os.path.join('share', package_name), ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        # demo_view.rviz must be installed: learn.launch.py resolves it through
+        # the share path. Without it RViz starts with no config and shows an
+        # empty view.
+        (os.path.join('share', package_name, 'rviz'), glob('rviz/*.rviz')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
