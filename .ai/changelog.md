@@ -5,6 +5,85 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-14 — ML3.5 F1: baseline diff-drive inteira em containers
+
+**Portão batido:** goal Nav2 `SUCCEEDED` (`error_code: 0`) com a demo rodando em
+containers, enviado do container `tools`. `colcon build` limpo nos 6 pacotes,
+`colcon test` **46 testes / 0 falhas** (eram 39; +7 do `wait_for_clock`).
+Evidência em `docs/results/ml35-f1-execucao.md`.
+
+**Criado:** `docker/{base,sim,nav,perception,viz,tools}/Dockerfile`,
+`docker/hw/README.md`, `docker/compose.{host,module}.yml`,
+`docker/cyclonedds/{host,module}.xml`, `docker/entrypoint.sh`,
+`docker/.env.example`, e os quatro launch files de papel em `demo_bringup`
+(`sim`, `nav`, `perception`, `viz`). `learn.launch.py` segue como a composição
+nativa não-containerizada.
+
+### Timers de wall-clock não sobrevivem à fronteira de container
+
+O risco número um do plano se confirmou. Os delays por timer do `learn.launch.py`
+(20 s perception, 25 s nav) medem tempo desde a subida do **próprio** container,
+que não tem relação fixa com o instante em que o Gazebo terminou de carregar o
+mundo — `docker compose up` sobe tudo junto.
+
+Substituídos pelo nó **`wait_for_clock`**, que espera `/clock` existir **e
+avançar**. Duas amostras com timestamp estritamente crescente: uma só passaria com
+Gazebo pausado (`gz sim` sem `-r` inicia pausado), trocando uma falha silenciosa
+por outra. Timeout de 120 s com saída != 0 — container que espera para sempre
+parece travamento, não falha.
+
+Isto **ampliou o escopo** de F1 além do "nenhuma mudança de comportamento" do
+portão: é código novo, não só empacotamento. Decisão do operador, com a
+alternativa (portar os timers como estavam) na mesa. Os 12 s de spawn e 15 s de
+bridge **dentro** de `simulation.launch.py` continuam intocados — são
+intra-container, e ali o timer ainda mede o que deve.
+
+### Vendorização de quatro launch files do Nav2 (regra 1)
+
+`ros-jazzy-nav2-bringup` **hard-depends** de `nav2-minimal-tb3-sim`,
+`nav2-minimal-tb4-sim`, `ros-gz-sim` e `navigation2`. Medido: colocou
+`libogre-1.9`, `gz-ogre-next-vendor`, `gz-rendering`, `gz-gui` e 30+ pacotes na
+imagem `nav` — **3,7 GB e OGRE 2 numa imagem que vai para o AM69**, violação
+direta da regra 1. `--no-install-recommends` não ajuda: são `Depends`. O
+metapacote `ros-jazzy-navigation2` repete o problema um nível abaixo, via
+`nav2-rviz-plugins` → `rviz-ogre-vendor`.
+
+Os quatro launch files necessários (`bringup`, `localization`, `navigation`,
+`slam`) estão vendorizados em `demo_navigation/launch/nav2_vendored/`,
+Apache-2.0, cabeçalhos de copyright intactos, **só os caminhos de raiz de pacote
+re-rooteados**. Os servidores Nav2 entram individualmente no Dockerfile.
+Resultado: `nav` de 3,7 GB → **2,48 GB**, zero pacotes OGRE/RViz/Gazebo.
+
+**Custo aceito:** a lista de servidores no `nav/Dockerfile` e em
+`demo_navigation/package.xml` agora acopla com `nav2_params.yaml`. Plugin novo de
+pacote não listado exige crescer as duas listas; está comentado nos dois lugares.
+
+### Três armadilhas silenciosas, todas registradas em estado-fases.md
+
+1. **`${HOST_IP}` em arquivo bind-mounted nunca expande.** Docker não substitui
+   variáveis dentro de arquivo montado; o CycloneDDS recebeu a string literal como
+   endereço. Com `AllowMulticast=false`, **nenhum mecanismo de descoberta sobrou**.
+   Sintoma: `ros2 node list` vazio e o spawner do Gazebo esperando
+   `robot_description` para sempre. Correção: `<Peer address="127.0.0.1"/>`, que é
+   load-bearing, não redundante.
+2. **`GZ_SIM_RESOURCE_PATH` vazio no container.** Robô spawnava com colisão e
+   inércia corretas — física e navegação funcionando — e **sem corpo visível**.
+3. **Mapear `/dev/dri` não basta.** `renderD128` é do grupo `render` (gid 992
+   neste host) e o usuário do container está em `video`: queda silenciosa para
+   render em software. Corrigido com `group_add`.
+
+### Pendências abertas
+
+- `docker/.env.example` não documenta `RENDER_GID`; o arquivo está bloqueado por
+  regra de permissão do ambiente. Correção manual do operador, texto pronto em
+  `docs/ml35/estado-fases.md`.
+- **Nada em arm64 foi construído ou executado**, e o módulo não esteve acessível.
+  `compose.module.yml` e `cyclonedds/module.xml` são código não executado
+  (regras 5 e 7).
+- Confirmação visual em GUI segue **não feita por olho humano**, herdada do ML3.1.
+
+---
+
 ## 2026-08-14 — ML3.5 F0: ponto de retorno e spec da containerização
 
 **Motivo:** o robô-alvo da demo é quadrúpede. O operador escolheu a **opção C**,

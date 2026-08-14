@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CycloneDDS configuration for the x86 HOST side.
+
+  Mounted read-only at /cfg/cyclonedds.xml and selected with
+  CYCLONEDDS_URI=file:///cfg/cyclonedds.xml.
+
+  NOTE ON INTERFACE SELECTION
+  ===========================
+  The ML3.5 guide (§5) shows <NetworkInterface name="eth0"/>. That is a
+  PLACEHOLDER and it is wrong on this workstation, which has no eth0 at all:
+  `ip -br link` here reports lo, enp0s31f6 (DOWN, no carrier), wlp0s20f3 (UP,
+  Wi-Fi), tailscale0, docker0 and bridges.
+
+  Hardcoding a name that does not exist makes CycloneDDS fail to find the
+  interface and fall back in a way that looks like a DDS problem rather than a
+  config typo. So this file uses autodetermine instead of a name.
+
+  autodetermine picks the highest-priority interface CycloneDDS can find. That is
+  usually right on a single-NIC machine and NOT reliably right here, where
+  docker0 and tailscale0 are also up and can be chosen ahead of the intended
+  link. If host<->module discovery misbehaves, replace the autodetermine line
+  with the real interface name, verified first:
+
+      ip -br link                      # on this host
+      # then, in this file:
+      # <NetworkInterface name="wlp0s20f3" priority="default"/>
+
+  Multicast is off and peers are explicit because multicast commonly dies on
+  Wi-Fi and on managed switches. This host is on Wi-Fi (wlp0s20f3), so that is
+  the expected case, not a corner case.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface autodetermine="true" priority="default"/>
+      </Interfaces>
+      <!--
+        Off deliberately. With multicast enabled and peers listed, discovery can
+        succeed over multicast on the bench and then fail on the customer's
+        network, which hides the misconfiguration until the demo is in front of
+        someone.
+      -->
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <Peers>
+        <!--
+          127.0.0.1 IS LOAD-BEARING. DO NOT REMOVE IT.
+
+          With AllowMulticast=false, CycloneDDS discovers ONLY what is listed
+          here — and that includes participants in the same container and in
+          sibling containers on the same machine. Without a localhost peer there
+          is no same-machine discovery path at all.
+
+          Measured, learn mode, all four containers up: without this line
+          `ros2 node list` returned nothing, `ros2 topic list` showed only
+          /rosout and /parameter_events, and the Gazebo spawner sat forever on
+          "Waiting messages on topic [robot_description]" while
+          robot_state_publisher was demonstrably running and had logged "Robot
+          initialized" in the same container. Nothing named DDS as the cause.
+
+          Note that this is NOT the loopback interface. CycloneDDS selects the
+          highest-quality interface (here wlp0s20f3) and transmits on it; the
+          localhost peer only adds a discovery address. Forcing
+          <NetworkInterface name="lo"/> instead was tested and is WRONG — it
+          isolates the client from nodes that already selected the real
+          interface.
+
+          THE MODULE IP IS NOT LISTED HERE.
+          The ${MODULE_IP} placeholder that used to sit in this file never
+          expanded: Docker does not perform variable substitution inside a
+          bind-mounted file, so CycloneDDS received the literal string
+          "${MODULE_IP}" as an address. The ML3.5 guide §5 shows it that way and
+          it cannot work as written.
+
+          For hil mode (F5), add the module's real address as another <Peer>,
+          either by editing this file on the host or by generating it from .env
+          at compose time. That is F5 work; F1 is host-only and needs only
+          localhost.
+        -->
+        <Peer address="127.0.0.1"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  CycloneDDS configuration for the Aquila AM69 MODULE side.
+
+  Mounted read-only at /cfg/cyclonedds.xml inside the nav and perception
+  containers on the module.
+
+  Structurally identical to host.xml. It is a separate file rather than a shared
+  one because the interface name will eventually differ between the two machines,
+  and a single shared file would force one of them to be wrong.
+
+  INTERFACE NAME NOT VERIFIED
+  ===========================
+  The module was not accessible in the session that wrote this file, so the
+  interface name on the Aquila is UNKNOWN and this file uses autodetermine rather
+  than guessing a name.
+
+  Before the first hil run, on the module:
+
+      ssh torizon@${MODULE_IP}
+      ip -br link
+
+  If autodetermine picks the wrong link (the module may also have usb0, a bridge,
+  or a Docker interface up), replace the autodetermine line with the verified
+  name:
+
+      # <NetworkInterface name="eth0" priority="default"/>
+
+  Do not assume it is eth0 because the guide says eth0. That value is a
+  placeholder in the guide too.
+-->
+<CycloneDDS xmlns="https://cdds.io/config">
+  <Domain id="any">
+    <General>
+      <Interfaces>
+        <NetworkInterface autodetermine="true" priority="default"/>
+      </Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <Peers>
+        <!--
+          Same reasoning as host.xml, which was verified on the host in F1:
+          with AllowMulticast=false, CycloneDDS discovers only what is listed
+          here, and that includes containers on this same machine. Without a
+          localhost peer, nav and perception on the module cannot see each
+          other — regardless of the host link.
+        -->
+        <Peer address="127.0.0.1"/>
+
+        <!--
+          THE HOST ADDRESS IS MISSING AND MUST BE ADDED IN F5.
+
+          The ${HOST_IP} placeholder that was here never expanded: Docker does
+          not substitute variables inside a bind-mounted file, so CycloneDDS got
+          the literal string "${HOST_IP}" as an address. The ML3.5 guide §5
+          shows it that way; it does not work.
+
+          This file as committed therefore supports the module talking to
+          ITSELF only. That is correct for F1, which is host-only and never
+          starts these containers. Before the first hil run (F5), add the host's
+          real address:
+
+              <Peer address="192.168.x.y"/>
+
+          verified with `ip -br addr` on the host, or generate this file from
+          .env at deploy time rather than bind-mounting it verbatim.
+
+          Leaving it absent rather than leaving a broken placeholder is
+          deliberate: an unresolvable address looks configured and fails
+          silently, which is the exact trap this milestone keeps hitting.
+        -->
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

@@ -16,9 +16,38 @@
   <depend>launch_ros</depend>
   <!-- Transition constants for the slam_toolbox lifecycle autostart. -->
   <depend>lifecycle_msgs</depend>
-  <exec_depend>nav2_bringup</exec_depend>
+  <!--
+    nav2_bringup is deliberately NOT a dependency. Its launch files are
+    vendored under launch/nav2_vendored/ instead, because the apt package
+    hard-depends on nav2-minimal-tb3/tb4-sim and ros-gz-sim, which drag OGRE 2
+    into the arm64 `nav` image and violate CLAUDE.md rule 1. See
+    launch/nav2_vendored/README.md.
+  -->
+  <!--
+    The Nav2 servers are listed individually rather than via the `navigation2`
+    metapackage: that metapackage depends on nav2_rviz_plugins, which pulls
+    rviz-ogre-vendor onto the headless arm64 `nav` image. Same rule-1 reasoning
+    as nav2_bringup above. docker/nav/Dockerfile mirrors this list and explains
+    how it was derived.
+  -->
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_behavior_tree</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_costmap_2d</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
   <exec_depend>nav2_map_server</exec_depend>
-  <exec_depend>navigation2</exec_depend>
+  <exec_depend>nav2_mppi_controller</exec_depend>
+  <exec_depend>nav2_navfn_planner</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_route</exec_depend>
+  <exec_depend>nav2_smoother</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>rclcpp_components</exec_depend>
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>
 

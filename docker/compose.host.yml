@@ -1,0 +1,202 @@
+# Compose for the x86 HOST side.
+#
+# Compose files are split by MACHINE, not by mode. Modes are selected by profiles
+# and by which file you invoke on which machine:
+#
+#   learn  — everything here:      docker compose -f compose.host.yml --profile learn up --build
+#   hil    — plant + viz here:     docker compose -f compose.host.yml up sim viz
+#            nav + perception on the module (compose.module.yml)
+#
+# nav and perception sit behind the `learn` profile so that in hil mode they
+# simply do not start here — no file editing, which is what makes the two modes
+# the same source tree.
+#
+# First run:
+#   cp .env.example .env
+#   xhost +local:docker
+---
+# Anchor for everything that only needs the ROS 2 / DDS contract.
+#
+# network_mode: host for every service. This makes inter-container DDS discovery
+# work with no extra configuration and avoids the whole class of DDS-behind-a-NAT
+# bridge failures (guia §5). It also means ports are not published or mapped —
+# the containers are on the host's network stack directly.
+x-common: &common
+  environment: &common-env
+    # Must match the module. A mismatch is silent (guia §5).
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-69}
+    # CLAUDE.md rule 2. Also baked into the base image as ENV; repeated here so
+    # that reading this file tells you what the RMW is without opening a
+    # Dockerfile. The two must never disagree.
+    RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+    CYCLONEDDS_URI: file:///cfg/cyclonedds.xml
+    HOST_IP: ${HOST_IP:-}
+    MODULE_IP: ${MODULE_IP:-}
+  network_mode: host
+  volumes:
+    - ./cyclonedds/host.xml:/cfg/cyclonedds.xml:ro
+
+services:
+  # --- Plant: Gazebo + robot + bridge --------------------------------------
+  # x86 host only, always. Never gets an arm64 build (CLAUDE.md rule 1).
+  sim:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-sim:${TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/sim/Dockerfile
+      args:
+        REGISTRY: ${REGISTRY:-local}
+        TAG: ${TAG:-dev}
+    platform: linux/amd64
+    depends_on:
+      base:
+        condition: service_completed_successfully
+    environment:
+      <<: *common-env
+      DISPLAY: ${DISPLAY:-:0}
+      # Gazebo needs a writable home for ~/.gz; the image sets this up for uid
+      # 1000, and QT_X11_NO_MITSHM avoids a shared-memory failure that shows up
+      # as a blank Gazebo window rather than an error.
+      QT_X11_NO_MITSHM: 1
+    volumes:
+      - ./cyclonedds/host.xml:/cfg/cyclonedds.xml:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    # Intel/AMD: /dev/dri is enough. For NVIDIA, remove this and use
+    # `gpus: all` with the nvidia-container-toolkit installed (guia §6).
+    devices:
+      - /dev/dri:/dev/dri
+    # Mapping the device is NOT sufficient on its own. /dev/dri/renderD* is owned
+    # by the host's `render` group, and the container's `ubuntu` user is in
+    # `video` but not in that gid — so Gazebo logs
+    #   libEGL warning: failed to open /dev/dri/renderD128: Permission denied
+    # and silently falls back to software rendering. The demo still runs, just
+    # slowly, which is the hard kind of problem to notice.
+    #
+    # RENDER_GID is host-specific (992 here). Find yours with:
+    #   getent group render | cut -d: -f3
+    # and set it in .env. Verified: with the gid the device is readable, without
+    # it the open fails.
+    group_add:
+      - "${RENDER_GID:-992}"
+    # Gazebo's rendering uses shared memory; the 64 MB default causes crashes
+    # under load that do not name shm as the cause.
+    shm_size: 512mb
+    ipc: host
+    command: >
+      ros2 launch demo_bringup sim.launch.py
+      robot_type:=${ROBOT_TYPE:-diffdrive}
+
+  # --- Navigation ----------------------------------------------------------
+  # learn profile only. In hil mode this runs on the module instead.
+  nav:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-nav:${TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/nav/Dockerfile
+      args:
+        REGISTRY: ${REGISTRY:-local}
+        TAG: ${TAG:-dev}
+    platform: linux/amd64
+    depends_on:
+      base:
+        condition: service_completed_successfully
+    profiles: ["learn"]
+    # Ordering is NOT done here with depends_on on sim. `depends_on` waits for
+    # the container to start, not for the warehouse world to finish loading, so
+    # it would give false confidence. nav.launch.py gates on /clock actually
+    # advancing instead — see demo_bringup/wait_for_clock.py.
+    command: ros2 launch demo_bringup nav.launch.py use_sim_time:=true
+
+  # --- Perception ----------------------------------------------------------
+  perception:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-perception:${TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/perception/Dockerfile
+      args:
+        REGISTRY: ${REGISTRY:-local}
+        TAG: ${TAG:-dev}
+    platform: linux/amd64
+    depends_on:
+      base:
+        condition: service_completed_successfully
+    profiles: ["learn"]
+    command: ros2 launch demo_bringup perception.launch.py use_sim_time:=true
+
+  # --- Visualization -------------------------------------------------------
+  # x86 host only, always (CLAUDE.md rule 1). Not in the learn profile: it is
+  # wanted in hil mode too, where it watches the module's Nav2 over DDS.
+  viz:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-viz:${TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/viz/Dockerfile
+      args:
+        REGISTRY: ${REGISTRY:-local}
+        TAG: ${TAG:-dev}
+    platform: linux/amd64
+    depends_on:
+      base:
+        condition: service_completed_successfully
+    environment:
+      <<: *common-env
+      DISPLAY: ${DISPLAY:-:0}
+      QT_X11_NO_MITSHM: 1
+    volumes:
+      - ./cyclonedds/host.xml:/cfg/cyclonedds.xml:ro
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    devices:
+      - /dev/dri:/dev/dri
+    # Same reason as sim: without the host's render gid, RViz2 falls back to
+    # software GL instead of failing outright.
+    group_add:
+      - "${RENDER_GID:-992}"
+    ipc: host
+    command: ros2 launch demo_bringup viz.launch.py
+
+  # --- Tools ---------------------------------------------------------------
+  # Inspection shell. Under its own profile so it does not start with the demo:
+  #   docker compose -f compose.host.yml --profile tools up -d tools
+  #   docker compose -f compose.host.yml exec tools bash
+  tools:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-tools:${TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/tools/Dockerfile
+      args:
+        REGISTRY: ${REGISTRY:-local}
+        TAG: ${TAG:-dev}
+    platform: linux/amd64
+    depends_on:
+      base:
+        condition: service_completed_successfully
+    profiles: ["tools"]
+    stdin_open: true
+    tty: true
+    # Must not exit — this service exists to be exec'd into (guia §9 uses
+    # `compose exec tools`). The Dockerfile CMD already sleeps; stated here so
+    # the behaviour is visible from the compose file.
+    command: sleep infinity
+
+  # --- Base image builder --------------------------------------------------
+  # Not a running service. The five role images all start FROM
+  # ${REGISTRY}/demo-aquila-base:${TAG}, and Compose has no notion of an image
+  # dependency between builds — so without this, `up --build` fails on a clean
+  # machine with "pull access denied for local/demo-aquila-base".
+  #
+  # `command: true` exits 0 immediately; the role services depend on it with
+  # service_completed_successfully, which makes Compose build this image first
+  # and then proceed. It is a build ordering device, not a workload.
+  base:
+    image: ${REGISTRY:-local}/demo-aquila-base:${TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/base/Dockerfile
+    platform: linux/amd64
+    network_mode: host
+    command: "true"

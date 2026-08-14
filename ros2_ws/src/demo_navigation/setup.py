@@ -14,6 +14,15 @@ setup(
             ['resource/' + package_name]),
         (os.path.join('share', package_name), ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
+        # Vendored Nav2 launch files. Note the *_launch.py pattern: upstream
+        # names them navigation_launch.py, not navigation.launch.py, so the
+        # glob above does NOT match them and they would silently fail to
+        # install — bringup_launch.py would then be missing at runtime with a
+        # "file not found" that names a path nobody edited.
+        # The README ships too, so provenance travels with the copies.
+        (os.path.join('share', package_name, 'launch', 'nav2_vendored'),
+            glob('launch/nav2_vendored/*_launch.py')
+            + glob('launch/nav2_vendored/README.md')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         # Both halves of the map must ship: the .yaml references the .pgm.
         (os.path.join('share', package_name, 'maps'),
