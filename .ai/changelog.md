@@ -5,6 +5,59 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-14 — ML3.5 F2: alvo trocado de A1 para Go2; spike andando, portão batido
+
+**Motivo da troca de alvo:** verificação de F2 na árvore clonada de
+`legubiao/quadruped_ros2_control` achou `a1_description` com
+`<license>TODO</license>` — sem header de copyright em nenhum arquivo, sem
+cobertura da licença Apache-2.0 da raiz (que cobre só o código, não as
+descrições de robô). `go2_description` declara BSD. Como F3 vendoriza
+justamente a descrição do robô-alvo, seguir com A1 teria sido vendorizar
+arquivo sem licença clara numa demo comercial da Toradex — o mesmo critério que
+já eliminou o Tugbot no ML3.1 e dois forks Go2 na escolha da base. Decisão:
+**demo passa a usar Go2**, não A1. Nada em F2 a F5 tecnicamente exige um
+quadrúpede específico; o contrato de tópicos (F4) não distingue os dois.
+
+**Portão de F2 batido:** Go2 upstream, sem modificação, em pé e andando por
+`cmd_vel`, medido por pose real (`gz topic -e -t .../dynamic_pose/info`), não
+por ausência de erro em log. Em pé sustentado a `z=0.353m`; andando com ganho
+baixo (`linear.x=0.03`) sustenta `z=0.343m` por 8s contínuos sem cair. Zero
+erros no log da execução.
+
+Spike descartável (`demo-sim:spike-go2`, `/tmp/f2-spike`, **não commitado** —
+nada disto entra na árvore do projeto). Clone raso de `quadruped_ros2_control`;
+pacotes que o spike não builda (`ocs2_quadruped_controller`,
+`rl_quadruped_controller`, `magicdog_description`, etc.) removidos antes do
+`rosdep install` — remoção do que não se builda, nada do que o spike usa foi
+tocado. Build: `go2_description`, `unitree_guide_controller` (PD clássico, sem
+policy RL), `keyboard_input`, `gz_quadruped_playground`.
+
+**Achado que muda o plano de F4:** o controlador não fala `geometry_msgs/Twist`
+nativamente. Usa `control_input_msgs/Inputs` (formato joystick: `lx/ly/rx/ry` +
+`command` de estado). F4 (contrato de tópicos) precisará de uma ponte
+Twist→Inputs real — o spike escreveu uma versão descartável só para testar o
+portão, com mapeamento linear ingênuo e sem os limites de velocidade que uma UI
+de joystick real respeitaria. É a causa provável de o robô cair em ganho alto
+(`linear.x>=0.15`): sintonia de escala, não falha estrutural — coerente com o
+próprio guia, que já registrava esse risco como fora do escopo de F2.
+
+**Achado técnico:** `gz_quadruped_hardware` é do próprio repo (2.0.6, fork do
+`gz_ros2_control` upstream, Apache-2.0), **não** o `gz_ros2_control` 1.2.19 do
+apt que o plano original supunha. Confirmar qual entra na imagem `sim` real
+antes de F3.
+
+**Armadilha de metodologia registrada:** testar a FSM manualmente via
+`ros2 topic pub .../control_input` enquanto a ponte de spike do launch ainda
+publicava em paralelo produziu dois publishers competindo e um retrocesso de
+estado que parecia o controlador instável e não era. Diagnosticado lendo
+`StateTrotting::checkChange()` — `command==2` força volta a `FIXEDSTAND` mesmo
+em trote estável. Corrigido isolando um único publisher por teste.
+
+Detalhe completo, com a tabela pose-por-momento e a colisão CycloneDDS x
+`unitree_sdk2` (segue não bloqueando, container `hw` já existe): `docs/ml35/estado-fases.md`.
+
+---
+
 ## 2026-08-14 — ML3.5 F1: baseline diff-drive inteira em containers
 
 **Portão batido:** goal Nav2 `SUCCEEDED` (`error_code: 0`) com a demo rodando em
