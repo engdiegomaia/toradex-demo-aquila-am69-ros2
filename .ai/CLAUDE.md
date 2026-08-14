@@ -122,7 +122,7 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
 - **ML3.5** — em curso: locomoção quadrúpede A1 real + containerização.
   **Estado por fase e próximo passo: `docs/ml35/estado-fases.md`** (leia primeiro
   numa sessão nova). Spec: `docs/ml35/guia-ml35-docker.md`. Fases F0 a F6, com
-  portão em cada uma; F0 concluída em 14/08/2026 (`3885f2e`), F1 é a próxima.
+  portão em cada uma; F0 (`3885f2e`) e F1 concluídas em 14/08/2026, F2 é a próxima.
   Base de locomoção: `legubiao/quadruped_ros2_control` (Apache-2.0, branch default
   Jazzy) — a confirmar na árvore em F2, não pelo README. A containerização entra
   em F1, **antes** da troca do robô, para separar risco de Docker/DDS de risco de

@@ -5,14 +5,19 @@
   <version>0.1.0</version>
   <description>
     Top-level composition for the Aquila AM69 ROS 2 demo.
-    One explicit launch file per execution mode, no cross-mode conditionals.
-    ML3 delivers learn.launch.py; emul and target arrive with ML4.
+    One explicit launch file per container role, no cross-mode conditionals.
+    learn.launch.py is the native, non-containerized composition; sim, nav,
+    perception and viz are each the entrypoint of one compose service.
   </description>
   <maintainer email="diego.maia@toradex.com">Diego Maia</maintainer>
   <license>Apache-2.0</license>
 
   <depend>launch</depend>
   <depend>launch_ros</depend>
+  <!-- wait_for_clock: the ordering gate for nav and perception. -->
+  <depend>builtin_interfaces</depend>
+  <depend>rclpy</depend>
+  <depend>rosgraph_msgs</depend>
   <exec_depend>demo_navigation</exec_depend>
   <exec_depend>demo_perception</exec_depend>
   <exec_depend>demo_simulation</exec_depend>

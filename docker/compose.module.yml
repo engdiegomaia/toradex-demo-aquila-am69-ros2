@@ -1,0 +1,92 @@
+# Compose for the Aquila AM69 MODULE side (arm64, Torizon OS).
+#
+# Runs the half of the demo that migrates to the module. Used for:
+#
+#   hil     — nav + perception here, sim + viz on the x86 host. The ML3.5 deliverable.
+#   deploy  — nav + perception + hw, no host. Out of ML3.5 scope.
+#
+# NOTHING GRAPHICAL IS HERE, BY CONSTRUCTION.
+# No sim, no viz, no X11 socket, no /dev/dri. The AM69 exposes only OpenGL ES 3.2
+# and Vulkan 1.2, so Gazebo and RViz2 (both OGRE 2) cannot run on it — CLAUDE.md
+# rule 1. Do not add them to this file. The guard is also in the sim and viz
+# Dockerfiles, deliberately duplicated, because a compose file is the easiest
+# thing to copy and edit by hand at 2am.
+#
+# Getting it here (guia §9):
+#   scp compose.module.yml .env cyclonedds/module.xml torizon@${MODULE_IP}:~/demo/
+#   ssh torizon@${MODULE_IP}
+#   cd ~/demo && docker compose -f compose.module.yml up -d
+#
+# NOT VALIDATED ON HARDWARE. The module was not accessible in the session that
+# wrote this file. Nothing here is a claim about arm64 behaviour, performance or
+# thermals (CLAUDE.md rules 5 and 7). Treat the first run as bring-up, not as a
+# regression check.
+---
+x-common: &common
+  environment: &common-env
+    # MUST match the host. A mismatch produces an empty `ros2 topic list` with
+    # no error on either side — check this first when the link looks dead.
+    ROS_DOMAIN_ID: ${ROS_DOMAIN_ID:-69}
+    RMW_IMPLEMENTATION: rmw_cyclonedds_cpp
+    CYCLONEDDS_URI: file:///cfg/cyclonedds.xml
+    HOST_IP: ${HOST_IP:-}
+    MODULE_IP: ${MODULE_IP:-}
+  network_mode: host
+  # The module is meant to come up with the demo running after a power cycle.
+  # Note this differs from the host side, where a crashed container should stay
+  # down and visible rather than silently restarting during development.
+  restart: unless-stopped
+  volumes:
+    - ./cyclonedds/module.xml:/cfg/cyclonedds.xml:ro
+
+services:
+  nav:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-nav:${TAG:-dev}
+    platform: linux/arm64
+    # use_sim_time:=true even here. In hil mode the module follows the HOST's
+    # /clock over DDS, because Gazebo owns time. A module on wall time while the
+    # host runs sim time gives TF extrapolation errors and Nav2 refusing goals,
+    # with nothing in the logs pointing at the clock (guia §6).
+    command: ros2 launch demo_bringup nav.launch.py use_sim_time:=true
+
+  perception:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-perception:${TAG:-dev}
+    platform: linux/arm64
+    command: ros2 launch demo_bringup perception.launch.py use_sim_time:=true
+    # When a real camera exists (deploy mode), perception gains the device:
+    #
+    #   devices:
+    #     - "/dev/video0:/dev/video0"
+    #
+    # Before debugging container permissions, confirm the node exists on the
+    # module with `ls -l /dev/video*`. If the Device Tree did not instantiate the
+    # sensor, no mapping fixes it (guia §7).
+
+  # --- Tools ---------------------------------------------------------------
+  # Inspection shell on the module side. Same profile pattern as the host:
+  #   docker compose -f compose.module.yml --profile tools up -d tools
+  #   docker compose -f compose.module.yml exec tools bash
+  #   ros2 topic list | grep /demo/
+  #
+  # This is the intended way to verify the two machines see each other from the
+  # module (guia §9). If the list comes back empty, check in this order:
+  # ROS_DOMAIN_ID equal on both sides, `ip -br link` matching what
+  # cyclonedds/module.xml selects, the Peers addresses, then the host firewall
+  # on UDP 7400 and neighbours.
+  tools:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-tools:${TAG:-dev}
+    platform: linux/arm64
+    profiles: ["tools"]
+    restart: "no"
+    stdin_open: true
+    tty: true
+    command: sleep infinity
+
+  # --- hw: real A1 driver --------------------------------------------------
+  # Deliberately absent, not merely commented out as a stub to fill in.
+  # See docker/hw/README.md: it carries a registered invariant collision
+  # (unitree_sdk2 wants Fast DDS, rule 2 says CycloneDDS always) that must be
+  # resolved by an ADR before this service exists. Out of ML3.5 scope.

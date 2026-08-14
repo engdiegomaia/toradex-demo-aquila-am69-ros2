@@ -24,14 +24,14 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | Fase | Nome | Estado | Commit |
 |---|---|---|---|
 | **F0** | Ponto de retorno, commit do ML3.1 | ✅ **concluída** 14/08/2026 | `3885f2e` |
-| **F1** | Containerizar a baseline diff-drive | ⬜ próxima | — |
-| **F2** | Spike Go2 dentro do container `sim` | ⬜ | — |
+| **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `f1-commit` |
+| **F2** | Spike Go2 dentro do container `sim` | 🔄 em curso | — |
 | **F3** | Retarget A1 | ⬜ | — |
 | **F4** | Contrato atravessando fronteira de container | ⬜ | — |
 | **F5** | Nav2 sobre pernas + modo HIL | ⬜ | — |
 | **F6** | Fallback selecionável e testes | ⬜ | — |
 
-**Próximo passo: F1.** Aguardando ordem do operador.
+**Próximo passo: F2.** Aguardando ordem do operador.
 
 ---
 
@@ -102,34 +102,165 @@ com GUI (exige sessão gráfica interativa). Não bloqueia F1.
 
 ---
 
-## F1 — próxima
+## F1 — concluída 14/08/2026
 
-Containerizar o diff-drive que já funciona, **sem trocar o robô**. Isso separa
-risco de infraestrutura de risco de locomoção: se o compose quebrar aqui,
-quebrou por Docker ou DDS, não por marcha. E se F2 falhar, o trabalho de F1
-continua valendo para a demo diff-drive.
+Portão batido: **goal Nav2 `SUCCEEDED`** (`error_code: 0`) com a demo inteira em
+containers, enviado do container `tools`. `colcon build` limpo (6 pacotes),
+`colcon test` **46 testes 0 falhas** (eram 39; +7 do `wait_for_clock`).
+Evidência de execução em `docs/results/ml35-f1-execucao.md`.
 
-**Criar:** `docker/{base,sim,nav,perception,viz,tools}/Dockerfile`,
-`docker/hw/README.md`, `docker/compose.host.yml`, `docker/compose.module.yml`,
+Taxas medidas, learn mode, host x86: `/clock` 334 Hz, `/demo/odom` 27,8 Hz,
+`/demo/scan` 10,0 Hz, `/demo/camera/image_raw` 10,0 Hz,
+`/demo/perception/detections` 10,0 Hz. AMCL, bt_navigator, controller_server e
+planner_server todos `active`. Contrato de tópicos preservado, `demo_perception`
+intocado (regra 6).
+
+**Criado:** `docker/{base,sim,nav,perception,viz,tools}/Dockerfile`,
+`docker/hw/README.md`, `docker/compose.{host,module}.yml`,
 `docker/cyclonedds/{host,module}.xml`, `docker/entrypoint.sh`,
-`docker/.env.example`.
+`docker/.env.example`. Os diretórios do scaffold antigo (`navigation`,
+`simulation`, `hmi`) eram todos vazios e não rastreados pelo git — não houve
+rename, foi criação.
 
-**Tocar:** `demo_bringup/launch/{sim,nav,perception,viz}.launch.py` — o guia
-invoca quatro launch files que **não existem**; hoje há só `learn.launch.py`
-monolítico. Decompor por container. `demo_bringup/setup.py` para instalá-los.
+**Tocado:** `demo_bringup/launch/{sim,nav,perception,viz}.launch.py` (novos),
+`demo_bringup/{setup.py,package.xml}`, `demo_bringup/demo_bringup/wait_for_clock.py`
+(novo) e seu teste. `demo_navigation/{setup.py,package.xml}` e
+`navigation.launch.py` — ver "vendorização" abaixo.
 
-**Renomear:** `docker/` hoje tem os nomes do scaffold antigo (`navigation`,
-`simulation`, `hmi`) contra os do guia (`nav`, `sim`, `viz`, `tools`, `hw`).
-Todos vazios.
+### O risco número um se confirmou, e a decisão foi trocar os timers
 
-**Não tocar:** `demo_perception` (regra 6), `demo_description`, `demo_navigation`.
+Os delays por timer do `learn.launch.py` (20 s perception, 25 s nav) medem o
+tempo desde a subida do **próprio** container, que não tem relação fixa com o
+momento em que o Gazebo terminou de carregar o mundo. `docker compose up` sobe
+tudo junto.
 
-### Risco número um de F1
+Substituídos pelo nó **`wait_for_clock`** (`demo_bringup`), que aguarda `/clock`
+existir **e avançar** antes de liberar Nav2 e perception. Exige duas amostras com
+timestamp estritamente crescente: uma só amostra passaria com Gazebo pausado
+(`gz sim` sem `-r` inicia pausado), trocando uma falha silenciosa por outra.
+Timeout de 120 s, sai != 0 — container que espera para sempre parece travamento,
+não falha.
 
-Os delays por timer do `learn.launch.py` (12 s spawn, 15 s bridge, 20 s
-perception, 25 s nav) foram calibrados para **processos num só host**.
-Atravessando fronteira de container a ordem de subida muda. É o candidato mais
-provável a quebrar F1 — e é exatamente o que F1 existe para isolar.
+Isto **amplia o escopo de F1** em relação ao "nenhuma mudança de comportamento"
+do portão: é código novo, não só empacotamento. Decisão do operador, tomada com
+a alternativa (portar os timers como estavam) na mesa. Os 12 s de spawn e 15 s de
+bridge **dentro** de `simulation.launch.py` continuam intocados — são
+intra-container e o timer ali ainda mede o que deve.
+
+### Três armadilhas encontradas na execução, todas silenciosas
+
+Nenhuma destas aparece como erro que nomeie a causa. Ficam registradas porque
+custaram tempo e vão reaparecer.
+
+**1. `${HOST_IP}` em arquivo bind-mounted nunca expande.** O XML do guia §5 usa
+`<Peer address="${HOST_IP}"/>`. Docker não substitui variáveis dentro de arquivo
+montado, então o CycloneDDS recebe a string literal `${HOST_IP}` como endereço.
+Combinado com `AllowMulticast=false`, resultado: **nenhum mecanismo de descoberta
+sobrou**, nem entre processos do mesmo container. Sintoma: `ros2 node list` vazio,
+`ros2 topic list` só com `/rosout`, e o spawner do Gazebo em
+`Waiting messages on topic [robot_description]` para sempre — enquanto o
+`robot_state_publisher` logava `Robot initialized` no mesmo container. Correção:
+`<Peer address="127.0.0.1"/>`, que é **load-bearing**, não redundante. O IP do
+módulo entra em F5 (ver `module.xml`, que hoje só fala consigo mesmo, de
+propósito).
+
+Não confundir com forçar `<NetworkInterface name="lo"/>`: isso foi testado e é
+**errado** — isola o cliente dos nós que já selecionaram a interface real
+(aqui `wlp0s20f3`). Mantém-se `autodetermine`; o peer localhost só adiciona
+endereço de descoberta.
+
+**2. `eth0` do guia não existe nesta máquina.** `ip -br link` no host dá `lo`,
+`enp0s31f6` (DOWN), `wlp0s20f3` (UP, Wi-Fi), `tailscale0`, `docker0`. Os dois
+XMLs usam `autodetermine` em vez de nome fixo, com o procedimento de verificação
+comentado no arquivo. Como o host está em Wi-Fi, o caso "multicast morre" é o
+esperado, não o excepcional.
+
+**3. `GZ_SIM_RESOURCE_PATH` vazio no container.** `demo_description` referencia
+as malhas como `model://nav2_minimal_tb4_description/meshes/*.dae`. Nativamente
+resolve pelo ambiente ROS ambiente; no container não. Sintoma: robô spawna com
+colisão e inércia corretas — física e navegação funcionam — e **sem corpo
+visível**. Robô invisível na GUI mas presente para o planner. Corrigido com
+`ENV GZ_SIM_RESOURCE_PATH=/opt/ros/jazzy/share` no `sim/Dockerfile`; erros de
+mesh de N para 0.
+
+### Vendorização de quatro launch files do Nav2 (regra 1)
+
+`ros-jazzy-nav2-bringup` **hard-depends** de `nav2-minimal-tb3-sim`,
+`nav2-minimal-tb4-sim`, `ros-gz-sim` e `navigation2`. Medido: colocou
+`libogre-1.9`, `gz-ogre-next-vendor`, `gz-rendering`, `gz-gui` e 30+ pacotes na
+imagem `nav` — **3,7 GB e OGRE 2 numa imagem que vai para o AM69**, violação
+direta da regra 1. `--no-install-recommends` não ajuda: são `Depends`.
+
+`ros-jazzy-navigation2` (o metapacote) tem o mesmo problema um nível abaixo, via
+`nav2-rviz-plugins` → `rviz-ogre-vendor`.
+
+Solução: os quatro launch files que `navigation.launch.py` precisa
+(`bringup`, `localization`, `navigation`, `slam`) estão vendorizados em
+`demo_navigation/launch/nav2_vendored/`, Apache-2.0, cabeçalhos de copyright
+intactos, **só os caminhos de raiz de pacote re-rooteados**. Os servidores Nav2
+entram individualmente no Dockerfile. Provenance e as edições exatas em
+`nav2_vendored/README.md`.
+
+Resultado: `nav` de 3,7 GB → **2,48 GB**, e **zero** pacotes OGRE/RViz/Gazebo.
+Verificados os 18 plugins declarados em `nav2_params.yaml` — todos resolvem via
+pluginlib na imagem (plugin ausente não é erro de build: falha na transição de
+lifecycle).
+
+**Custo aceito:** a lista de servidores no `nav/Dockerfile` e em
+`demo_navigation/package.xml` agora acopla com `nav2_params.yaml`. Plugin novo
+de pacote não listado exige crescer as duas listas. Está comentado nos dois
+lugares.
+
+### Tamanhos das imagens
+
+| Imagem | Tamanho | Vai para o módulo? |
+|---|---|---|
+| `base` | 912 MB | é a base de todas |
+| `perception` | 912 MB | **sim** (arm64) |
+| `tools` | 952 MB | sim (arm64) |
+| `nav` | 2,48 GB | **sim** (arm64) |
+| `sim` | 2,47 GB | não, x86 apenas |
+| `viz` | 2,7 GB | não, x86 apenas |
+
+`nav` a 2,48 GB continua gordo para partição de dados do Torizon. Não é violação
+de regra nenhuma (não há mais nada gráfico), é peso. Dieta adicional, se
+necessária, é trabalho de F5 — é quando `nav` de fato promove para arm64 e vai
+ao módulo.
+
+### Não validado nesta fase
+
+- **Nada em arm64.** Nenhuma imagem arm64 foi construída em F1; os `platform:`
+  estão declarados e o `compose.module.yml` está escrito, mas não executado.
+  Regras 5 e 7.
+- **Módulo inacessível** nesta sessão. `compose.module.yml` e
+  `cyclonedds/module.xml` são código não executado.
+- **Confirmação visual em GUI.** Mapear `/dev/dri` não bastava: `renderD128` é do
+  grupo `render` (gid 992 neste host) e o usuário `ubuntu` do container está em
+  `video`. Sintoma: `libEGL warning: failed to open /dev/dri/renderD128:
+  Permission denied` e queda silenciosa para render em software — a demo roda, só
+  devagar. Corrigido com `group_add: ["${RENDER_GID:-992}"]` em `sim` e `viz`;
+  verificado que com o gid o device é legível e sem ele o open falha. Após a
+  correção: 0 erros de libEGL, 0 erros de mesh, goal `SUCCEEDED`.
+
+  **`RENDER_GID` é específico do host** (`getent group render | cut -d: -f3`). O
+  default 992 no compose vale para esta máquina. **Pendência aberta:** o
+  `docker/.env.example` não documenta a variável. O arquivo está bloqueado por
+  regra de permissão do ambiente (`.env*` é negado para leitura e para shell),
+  confirmado em duas sessões — não é transiente. **Correção é manual, do
+  operador:** acrescentar ao `docker/.env.example`
+
+  ```
+  # gid do grupo `render` DESTE host: getent group render | cut -d: -f3
+  # Sem isto, sim e viz caem para render em software sem erro que nomeie a causa.
+  RENDER_GID=992
+  ```
+
+  O comentário explicativo já está nos dois serviços do `compose.host.yml`, que
+  é onde a variável é consumida.
+
+  O que continua **não verificado por olho humano**: se o robô aparece correto no
+  Gazebo e no RViz2. Os erros de mesh zeraram e o render é acelerado, mas
+  ninguém olhou a tela. Herdado do ML3.1 e ainda pendente do operador.
 
 ---
 

@@ -6,10 +6,18 @@ half of the demo that migrates to the module; the simulator never does.
 
     ros2 launch demo_navigation navigation.launch.py
 
-Delegates to nav2_bringup's bringup_launch.py rather than instantiating each
-server by hand: the lifecycle-manager wiring and node ordering are exactly what
-upstream maintains, and duplicating it here would rot. What this file owns is
-the project's parameter file, map, and namespace choices.
+Delegates to Nav2's bringup_launch.py rather than instantiating each server by
+hand: the lifecycle-manager wiring and node ordering are exactly what upstream
+maintains, and duplicating it here would rot. What this file owns is the
+project's parameter file, map, and namespace choices.
+
+That delegation now targets a VENDORED copy under launch/nav2_vendored/ instead
+of the installed nav2_bringup package. The launch logic is upstream's, unchanged;
+only the package-root paths were re-rooted. The reason is CLAUDE.md rule 1: the
+ros-jazzy-nav2-bringup *package* hard-depends on nav2-minimal-tb3/tb4-sim and
+ros-gz-sim, which drag OGRE 2 and the whole Gazebo stack into the `nav` container
+— an image that ships to the Aquila AM69, where desktop OpenGL does not exist.
+See launch/nav2_vendored/README.md for the full provenance and the exact edits.
 
 RViz is deliberately absent — it is an OGRE 2 application and must stay on the
 x86 host (CLAUDE.md rule 1). demo_bringup's learn launch starts it separately.
@@ -68,7 +76,8 @@ def generate_launch_description() -> LaunchDescription:
 
     nav2_bringup = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('nav2_bringup'), 'launch', 'bringup_launch.py',
+            FindPackageShare('demo_navigation'),
+            'launch', 'nav2_vendored', 'bringup_launch.py',
         ])),
         launch_arguments={
             'map': LaunchConfiguration('map'),
