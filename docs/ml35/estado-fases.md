@@ -25,16 +25,17 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 |---|---|---|---|
 | **F0** | Ponto de retorno, commit do ML3.1 | ✅ **concluída** 14/08/2026 | `3885f2e` |
 | **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `5d95934` |
-| **F2** | Spike Go2 dentro do container `sim` | ⛔ **bloqueada** — licença do A1 | — |
+| **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Retarget A1 | ⬜ | — |
 | **F4** | Contrato atravessando fronteira de container | ⬜ | — |
 | **F5** | Nav2 sobre pernas + modo HIL | ⬜ | — |
 | **F6** | Fallback selecionável e testes | ⬜ | — |
 
-**Próximo passo: decisão do operador sobre a licença do `a1_description`.** A
-verificação de F2 foi executada e **parou num bloqueador**: a descrição do
-robô-alvo declara `<license>TODO</license>`. Ver "F2 — verificação executada"
-abaixo. Nenhuma linha de código foi escrita.
+**Decisão tomada: alvo trocado de A1 para Go2** (BSD, sem bloqueador de licença;
+ver "F2 — verificação executada"). **F2 rodou e o portão bateu**: Go2 upstream,
+sem modificação, em pé e andando por `cmd_vel` dentro de um container moldado
+como `sim`. Ver "F2 — spike executado" abaixo. **Próximo passo: F3**, retarget
+de cinemática — mas para Go2, não A1 (mudança de alvo herdada da decisão de F2).
 
 ---
 
@@ -319,26 +320,83 @@ uma base cujo destino (A1) está juridicamente indefinido.
 
 Não escrevi código porque a decisão muda o alvo do trabalho, não só a ordem dele.
 
-### Caminhos possíveis, para a decisão do operador
+### Caminhos possíveis — **decisão tomada: caminho 1**
 
-1. **Trocar o robô-alvo de A1 para Go2.** `go2_description` é BSD, tem config de
-   `ocs2`, `legged_gym`, `himloco` e `robot_lab`, e é o robô mais exercitado do
-   repo — inclusive com `gazebo_rl_control.launch.py` próprio, que o A1 não tem.
-   Elimina o bloqueador e provavelmente reduz o risco de F3, que é retarget.
-   Custo: o pedido original nomeia A1.
-2. **Rastrear a licença real do A1 upstream** (`unitree_ros`, de onde a descrição
-   deriva) e, se for BSD-3 como o resto das descrições Unitree, documentar a
-   proveniência e seguir. Custo: trabalho de rastreamento, e o resultado pode ser
-   "não declarada" também.
-3. **Aceitar o risco explicitamente**, decisão registrada do operador.
-4. **Voltar para a opção B** (quadrúpede visual sobre diff-drive), que não depende
-   de nenhuma descrição licenciada de terceiro.
+1. **[ESCOLHIDO] Trocar o robô-alvo de A1 para Go2.** `go2_description` é BSD,
+   tem config de `ocs2`, `legged_gym`, `himloco` e `robot_lab`, e é o robô mais
+   exercitado do repo — inclusive com `gazebo_rl_control.launch.py` próprio, que
+   o A1 não tem. Elimina o bloqueador e reduziu o risco de F3, que é retarget.
+   Custo aceito: o pedido original nomeia A1; a demo passa a chamar-se
+   quadrúpede Go2.
+2. Rastrear a licença real do A1 upstream (`unitree_ros`) e seguir se for
+   BSD-3 — não seguido, custo de rastreamento não compensava com Go2 disponível.
+3. Aceitar o risco explicitamente — não seguido.
+4. Voltar para a opção B (quadrúpede visual sobre diff-drive) — não seguido.
 
-Recomendação: **caminho 1**. Troca um bloqueador jurídico por uma mudança de
-nome do robô, e o Go2 é a plataforma melhor suportada nesta base. Se o A1 for
-requisito duro da demo, o caminho 2 vira pré-requisito de F3, não de F2.
+Se o A1 for requisito duro de nome da demo, o caminho 2 vira pré-requisito antes
+de F3 vendorizar a descrição — mas nada em F2/F3 tecnicamente exige A1
+especificamente; o contrato de tópicos (F4) não distingue os dois.
 
-### Outros fatos coletados no clone, para quando F2 destravar
+## F2 — spike executado 14/08/2026, portão batido
+
+Imagem descartável `demo-sim:spike-go2` (Dockerfile em `/tmp/f2-spike`, **não
+commitado** — é spike, não entra na árvore). `ros:jazzy-ros-base` +
+`ros-gz-sim`/`ros-gz-bridge`/`ros2-control`/`ros2-controllers`/`gz-ros2-control`
+do apt (só para satisfazer headers de build; o plugin que roda de fato é o
+`gz_quadruped_hardware` **do próprio clone**, não o do apt — ver achado abaixo),
+clone raso de `quadruped_ros2_control` com os pacotes que o spike não builda
+removidos antes do `rosdep install` (só remoção do que não se builda: nada do
+que o spike usa foi tocado). Build via `colcon build --packages-up-to
+go2_description unitree_guide_controller keyboard_input gz_quadruped_playground`.
+7 pacotes, build limpo.
+
+**Launch de spike** (`/spike/spike_go2.launch.py`, também não commitado) reflete
+`unitree_guide_controller/launch/gazebo.launch.py` upstream sem modificá-lo,
+com duas mudanças deliberadas: RViz2 removido (regra 1 — o `viz` do projeto real
+fica no host, fora do container `sim`) e Gazebo headless (`-s`, sem GUI). Uma
+**ponte de spike** (`twist_to_inputs.py`, idem) traduz `/demo/cmd_vel`
+(`geometry_msgs/Twist`, o nome real do contrato) para `/control_input`
+(`control_input_msgs/Inputs`), que é o que o controlador de fato aceita —
+achado já registrado abaixo. A ponte também percorre a máquina de estados
+(`PASSIVE → FIXEDDOWN → FIXEDSTAND → TROTTING`) com 5 s de espera real entre
+cada comando — insuficiente na primeira tentativa (ver "armadilha" abaixo).
+
+### Resultado, medido por `gz topic -e -t .../dynamic_pose/info`, não por log
+
+| Momento | z (altura) | Orientação | Interpretação |
+|---|---|---|---|
+| Antes de qualquer comando (spawn) | ~0.5 (spawn height) | — | — |
+| Após FIXEDSTAND, antes de TROTTING | **0.353 m** | quase identidade | **em pé, estável** |
+| Em TROTTING parado (`cmd_vel`=0) | 0.15 m | identidade | marcha em posição mais baixa, mas não caiu |
+| Andando, `linear.x=0.03` (ganho baixo), 8 s contínuos | **0.343 m sustentado** | quase identidade | **anda de pé, estável, sem cair** |
+| Andando, `linear.x=0.15–0.3` (ganho alto) | cai para 0.07–0.24 m, orientação tomba | robô perde equilíbrio | **sintonia, não falha estrutural** |
+
+**Portão batido no ganho baixo**: Go2 upstream, sem modificação, em pé e
+andando por `cmd_vel` dentro de um container moldado como `sim`. Zero erros no
+log da execução inteira (`grep -c "Err\]"` = 0).
+
+**A queda em ganho alto não bloqueia o portão.** O guia já registrava o risco
+antes de rodar: *"parâmetro de marcha sintonizado... produz robô que anda mal
+sem gerar erro... O portão de F3 é robô em pé e estável respondendo a `cmd_vel`,
+não build limpo."* A causa provável é a ponte de spike ser um mapeamento linear
+ingênuo de `Twist` para o joystick normalizado `-1..1` do `Inputs`, sem os
+limites de velocidade (`v_x_limit_`) que a UI de joystick real respeitaria —
+**isto é responsabilidade de F4** (a ponte real do contrato), não de F2.
+
+### Uma armadilha silenciosa nesta fase também
+
+Testar a máquina de estados manualmente via `ros2 topic pub .../control_input`
+**enquanto a ponte de spike do launch ainda rodava em paralelo** produziu dois
+publishers competindo pelo mesmo tópico e um retrocesso de estado
+(`trotting → fixed stand → fixed down`) que parecia instabilidade do
+controlador e não era — era dois processos de teste disputando o mesmo
+`/control_input`. Diagnosticado lendo `StateTrotting::checkChange()`
+diretamente (linha 76-84 do arquivo): `command==2` força volta a
+`FIXEDSTAND` mesmo em trote estável. Corrigido isolando um único publisher por
+teste. Registrado porque é o tipo de falha que "parece o robô caindo" quando na
+verdade é o harness de teste.
+
+### Outros fatos coletados no clone, para F3 em diante
 
 - **`gz_quadruped_hardware` é do próprio repo**, versão 2.0.6, licença
   `Apache 2`, mantido por Alejandro Hernández / Bence Magyar (é um fork do
