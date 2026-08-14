@@ -24,14 +24,17 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | Fase | Nome | Estado | Commit |
 |---|---|---|---|
 | **F0** | Ponto de retorno, commit do ML3.1 | ✅ **concluída** 14/08/2026 | `3885f2e` |
-| **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `f1-commit` |
-| **F2** | Spike Go2 dentro do container `sim` | 🔄 em curso | — |
+| **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `5d95934` |
+| **F2** | Spike Go2 dentro do container `sim` | ⛔ **bloqueada** — licença do A1 | — |
 | **F3** | Retarget A1 | ⬜ | — |
 | **F4** | Contrato atravessando fronteira de container | ⬜ | — |
 | **F5** | Nav2 sobre pernas + modo HIL | ⬜ | — |
 | **F6** | Fallback selecionável e testes | ⬜ | — |
 
-**Próximo passo: F2.** Aguardando ordem do operador.
+**Próximo passo: decisão do operador sobre a licença do `a1_description`.** A
+verificação de F2 foi executada e **parou num bloqueador**: a descrição do
+robô-alvo declara `<license>TODO</license>`. Ver "F2 — verificação executada"
+abaixo. Nenhuma linha de código foi escrita.
 
 ---
 
@@ -264,6 +267,97 @@ ao módulo.
 
 ---
 
+## F2 — verificação executada 14/08/2026, parada em bloqueador
+
+Clone raso de `legubiao/quadruped_ros2_control` em `/tmp/f2-spike`, HEAD
+`5434c58` ("x30 repaint"). A tabela "A confirmar em F2" foi percorrida inteira
+**antes** de escrever qualquer código, e é bom que tenha sido: duas afirmações do
+plano caíram, e uma delas bloqueia.
+
+### Resultado da tabela de verificação
+
+| Afirmação do plano | Verificado na árvore | Veredito |
+|---|---|---|
+| Branch default é Jazzy | branch default é `main`; README linha 10 diz "developed under ROS2 Jazzy", Humble tem branch própria | ✅ na prática |
+| Suporta Harmonic | `gz_quadruped_hardware` depende de `gz_sim_vendor`/`gz_plugin_vendor`; `descriptions/README.md` §2 pede `ros-jazzy-ros-gz` + `ros-jazzy-gz-ros2-control` | ✅ |
+| Licença Apache-2.0 | raiz é Apache-2.0, e **todo o código** (controllers, commands, libraries, hardwares) declara Apache-2.0 | ✅ **só para o código** |
+| Não tem config do A1 | **falso.** `descriptions/unitree/a1_description/` existe, completa | ❌ premissa caiu |
+| O que vem de `chvmp/robots` | **nada.** As descrições não vêm de `chvmp/robots`; o A1 tem maintainer `laikago@unitree.cc`, ou seja, origem Unitree direta | ❌ premissa caiu |
+
+### O bloqueador: `a1_description` declara `<license>TODO</license>`
+
+Este é o achado que para a fase. A licença **por pacote**, medida no
+`package.xml` de cada um dos 24 pacotes:
+
+| Pacote | Licença declarada |
+|---|---|
+| todo o código (11 pacotes: controllers, commands, libraries, hardwares) | `Apache-2.0` |
+| `go2_description` | `BSD` |
+| `b2_description`, `magicdog_description` | `BSD` |
+| `anymal_c_description` | `BSD-3` |
+| `lite3_description`, `x30_description` | `MIT` |
+| **`a1_description`** | **`TODO`** |
+| `go1_description`, `aliengo_description`, `cyberdog_description` | `TODO` |
+
+A raiz ser Apache-2.0 **não cobre** o `a1_description`: licença de repo-pai não
+se herda por suposição — é a regra que já matou o Tugbot no ML3.1 e os dois repos
+Go2 na escolha da base. Não há header de copyright em nenhum arquivo do
+`a1_description` (nem no `robot.xacro`, nem no `robot.urdf` autogerado). O único
+sinal de origem é o maintainer `laikago@unitree.cc`. `LICENSES/` na raiz cobre só
+`legged_control` e `unitree_guide` — nenhuma descrição de robô.
+
+**Consequência prática:** o A1 é o robô-alvo da demo. F3 vendoriza justamente
+essa descrição. Vendorizar arquivo sem licença declarada numa demo comercial da
+Toradex é exatamente o risco que o projeto já decidiu não correr, duas vezes.
+
+### O que isso *não* bloqueia
+
+O portão de F2 é **Go2**, e `go2_description` declara **BSD** — licença válida,
+e é a descrição que o spike usaria. O bloqueio é de F3 em diante, não do spike em
+si. Mas rodar F2 sem resolver isto significa gastar a fase de spike para provar
+uma base cujo destino (A1) está juridicamente indefinido.
+
+Não escrevi código porque a decisão muda o alvo do trabalho, não só a ordem dele.
+
+### Caminhos possíveis, para a decisão do operador
+
+1. **Trocar o robô-alvo de A1 para Go2.** `go2_description` é BSD, tem config de
+   `ocs2`, `legged_gym`, `himloco` e `robot_lab`, e é o robô mais exercitado do
+   repo — inclusive com `gazebo_rl_control.launch.py` próprio, que o A1 não tem.
+   Elimina o bloqueador e provavelmente reduz o risco de F3, que é retarget.
+   Custo: o pedido original nomeia A1.
+2. **Rastrear a licença real do A1 upstream** (`unitree_ros`, de onde a descrição
+   deriva) e, se for BSD-3 como o resto das descrições Unitree, documentar a
+   proveniência e seguir. Custo: trabalho de rastreamento, e o resultado pode ser
+   "não declarada" também.
+3. **Aceitar o risco explicitamente**, decisão registrada do operador.
+4. **Voltar para a opção B** (quadrúpede visual sobre diff-drive), que não depende
+   de nenhuma descrição licenciada de terceiro.
+
+Recomendação: **caminho 1**. Troca um bloqueador jurídico por uma mudança de
+nome do robô, e o Go2 é a plataforma melhor suportada nesta base. Se o A1 for
+requisito duro da demo, o caminho 2 vira pré-requisito de F3, não de F2.
+
+### Outros fatos coletados no clone, para quando F2 destravar
+
+- **`gz_quadruped_hardware` é do próprio repo**, versão 2.0.6, licença
+  `Apache 2`, mantido por Alejandro Hernández / Bence Magyar (é um fork do
+  `gz_ros2_control` upstream). O plano supunha usar `gz_ros2_control` 1.2.19 do
+  apt — **não é isso que a base usa**. Confirmar qual dos dois entra na imagem
+  `sim` antes de F2 rodar; instalar o do apt e esperar que a base o use é uma
+  suposição não verificada.
+- `unitree_guide_controller/launch/gazebo.launch.py` sobe **RViz2 dentro do mesmo
+  launch** (nó `rviz_ocs2`). Isso é OGRE 2: na nossa arquitetura o RViz vive no
+  container `viz`, não no `sim`. O spike terá de desligar esse nó — é regra 1.
+- O launch aceita `pkg_description:=<pacote>` e `height:=<z inicial>`. O README do
+  A1 usa `height:=0.43`; o parâmetro é o z de spawn, e existe porque quadrúpede
+  spawnado no chão cai.
+- A colisão CycloneDDS × `unitree_sdk2` está **confirmada no README** (linhas
+  37-40), recomendando FastDDS. Segue não bloqueando o ML3.5 — o SDK só entra com
+  A1 físico, fora do escopo — e o container `hw` já existe para isso.
+
+---
+
 ## Decisões tomadas
 
 ### Base de locomoção: `legubiao/quadruped_ros2_control`
@@ -308,7 +402,13 @@ esquecida.
 
 ---
 
-## A confirmar em F2, na árvore clonada — não pelo README
+## A confirmar em F2 — ✅ EXECUTADO, ver "F2 — verificação executada" acima
+
+A tabela abaixo é o que se pretendia verificar. Foi verificada em 14/08/2026 e
+**duas afirmações caíram**. Mantida como registro do que se perguntou; os
+resultados estão na seção de F2.
+
+
 
 Nada da descrição de `quadruped_ros2_control` entra como fato:
 
