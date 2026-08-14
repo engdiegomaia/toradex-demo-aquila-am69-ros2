@@ -5,6 +5,68 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-14 — ML3.5 F0: ponto de retorno e spec da containerização
+
+**Motivo:** o robô-alvo da demo é quadrúpede. O operador escolheu a **opção C**,
+locomoção por pernas real, com o custo declarado de semanas e risco de não
+convergir — não o quadrúpede apenas visual sobre diff-drive.
+
+**Entregue nesta sessão:** F0 (commit `3885f2e`, ver entrada do ML3.1 abaixo)
+mais a spec e o documento de continuidade do ML3.5.
+
+### A página que originou a task não é o caminho
+
+O pedido veio com `docs.quadruped.de/projects/a1/html/simulation.html`. Lida: é
+**ROS 1** (`roslaunch`), Gazebo **Classic** ou Webots, e stack de controle
+própria (`state_estimator`, `quadruped_controller`) **sem Nav2**. Ela define o
+*objetivo* — A1 quadrúpede — não o *caminho*. ROS 1 → ROS 2 não é porte de launch
+file, e Classic → Harmonic troca engine, formato SDF e sistema de plugins.
+
+### Continua não existindo quadrúpede pronto em Jazzy + Harmonic + Nav2
+
+Reverificado em 14/08/2026, e a conclusão do ML2 se mantém. Além do que o ML2 já
+registrava, `legubiao/quadruped_ros2_control` (Apache-2.0, `ros2_control`
+nativo, branch default Jazzy) foi adotado como base por ser integração e não
+reescrita. Os dois forks Go2 em Jazzy seguem com Nav2 "coming soon" **e sem
+licença declarada** — bloqueador para demo comercial, o mesmo critério que
+eliminou o Tugbot no ML3.1.
+
+Tudo o que se afirma sobre essa base vem do README e **está marcado para
+confirmação na árvore em F2**, não como fato. A integração com Nav2 é nossa;
+ninguém entrega pronta.
+
+### Decisões de estrutura
+
+- **Compose passa a ser dividido por máquina, não por modo.**
+  `docker/compose.{host,module}.yml` no lugar de `compose/{learn,emul,target}.yaml`.
+  Os três arquivos antigos estavam vazios e foram removidos; `CLAUDE.md` e
+  `.ai/CLAUDE.md` reconciliados. O modo `emul` caiu junto: imagens arm64 seguem
+  construídas sob QEMU, sem compose dedicado para rodar a stack emulada.
+- **F1 containeriza o diff-drive antes de trocar o robô.** Se o compose quebrar
+  depois que o quadrúpede entrar, não se sabe se foi Docker, DDS ou marcha.
+  Containerizando o que já funciona, F2 falha por um motivo só — e se F2 falhar,
+  o trabalho de F1 continua valendo para a demo diff-drive.
+- **F2/F3 revertem a decisão do ML2 contra `gz_ros2_control`.** Ela foi tomada
+  porque o plugin nativo `gz-sim-diff-drive-system` bastava para rodas. Quadrúpede
+  não tem equivalente nativo. Registrar aqui para que a reversão não pareça
+  esquecimento.
+
+### Colisão de invariantes, registrada antes de doer
+
+`quadruped_ros2_control` documenta conflito entre **CycloneDDS e `unitree_sdk2`**
+e recomenda FastDDS. A regra inviolável 2 do projeto é `rmw_cyclonedds_cpp`
+sempre. Não bloqueia o ML3.5 — o SDK só entra com A1 físico, fora do escopo — mas
+o container `hw` existe vazio desde F1 para o problema aparecer no lugar certo em
+vez de surgir como surpresa no bring-up de hardware.
+
+### Documentos
+
+- `docs/ml35/estado-fases.md` — continuidade entre sessões: estado de F0 a F6,
+  portão de cada fase, decisões, premissas em vigor e o que confirmar em F2.
+- `docs/ml35/guia-ml35-docker.md` — a spec de implementação.
+
+---
+
 ## 2026-08-10 — ML3.1: aparência do robô e guia de operação
 
 **Motivo:** a demo tem público externo (cliente, feira, vídeo). O robô era

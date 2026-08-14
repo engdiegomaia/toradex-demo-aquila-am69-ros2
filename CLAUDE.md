@@ -10,6 +10,8 @@ The authoritative guides live in `.ai/`. Read them before editing:
 - `.ai/AGENTS.md` (mirrored as `.ai/codex.md`) — full implementation contract: milestones (M0, ML1-ML4, M0-HW, M1-M5, MX-TIDL), Definition of Done, naming, launch/compose conventions, HMI/perception specs, ADR format, completion-report format.
 - `.ai/demo-ros2-aquila-am69.md` — project rationale, hardware/software premises, phases, risks.
 - `docs/guia-operacao.md` — how to run and edit the demo (Portuguese). Written for someone new to ROS 2; documents each known silent-failure trap at the point where it would be hit.
+- `docs/ml35/estado-fases.md` — **read this first in a new session.** Per-phase state of the in-flight ML3.5 milestone (quadruped + containerization), the gate each phase must clear, decisions already taken, and what is still to confirm.
+- `docs/ml35/guia-ml35-docker.md` — the ML3.5 implementation spec. Where it and the original plan diverge, the spec wins.
 
 `ros2_ws/src/demo_{tutorials,description,bringup,navigation,perception,simulation}/` are implemented (ML1–ML3.1). The container layer under `docker/` is built in ML3.5 F1. Implement one milestone per session and stop.
 
