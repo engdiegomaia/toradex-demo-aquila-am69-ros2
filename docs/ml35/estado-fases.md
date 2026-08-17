@@ -27,7 +27,7 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `5d95934` |
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
-| **F4** | Contrato atravessando fronteira de container | ⬜ | — |
+| **F4** | Contrato atravessando fronteira de container | 🟡 **em andamento** | checkpoint parcial |
 | **F5** | Nav2 sobre pernas + modo HIL | ⬜ | — |
 | **F6** | Fallback selecionável e testes | ⬜ | — |
 
@@ -35,8 +35,9 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 executada"; a justificativa de licença dada em F2 estava incompleta e foi
 corrigida em F3 — ver "F3 — o rastreamento de licença"). **F3 rodou e o portão
 bateu**: Go2 em pé, estável, andando por `/demo/cmd_vel` com os pacotes e o
-launch do projeto, não mais com o spike. **Próximo passo: F4**, o contrato
-atravessando fronteira de container.
+launch do projeto, não mais com o spike. **F4 está em andamento**; checkpoint,
+evidências, falha de sintonia e próximos passos em
+`docs/results/ml35-f4-parcial.md`.
 
 Note que F3 **não foi retarget de cinemática**. A troca A1→Go2 eliminou esse
 trabalho: o Go2 é o robô nativo da base upstream. F3 virou vendorização
@@ -535,6 +536,17 @@ manda não editar. Corrigir destruiria o byte-idêntico; deixar torna
 - **Marcha em ganho alto.** Continua o que F2 mediu: acima de ~0,15 m/s o robô
   perde equilíbrio. É sintonia do mapeamento em `twist_to_inputs`, e é **F4**.
 - **Nav2 sobre pernas.** F5. O plant não publica `odom → base_link`.
+
+---
+
+## F4 — em andamento 17/08/2026
+
+Checkpoint detalhado em `docs/results/ml35-f4-parcial.md`. Nomes, tipos e
+mensagens reais de odom, scan e imagem atravessaram dois containers por DDS. O
+primeiro mapeamento SI → stick derrubou o Go2 e foi substituído por clamp no
+envelope `0.03` comprovado em F3, mas essa última edição ainda não foi
+revalidada em runtime. Perception, warehouse oficial e regressão diff-drive
+seguem pendentes; portanto o portão de F4 permanece aberto.
 
 ---
 
