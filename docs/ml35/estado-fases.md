@@ -524,10 +524,11 @@ manda não editar. Corrigir destruiria o byte-idêntico; deixar torna
 ### Não validado nesta fase
 
 - **Nada em arm64, nada no módulo.** Regras 5 e 7.
-- **Nenhuma confirmação visual em GUI.** A execução do portão foi headless
-  (`gui:=false`, `world:=empty.sdf`). Que o robô *pareça* correto no Gazebo e no
-  RViz2 continua **pendente do operador** — herdado do ML3.1 e agora também
-  válido para o quadrúpede.
+- **RViz2 continua pendente.** A execução quantitativa do portão foi headless.
+  Em 17/08/2026 o operador repetiu o launch com `gui:=true` na imagem do spike
+  e confirmou o modelo Go2 visível no Gazebo, em `empty.sdf`. Isso fecha a
+  visualização do modelo no Gazebo, mas não valida a árvore TF e o RobotModel
+  no RViz2.
 - **O quadrúpede no mundo `warehouse.sdf`.** O portão rodou em `empty.sdf`. O
   mundo do projeto carrega ~10 s e tem 50+ malhas; o spawn agora é imediato, o
   que é seguro (`create` faz retry), mas não foi exercitado ali.
