@@ -24,6 +24,17 @@
   <exec_depend>teleop_twist_keyboard</exec_depend>
   <exec_depend>xacro</exec_depend>
 
+  <!-- ML3.5 F3, quadruped plant only. These are vendored in ros2_ws/src/ (see
+       unitree_guide_controller/PROVENANCE.md) and are pulled in by
+       quadruped.launch.py; the diff-drive plant does not touch them. -->
+  <exec_depend>control_input_msgs</exec_depend>
+  <exec_depend>go2_description</exec_depend>
+  <exec_depend>unitree_guide_controller</exec_depend>
+  <exec_depend>gz_quadruped_hardware</exec_depend>
+  <exec_depend>controller_manager</exec_depend>
+  <exec_depend>joint_state_broadcaster</exec_depend>
+  <exec_depend>imu_sensor_broadcaster</exec_depend>
+
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>
   <test_depend>ament_pep257</test_depend>

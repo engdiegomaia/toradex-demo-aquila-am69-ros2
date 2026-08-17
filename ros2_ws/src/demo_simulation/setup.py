@@ -25,6 +25,12 @@ setup(
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            # ML3.5 F3. Translates the topic contract's /demo/cmd_vel into the
+            # gait controller's /control_input and walks the gait FSM up to
+            # TROTTING. Lives here, next to Gazebo, because it is part of the
+            # plant — nothing outside the sim container knows it exists.
+            'twist_to_inputs = demo_simulation.twist_to_inputs:main',
+        ],
     },
 )

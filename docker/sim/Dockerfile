@@ -28,11 +28,24 @@ USER root
 # nav2_minimal_tb4_description: the meshes demo_description wraps for use_meshes.
 # robot_state_publisher / xacro: expand the URDF and publish the fixed TF edges.
 #
-# ros2_control, ros2_controllers and gz_ros2_control are NOT installed here.
-# They are the F2 prerequisite (docs/ml35/estado-fases.md) and F1 is diff-drive
-# only, which uses Gazebo's native gz-sim-diff-drive-system plugin and needs no
-# controller_manager. Adding them now would put untested weight in the image and
-# blur what F2 is actually testing.
+# ros2_control / ros2_controllers: ADDED IN F3. F1 said these were deliberately
+# absent because diff-drive uses Gazebo's native gz-sim-diff-drive-system plugin
+# and needs no controller_manager. The quadruped does: unitree_guide_controller
+# is a ros2_control controller and the plant will not come up without a
+# controller_manager. This reverses the ML2 decision against gz_ros2_control,
+# deliberately and for a stated reason — a quadruped has no native Gazebo plugin
+# equivalent (see .ai/changelog.md and docs/ml35/estado-fases.md).
+#
+# gz_ros2_control is NOT installed, and that is not an oversight. The plugin the
+# quadruped base actually loads is gz_quadruped_hardware (vendored in
+# ros2_ws/src/, version 2.0.6, a fork of gz_ros2_control), NOT the apt
+# gz_ros2_control 1.2.19. F2 verified this on the tree. Installing the apt one
+# and assuming the base uses it is exactly the unverified assumption the F2
+# notes warn about; it would sit in the image unused and make the next reader
+# think it is what runs.
+#
+# imu_sensor_broadcaster: the quadruped launch spawns it alongside
+# joint_state_broadcaster; the controller reads the trunk IMU for balance.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-ros-gz-sim \
         ros-${ROS_DISTRO}-ros-gz-bridge \
@@ -40,6 +53,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-nav2-minimal-tb4-description \
         ros-${ROS_DISTRO}-robot-state-publisher \
         ros-${ROS_DISTRO}-xacro \
+        ros-${ROS_DISTRO}-ros2-control \
+        ros-${ROS_DISTRO}-ros2-controllers \
+        ros-${ROS_DISTRO}-imu-sensor-broadcaster \
     && rm -rf /var/lib/apt/lists/*
 
 # Rebuild the overlay now that the simulation dependencies resolve. The base
