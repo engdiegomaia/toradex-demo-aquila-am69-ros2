@@ -5,6 +5,76 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-17 — ML3.5 F3: quadrúpede Go2 na árvore do projeto, em pé e andando
+
+**Portão batido**, medido por `gz topic -e -t .../dynamic_pose/info`, nunca por
+log: em pé a `z=0.352m`; andando com ganho baixo (`linear.x=0.03`) sustenta
+`z=0.351m` e desloca `x` de 0.041 para 0.216 em 12s; orientação final `-7.2e-05`.
+Zero erros no Gazebo, 3 controladores `active`. Melhor que F2, que via a altura
+cair durante a marcha.
+
+**F3 não foi retarget de cinemática.** A troca A1→Go2 de F2 eliminou esse
+trabalho — o Go2 é o robô nativo da base upstream. F3 virou vendorização
+criteriosa mais integração.
+
+**A justificativa de licença de F2 estava incompleta.** F2 trocou o alvo
+registrando que `go2_description` "declara BSD — licença válida". Na hora de
+vendorizar, medido de novo: o pacote não tem arquivo `LICENSE`, não tem header
+de copyright, e tem `<author>TODO</author>` com `TODO@email.com`. É
+materialmente o mesmo estado do `a1_description` rejeitado, exceto por uma
+string no `package.xml` — e pior num ponto, já que o A1 ao menos apontava um
+maintainer rastreável. "BSD" sozinho não identifica a variante, e todas exigem
+reproduzir um aviso de copyright que não existia ali.
+
+Resolvido rastreando até a origem real: **`unitreerobotics/unitree_ros`,
+BSD 3-Clause com texto completo e titular identificado** (HangZhou YuShu
+TECHNOLOGY CO.,LTD., 2016-2022). As 7 malhas são **bit-idênticas** ao upstream,
+provado por hash git blob contra a API do GitHub (`base.dae` renomeado para
+`trunk.dae` é a única diferença). A camada xacro não bate — é port ROS 1 → ROS 2
+do `legubiao` — e foi adotada como obra derivada coberta pelo BSD-3, com o risco
+residual registrado, não apagado. Mesma correção na camada de controle: os
+`package.xml` declaravam Apache-2.0, mas `LICENSES/unitree_guide/LICENSE.txt` da
+raiz upstream é BSD-3 da Unitree, mesmo titular das malhas.
+
+**Reversão da decisão do ML2, registrada como o plano exigia.** O ML2 decidiu
+contra `gz_ros2_control` a favor do plugin nativo `gz-sim-diff-drive-system`,
+para não arrastar `ros2_control` + `controller_manager`. ML3.5 reverte: um
+quadrúpede não tem plugin nativo equivalente, as juntas são acionadas por um
+controlador `ros2_control` cujo hardware interface carrega **dentro** do
+processo do `gz sim`. É também por isso que `sim` é um container só e não pode
+ser dividido. O plugin que roda é o `gz_quadruped_hardware` vendorizado (2.0.6),
+**não** o `gz_ros2_control` 1.2.19 do apt — achado de F2, e o apt continua fora
+da imagem de propósito, para não deixar um pacote sem uso fingindo ser o que
+executa.
+
+**A armadilha silenciosa desta fase.** A `TimerAction` de 12 s copiada do plant
+diff-drive produz: spawn em `z=0.49999`, queda para `z=0.0677` em menos de 1s,
+controladores ativando ~3s depois — o robô passa a janela toda em queda livre
+sem controlador e desaba. Estado final: colapsado, **três controladores
+`active`, zero erros no log**, FSM percorrendo `passive → trotting` sobre um
+robô já caído. Nada no log denuncia. Só a pose lida direto do `gz`. Corrigido
+com spawn imediato encadeado por `OnProcessExit`, sem timer, que é o que o
+launch upstream já fazia. É a segunda vez no ML3.5 que um timer mede a coisa
+errada — a primeira foi em F1, e gerou o `wait_for_clock`.
+
+**Vendorizados** (5 pacotes, nomes upstream preservados para que os `$(find)`
+resolvam sem edição): `go2_description` (25 MB), `control_input_msgs`,
+`controller_common`, `unitree_guide_controller`, `gz_quadruped_hardware`.
+Procedência em `go2_description/README.md` e
+`unitree_guide_controller/PROVENANCE.md`. Lint de estilo desativado nos dois
+pacotes C++: rodava sobre código de terceiro e produzia 98 falhas em código que
+a política manda não editar.
+
+**Nosso:** `demo_simulation/launch/quadruped.launch.py`, `twist_to_inputs.py`
+(promovido do spike de F2), `sim.launch.py` roteando `robot_type` para um launch
+por plant, sem conditionals. Default segue `diffdrive`.
+
+**Não validado:** nada em arm64, nada no módulo, nenhuma confirmação visual em
+GUI (execução headless), e o quadrúpede não foi exercitado no `warehouse.sdf`.
+Marcha em ganho alto continua instável — é sintonia do mapeamento, e é F4.
+
+---
+
 ## 2026-08-14 — ML3.5 F2: alvo trocado de A1 para Go2; spike andando, portão batido
 
 **Motivo da troca de alvo:** verificação de F2 na árvore clonada de

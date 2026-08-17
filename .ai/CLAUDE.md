@@ -119,18 +119,22 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
 - **L2 (ML2)** — `demo_description`: xacro diff-drive parametrizado, árvore TF, RViz. Concluída 07/08/2026. Pendente do operador: `sudo apt install liburdfdom-tools` e confirmação visual no RViz.
 - **L3 (ML3)** — `demo_simulation`, `demo_navigation`, `demo_perception`, `demo_bringup`. Concluída 10/08/2026, **com os quatro critérios de aceitação executados de verdade**: teleop move o robô por `/demo/cmd_vel`; odom/scan/TF/comandos trocam mensagens; os sete servidores do Nav2 chegam a `active`; e um goal terminou `SUCCEEDED` (0,0 → 2.43,0.20). Mapa do armazém gerado por SLAM e commitado. Ver `changelog.md` para as cinco falhas silenciosas encontradas no caminho.
 - **ML3.1** — aparência do robô e guia. Concluída 10/08/2026. `demo_robot.urdf.xacro` virou **wrapper fino sobre o TurtleBot 4 upstream** (`nav2_minimal_tb4_description`, via `package://`, sem binários no repo); a montagem peça a peça por mesh foi tentada e abandonada. A causa real do "robô com partes separadas" era o **RViz** (`RobotModel: Enabled: false` + 33 triedros de TF), não o modelo — daí `demo_bringup/rviz/demo_view.rviz`. Mais três pendências do ML3 e dois documentos em `docs/`. Pendente do operador: confirmação visual em RViz2/Gazebo com GUI.
-- **ML3.5** — em curso: locomoção quadrúpede A1 real + containerização.
+- **ML3.5** — em curso: locomoção quadrúpede **Go2** real + containerização.
   **Estado por fase e próximo passo: `docs/ml35/estado-fases.md`** (leia primeiro
   numa sessão nova). Spec: `docs/ml35/guia-ml35-docker.md`. Fases F0 a F6, com
-  portão em cada uma; F0 (`3885f2e`) e F1 (`5d95934`) concluídas, F2 concluída
-  em 14/08/2026 (spike, não commitado — portão batido com Go2, não A1: ver
-  troca de alvo no changelog). F3 é a próxima.
-  Base de locomoção: `legubiao/quadruped_ros2_control` (Apache-2.0, branch
-  default Jazzy) — confirmado na árvore em F2, não pelo README. Robô-alvo é
-  **Go2** (BSD), não A1: `a1_description` declara licença `TODO`, sem header de
-  copyright, bloqueador para vendorizar em F3. A containerização entra em F1,
-  **antes** da troca do robô, para separar risco de Docker/DDS de risco de
-  marcha.
+  portão em cada uma; F0 (`3885f2e`), F1 (`5d95934`), F2 (14/08/2026, spike não
+  commitado) e **F3 (`db4e6f3`, `ae3d9a1`, 17/08/2026) concluídas. F4 é a
+  próxima** — o contrato atravessando fronteira de container.
+  Base de locomoção: `legubiao/quadruped_ros2_control` — confirmado na árvore em
+  F2, não pelo README. Robô-alvo é **Go2**, não A1: `a1_description` declara
+  licença `TODO`. Atenção, a justificativa de F2 ("Go2 declara BSD") era
+  **incompleta**: o pacote também não tinha texto de licença nem titular. F3
+  rastreou até `unitreerobotics/unitree_ros` (BSD-3, Unitree Robotics) e provou
+  as malhas bit-idênticas por hash — é essa a base legal da vendorização, não a
+  string do `package.xml`. Ver `ros2_ws/src/go2_description/README.md`.
+  F3 **não foi retarget de cinemática**: a troca de alvo eliminou esse trabalho.
+  A containerização entra em F1, **antes** da troca do robô, para separar risco
+  de Docker/DDS de risco de marcha.
 - **L4 (ML4)** — depois: absorvida em grande parte pelo F1 do ML3.5.
 
 **Robô:** diff-drive hoje, quadrúpede A1 em curso no ML3.5. Continua verdade (verificado em 14/08/2026) que **ninguém entrega quadrúpede + Jazzy + Harmonic + Nav2 funcionando**: CHAMP upstream é ROS 1, e os dois forks Go2 em Jazzy listam Nav2 como "coming soon" **e não declaram licença** — bloqueador para demo comercial, mesmo critério que eliminou o Tugbot no ML3.1. A base escolhida é `legubiao/quadruped_ros2_control` (Apache-2.0, `ros2_control` nativo, branch default Jazzy); a integração com Nav2 é **nossa**, ninguém entrega pronta. O diff-drive validado permanece selecionável por launch arg. Justificativa completa em `changelog.md`.
