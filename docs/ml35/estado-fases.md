@@ -26,16 +26,21 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F0** | Ponto de retorno, commit do ML3.1 | ✅ **concluída** 14/08/2026 | `3885f2e` |
 | **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `5d95934` |
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
-| **F3** | Retarget A1 | ⬜ | — |
+| **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ⬜ | — |
 | **F5** | Nav2 sobre pernas + modo HIL | ⬜ | — |
 | **F6** | Fallback selecionável e testes | ⬜ | — |
 
-**Decisão tomada: alvo trocado de A1 para Go2** (BSD, sem bloqueador de licença;
-ver "F2 — verificação executada"). **F2 rodou e o portão bateu**: Go2 upstream,
-sem modificação, em pé e andando por `cmd_vel` dentro de um container moldado
-como `sim`. Ver "F2 — spike executado" abaixo. **Próximo passo: F3**, retarget
-de cinemática — mas para Go2, não A1 (mudança de alvo herdada da decisão de F2).
+**Decisão tomada: alvo trocado de A1 para Go2** (ver "F2 — verificação
+executada"; a justificativa de licença dada em F2 estava incompleta e foi
+corrigida em F3 — ver "F3 — o rastreamento de licença"). **F3 rodou e o portão
+bateu**: Go2 em pé, estável, andando por `/demo/cmd_vel` com os pacotes e o
+launch do projeto, não mais com o spike. **Próximo passo: F4**, o contrato
+atravessando fronteira de container.
+
+Note que F3 **não foi retarget de cinemática**. A troca A1→Go2 eliminou esse
+trabalho: o Go2 é o robô nativo da base upstream. F3 virou vendorização
+criteriosa + integração.
 
 ---
 
@@ -74,7 +79,8 @@ Cada fase para no portão e espera. Não emendar fases.
 - **F2** — Go2 upstream, sem modificação, em pé e andando por `cmd_vel` dentro do
   container `sim`. **Falhou aqui, C morre** e voltamos para B (quadrúpede visual
   sobre diff-drive), com F0 e F1 já commitados e válidos.
-- **F3** — A1 em pé, estável, responde a `cmd_vel` sem cair.
+- **F3** — Go2 (não A1, ver decisão de F2) em pé, estável, responde a `cmd_vel`
+  sem cair, com os pacotes e o launch do projeto. ✅
 - **F4** — contrato idêntico ao de hoje, verificado por `ros2 topic list` e por
   tipo de mensagem, com `demo_perception` intocado.
 - **F5** — goal Nav2 `SUCCEEDED` com o robô de pernas: primeiro tudo no host,
@@ -413,6 +419,121 @@ verdade é o harness de teste.
 - A colisão CycloneDDS × `unitree_sdk2` está **confirmada no README** (linhas
   37-40), recomendando FastDDS. Segue não bloqueando o ML3.5 — o SDK só entra com
   A1 físico, fora do escopo — e o container `hw` já existe para isso.
+
+---
+
+## F3 — concluída 17/08/2026 (commits `db4e6f3`, `ae3d9a1`)
+
+Portão batido, medido por `gz topic -e -t .../dynamic_pose/info`, nunca por log:
+
+| Momento | z (altura) | x | Interpretação |
+|---|---|---|---|
+| Em pé após a FSM | **0,352 m** | 0,041 | em pé, estável |
+| Andando, `linear.x=0.03`, 12 s | **0,351 m sustentado** | 0,041 → **0,216** | anda de verdade, sem perder altura |
+| Orientação final | `-7,2e-05` | — | praticamente nivelado |
+
+0 erros no Gazebo, 3 controladores `active`. **Melhor que F2**, que via a altura
+cair de 0,353 para 0,343 durante a marcha — a troca de timers por cadeia de
+eventos deixou a subida mais limpa.
+
+### F3.0 — o spike de F2 tinha sumido
+
+`/tmp/f2-spike` foi levado pela limpeza do `/tmp`. Os três arquivos nunca foram
+commitados (decisão de F2: spike não entra na árvore). Recuperados da imagem
+`demo-sim:spike-go2`, que sobreviveu: os dois fontes por `docker cp`, e o
+Dockerfile reconstruído camada a camada de `docker history --no-trunc`. Cópia em
+`scratchpad/f2-recovered/`.
+
+**Lição:** conhecimento que só existe em `/tmp` não existe. Se um spike futuro
+importar, ou se commita, ou se aceita perdê-lo.
+
+### O rastreamento de licença — a justificativa de F2 estava incompleta
+
+F2 trocou A1 por Go2 registrando que "`go2_description` declara **BSD** —
+licença válida". Verdadeiro, mas insuficiente, e medido de novo na hora de
+vendorizar:
+
+| Evidência | `a1_description` (rejeitado em F2) | `go2_description` (escolhido) |
+|---|---|---|
+| `<license>` | `TODO` | `BSD` |
+| Arquivo `LICENSE` | ausente | **ausente** |
+| Header de copyright | ausente | **ausente** |
+| Autor / maintainer | `laikago@unitree.cc` | **`TODO` / `TODO@email.com`** |
+| Coberto por `LICENSES/` da raiz | não | **não** |
+
+O Go2 era melhor que o A1 em **um** campo, e pior em outro (o A1 ao menos
+apontava um maintainer rastreável). "BSD" sozinho não identifica a variante, e
+todas exigem reproduzir um aviso de copyright que não existia no pacote.
+
+**Resolvido rastreando até a origem real:** `unitreerobotics/unitree_ros`,
+BSD 3-Clause com texto completo e titular identificado (HangZhou YuShu
+TECHNOLOGY CO.,LTD., 2016-2022). As **7 malhas são bit-idênticas** ao upstream,
+provado por hash git blob contra a API do GitHub. Tabela completa e comandos de
+reprodução em `ros2_ws/src/go2_description/README.md`.
+
+A camada xacro **não** bate com o upstream (é port ROS 1 → ROS 2 do `legubiao`).
+Adotada como obra derivada coberta pelo BSD-3, com o risco residual registrado
+explicitamente no README em vez de apagado.
+
+Mesma coisa na camada de controle: os `package.xml` declaram Apache-2.0, mas os
+três pacotes derivados do `unitree_guide` são cobertos por
+`LICENSES/unitree_guide/LICENSE.txt` da raiz upstream, que é **BSD-3 da
+Unitree** — mesmo titular das malhas. Declarações corrigidas e o texto copiado
+para dentro de cada pacote. Ver `unitree_guide_controller/PROVENANCE.md`.
+
+### A armadilha silenciosa desta fase
+
+Copiei do plant diff-drive a `TimerAction` de 12 s antes do spawn. Medido:
+
+```
+spawn em z=0.49999 → z=0.0677 em menos de 1 s → controladores ativam ~3 s depois
+```
+
+O robô passa a janela inteira em **queda livre sem controlador** e desaba.
+Estado final: colapsado no chão, **três controladores reportando `active`, zero
+erros no log**, e a FSM de marcha percorrendo `passive → trotting` em cima de um
+robô já caído.
+
+Nenhum sinal de log denuncia isso. Só a pose lida direto do `gz`. É exatamente o
+que o portão de F3 existe para pegar — *"robô em pé e estável respondendo a
+`cmd_vel`, não build limpo"* — e valida a decisão de medir por pose.
+
+**Correção:** spawn imediato, encadeado por `OnProcessExit`
+(`spawn → broadcasters → controlador de marcha`), sem timer. É o que o
+`gazebo.launch.py` upstream já faz. O comentário longo em
+`quadruped.launch.py` explica por que ali não pode haver `TimerAction`.
+
+### Criado / tocado
+
+**Vendorizados** (5 pacotes, nomes upstream preservados para que os `$(find)`
+resolvam sem edição): `go2_description` (25 MB), `control_input_msgs`,
+`controller_common`, `unitree_guide_controller`, `gz_quadruped_hardware`.
+Procedência em `go2_description/README.md` e
+`unitree_guide_controller/PROVENANCE.md`.
+
+**Nosso:** `demo_simulation/launch/quadruped.launch.py`,
+`demo_simulation/demo_simulation/twist_to_inputs.py` (promovido do spike),
+`demo_bringup/launch/sim.launch.py` (roteia `robot_type` → um launch por plant,
+sem conditionals), `docker/sim/Dockerfile`.
+
+**Lint de estilo desativado** nos dois pacotes C++ vendorizados: `ament_lint_auto`
+rodava sobre código de terceiro e produzia 98 falhas em código que a política
+manda não editar. Corrigir destruiria o byte-idêntico; deixar torna
+`colcon test` vermelho para sempre. Nossos pacotes mantêm os seus linters.
+
+### Não validado nesta fase
+
+- **Nada em arm64, nada no módulo.** Regras 5 e 7.
+- **Nenhuma confirmação visual em GUI.** A execução do portão foi headless
+  (`gui:=false`, `world:=empty.sdf`). Que o robô *pareça* correto no Gazebo e no
+  RViz2 continua **pendente do operador** — herdado do ML3.1 e agora também
+  válido para o quadrúpede.
+- **O quadrúpede no mundo `warehouse.sdf`.** O portão rodou em `empty.sdf`. O
+  mundo do projeto carrega ~10 s e tem 50+ malhas; o spawn agora é imediato, o
+  que é seguro (`create` faz retry), mas não foi exercitado ali.
+- **Marcha em ganho alto.** Continua o que F2 mediu: acima de ~0,15 m/s o robô
+  perde equilíbrio. É sintonia do mapeamento em `twist_to_inputs`, e é **F4**.
+- **Nav2 sobre pernas.** F5. O plant não publica `odom → base_link`.
 
 ---
 
