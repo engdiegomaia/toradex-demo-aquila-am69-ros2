@@ -1,0 +1,25 @@
+<package format="2">
+    <name>go2_description</name>
+    <version>1.0.0</version>
+    <description>
+        <p>URDF Description package for the Unitree Go2 quadruped.</p>
+        <p>VENDORED THIRD-PARTY PACKAGE — see README.md in this directory for
+            provenance, the mesh hash verification against unitree_ros, and the
+            exact list of edits made on top of upstream. Meshes are byte-identical
+            to unitreerobotics/unitree_ros; the xacro layer is a ROS 2 port from
+            legubiao/quadruped_ros2_control.
+        </p>
+    </description>
+    <author>Unitree Robotics</author>
+    <maintainer email="diego.maia@toradex.com">Diego Maia</maintainer>
+    <license>BSD-3-Clause</license>
+
+    <exec_depend>xacro</exec_depend>
+    <exec_depend>joint_state_publisher</exec_depend>
+    <exec_depend>robot_state_publisher</exec_depend>
+    <exec_depend>imu_sensor_broadcaster</exec_depend>
+    <exec_depend>joint_state_publisher_gui</exec_depend>
+    <export>
+        <build_type>ament_cmake</build_type>
+    </export>
+</package>
