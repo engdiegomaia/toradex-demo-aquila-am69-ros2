@@ -1,0 +1,90 @@
+<?xml version="1.0"?>
+<!--
+  Project-owned simulation wrapper around the vendored Unitree Go2 model.
+
+  Runs on the x86 workstation only, inside the sim container.  The upstream
+  description deliberately stays untouched: this file owns the F4 topic
+  contract sensors and the temporary simulation odometry source.
+
+  The Go2 description already provides the empty `front_camera` and `lidar`
+  links.  Its EXTERNAL_SENSORS path cannot be enabled here because it imports
+  gz_quadruped_playground, which is not part of the licensed, vendored subset.
+  Attaching sensors to those existing links gives the project the same public
+  ROS contract without adding that unrelated package.
+-->
+<robot name="go2" xmlns:xacro="http://www.ros.org/wiki/xacro">
+  <xacro:include filename="$(find go2_description)/xacro/robot.xacro"/>
+
+  <!--
+    Temporary F4 odometry source: exact Gazebo model pose, published only as an
+    Odometry message.  Its TF topic is intentionally not bridged.  F5 replaces
+    this ground-truth source with legged-state estimation and owns the missing
+    odom -> base_link transform.
+  -->
+  <gazebo>
+    <plugin filename="gz-sim-odometry-publisher-system"
+            name="gz::sim::systems::OdometryPublisher">
+      <odom_frame>odom</odom_frame>
+      <robot_base_frame>base</robot_base_frame>
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <odom_topic>/go2/odom</odom_topic>
+      <tf_topic>/go2/ground_truth_tf</tf_topic>
+      <dimensions>3</dimensions>
+    </plugin>
+  </gazebo>
+
+  <!-- RGB input for demo_perception. -->
+  <gazebo reference="front_camera">
+    <sensor name="front_camera" type="camera">
+      <camera>
+        <horizontal_fov>2.094</horizontal_fov>
+        <image>
+          <width>640</width>
+          <height>480</height>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>15</far>
+        </clip>
+        <optical_frame_id>front_camera</optical_frame_id>
+        <camera_info_topic>camera/camera_info</camera_info_topic>
+      </camera>
+      <always_on>true</always_on>
+      <update_rate>10</update_rate>
+      <visualize>true</visualize>
+      <topic>camera/image</topic>
+    </sensor>
+  </gazebo>
+
+  <!-- Upstream Go2 L1 lidar geometry, exposed as the project's LaserScan. -->
+  <gazebo reference="lidar">
+    <sensor name="L1_lidar" type="gpu_lidar">
+      <topic>scan</topic>
+      <update_rate>10</update_rate>
+      <gz_frame_id>lidar</gz_frame_id>
+      <lidar>
+        <scan>
+          <horizontal>
+            <samples>640</samples>
+            <resolution>1</resolution>
+            <min_angle>1.396263</min_angle>
+            <max_angle>4.8869</max_angle>
+          </horizontal>
+          <vertical>
+            <samples>16</samples>
+            <resolution>1</resolution>
+            <min_angle>-0.261799</min_angle>
+            <max_angle>0.261799</max_angle>
+          </vertical>
+        </scan>
+        <range>
+          <min>0.05</min>
+          <max>10.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </lidar>
+      <always_on>true</always_on>
+      <visualize>true</visualize>
+    </sensor>
+  </gazebo>
+</robot>

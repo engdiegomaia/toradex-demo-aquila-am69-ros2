@@ -101,7 +101,8 @@ def generate_launch_description() -> LaunchDescription:
         Command([
             'xacro ',
             PathJoinSubstitution([
-                FindPackageShare('go2_description'), 'xacro', 'robot.xacro',
+                FindPackageShare('demo_simulation'), 'urdf',
+                'go2_sim.urdf.xacro',
             ]),
             ' GAZEBO:=true',
         ]),
@@ -220,14 +221,21 @@ def generate_launch_description() -> LaunchDescription:
         output='screen',
     )
 
-    # Clock only. The rest of the topic contract is bridged by the contract
-    # bridge in F4; in F3 the plant only has to stand and walk.
+    # F4 contract boundary for clock, odometry, lidar, camera and IMU. cmd_vel
+    # stays ROS-native: twist_to_inputs consumes /demo/cmd_vel directly and
+    # translates it to the gait controller's private /control_input message.
     bridge = Node(
         package='ros_gz_bridge',
         executable='parameter_bridge',
         name='ros_gz_bridge',
         output='screen',
-        arguments=['/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock'],
+        parameters=[{
+            'config_file': PathJoinSubstitution([
+                FindPackageShare('demo_simulation'),
+                'config', 'bridge_quadruped.yaml',
+            ]),
+            'use_sim_time': True,
+        }],
     )
 
     # Translates /demo/cmd_vel into the controller's Inputs message and walks

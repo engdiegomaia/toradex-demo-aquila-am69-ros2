@@ -123,8 +123,9 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   **Estado por fase e próximo passo: `docs/ml35/estado-fases.md`** (leia primeiro
   numa sessão nova). Spec: `docs/ml35/guia-ml35-docker.md`. Fases F0 a F6, com
   portão em cada uma; F0 (`3885f2e`), F1 (`5d95934`), F2 (14/08/2026, spike não
-  commitado) e **F3 (`db4e6f3`, `ae3d9a1`, 17/08/2026) concluídas. F4 é a
-  próxima** — o contrato atravessando fronteira de container.
+  commitado) e **F3 (`db4e6f3`, `ae3d9a1`, 17/08/2026) concluídas. F4 está em
+  andamento** — checkpoint e próximos passos em
+  `docs/results/ml35-f4-parcial.md`; o portão ainda não foi batido.
   Base de locomoção: `legubiao/quadruped_ros2_control` — confirmado na árvore em
   F2, não pelo README. Robô-alvo é **Go2**, não A1: `a1_description` declara
   licença `TODO`. Atenção, a justificativa de F2 ("Go2 declara BSD") era

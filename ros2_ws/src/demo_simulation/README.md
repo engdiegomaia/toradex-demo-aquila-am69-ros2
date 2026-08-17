@@ -31,8 +31,15 @@ Classic — do not use it.
 
 ## Topic bridge
 
-`config/bridge_warehouse.yaml` is the whole ROS↔Gazebo boundary. Every ROS-side
-name lives under `/demo`, per the topic contract.
+The plant selector uses one boundary file per robot:
+
+- `config/bridge_warehouse.yaml` for the diff-drive;
+- `config/bridge_quadruped.yaml` for the Go2.
+
+Every ROS-side name lives under `/demo`, per the topic contract. The Go2's
+`/demo/cmd_vel` does not cross into Gazebo: `twist_to_inputs` consumes it as a
+ROS topic in the `sim` container and translates SI velocities to the private
+normalized `/control_input` message used by the gait controller.
 
 | Gazebo | ROS 2 | Direction |
 | --- | --- | --- |
@@ -44,6 +51,17 @@ name lives under `/demo`, per the topic contract.
 | `/scan` | `/demo/scan` | gz → ros |
 | `/camera/image_raw` | `/demo/camera/image_raw` | gz → ros |
 | `/camera/camera_info` | `/demo/camera/camera_info` | gz → ros |
+
+For the Go2, `go2_sim.urdf.xacro` attaches a camera and lidar to links already
+present in the vendored model. It also publishes `/demo/odom` from exact Gazebo
+model pose as an explicit **temporary F4 source**. Its ground-truth TF topic is
+not bridged. F5 replaces this odometry producer with legged-state estimation
+and owns `odom → base_link`; publishing both would create a duplicate TF edge.
+
+`worlds/quadruped_empty.sdf` is the deterministic, asset-free integration
+fixture. Do not substitute Gazebo's built-in `empty.sdf`: it lacks the Sensors
+system, so the camera and lidar appear in the model but never publish. The
+warehouse world also has the Sensors system and remains the demo default.
 
 **Every gz-side name here is unscoped, and that is not an oversight.**
 

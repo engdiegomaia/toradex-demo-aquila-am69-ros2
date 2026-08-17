@@ -18,18 +18,20 @@ So this node owns two jobs that the diff-drive plant never needed:
    velocity commands from a cold start; it has to stand up first.
 2. Convert Twist to normalized stick axes once trotting.
 
-F3 SCOPE, AND WHAT IS DELIBERATELY NOT HERE
+F4 MAPPING
 
-This is the F3 version: enough to prove the plant stands and walks. The mapping
-below is linear and unclamped by any real velocity limit, which is exactly the
-behaviour F2 measured as unstable above ~0.15 m/s (the robot loses balance and
-the trunk drops from 0.34 m to 0.07-0.24 m). That is a tuning problem in this
-mapping, not a defect in the controller, and fixing it properly means reading
-the controller's own velocity limits and scaling against them — F4 work, where
-the real contract bridge is built. F3's gate is "stands and walks at low gain".
+Twist carries SI units; Inputs carries normalized stick positions.  A tempting
+mapping is to divide by the hard-coded StateTrotting limits (0.4 m/s forward,
+0.3 m/s lateral and 0.5 rad/s yaw).  Execution disproved that mapping: a modest
+linear.x=0.03 becomes ly=0.075 and made the Go2 fall from z=0.355 m to 0.073 m
+in two seconds, without a controller error.
 
-Do not raise MAX_* here to make the robot look faster. It will fall over, and
-it will do so without a single error in the log.
+F3 proved normalized axes up to 0.03 stable.  F4 therefore preserves unit gain
+and clamps every stick to that measured envelope.  This is deliberately slow,
+but it preserves the public Twist contract and fails safe when Nav2 requests a
+higher velocity.  F5 must calibrate the command-to-motion relationship against
+legged odometry before widening the envelope.  Lateral and yaw signs are
+negated because the upstream controller negates those axes internally.
 """
 
 from control_input_msgs.msg import Inputs
@@ -56,6 +58,10 @@ _CMD_START_TROT = 4
 _TRANSITION_HOLD_S = 5.0
 _TICK_PERIOD_S = 1.0
 _TICKS_PER_TRANSITION = int(_TRANSITION_HOLD_S / _TICK_PERIOD_S)
+
+# Maximum normalized stick magnitude proven stable by F3.  This is not the
+# controller's mathematical maximum; see the module docstring before changing.
+_SAFE_STICK_LIMIT = 0.03
 
 
 class TwistToInputs(Node):
@@ -123,19 +129,25 @@ class TwistToInputs(Node):
         if self._stage != 'trotting':
             return
 
-        message = Inputs()
-        message.command = _CMD_NONE
-        # ly is forward/back and lx is strafe on the left stick; rx yaws.
-        message.ly = _clamp(twist.linear.x)
-        message.lx = _clamp(twist.linear.y)
-        message.rx = _clamp(twist.angular.z)
-        message.ry = 0.0
+        message = _twist_to_inputs(twist)
         self._publisher.publish(message)
 
 
-def _clamp(value: float) -> float:
-    """Clamp to the [-1, 1] range the Inputs message models."""
-    return max(-1.0, min(1.0, float(value)))
+def _twist_to_inputs(twist: Twist) -> Inputs:
+    """Convert SI velocity commands to the controller's normalized axes."""
+    message = Inputs()
+    message.command = _CMD_NONE
+    # StateTrotting maps ly directly, but negates lx and rx.
+    message.ly = _to_safe_stick(twist.linear.x)
+    message.lx = -_to_safe_stick(twist.linear.y)
+    message.rx = -_to_safe_stick(twist.angular.z)
+    message.ry = 0.0
+    return message
+
+
+def _to_safe_stick(value: float) -> float:
+    """Apply unit gain and clamp to the empirically stable stick envelope."""
+    return max(-_SAFE_STICK_LIMIT, min(_SAFE_STICK_LIMIT, float(value)))
 
 
 def main(args=None) -> None:

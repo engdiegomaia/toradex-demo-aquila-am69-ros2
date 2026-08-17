@@ -1,0 +1,43 @@
+# ROS <-> Gazebo boundary for the Go2 plant (ML3.5 F4).
+# Runs on the x86 host only, in the sim container.
+
+- ros_topic_name: "/clock"
+  gz_topic_name: "/clock"
+  ros_type_name: "rosgraph_msgs/msg/Clock"
+  gz_type_name: "gz.msgs.Clock"
+  direction: GZ_TO_ROS
+
+# Temporary ground-truth odometry.  F5 replaces the producer with legged-state
+# estimation.  /go2/ground_truth_tf is deliberately NOT bridged: F5 owns the
+# odom -> base_link edge and two publishers on that edge fail silently.
+- ros_topic_name: "/demo/odom"
+  gz_topic_name: "/go2/odom"
+  ros_type_name: "nav_msgs/msg/Odometry"
+  gz_type_name: "gz.msgs.Odometry"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/demo/scan"
+  gz_topic_name: "/scan"
+  ros_type_name: "sensor_msgs/msg/LaserScan"
+  gz_type_name: "gz.msgs.LaserScan"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/demo/camera/image_raw"
+  gz_topic_name: "/camera/image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/demo/camera/camera_info"
+  gz_topic_name: "/camera/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
+# The hardware interface consumes this same Gazebo IMU internally; exposing it
+# keeps the simulator-side diagnostic contract aligned with the diff-drive.
+- ros_topic_name: "/demo/imu"
+  gz_topic_name: "/imu"
+  ros_type_name: "sensor_msgs/msg/Imu"
+  gz_type_name: "gz.msgs.IMU"
+  direction: GZ_TO_ROS
