@@ -1,6 +1,7 @@
 # ML3.5 F3 — evidência de execução
 
-Data: 17/08/2026. Host x86 (`diegom-nb`), headless.
+Data: 17/08/2026. Host x86 (`diegom-nb`). Execução quantitativa headless;
+confirmação visual posterior no Gazebo GUI pelo operador.
 
 Portão de F3: *"Go2 em pé, estável, responde a `cmd_vel` sem cair"*, com os
 pacotes e o launch do projeto — não com o spike descartável de F2.
@@ -149,8 +150,10 @@ não editar). Nossos pacotes mantêm os seus linters.
 ## Não validado
 
 - **Nada em arm64. Nada no módulo.** Regras 5 e 7.
-- **Nenhuma confirmação visual em GUI.** Execução headless. Que o Go2 *pareça*
-  correto no Gazebo e no RViz2 continua **pendente do operador**.
+- **RViz2.** O operador confirmou em 17/08/2026 que o modelo Go2 aparece com
+  corpo visível no **Gazebo GUI**, usando a imagem do spike e
+  `world:=empty.sdf`. RViz2 e sua árvore TF continuam pendentes; a
+  confirmação no Gazebo não prova o caminho de renderização do RViz.
 - **`warehouse.sdf`.** O portão rodou em `empty.sdf`. O mundo do projeto carrega
   ~10 s com 50+ malhas; o spawn agora é imediato (seguro, `create` faz retry),
   mas não foi exercitado ali.

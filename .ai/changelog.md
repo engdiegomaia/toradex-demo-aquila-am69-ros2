@@ -69,9 +69,13 @@ a política manda não editar.
 (promovido do spike de F2), `sim.launch.py` roteando `robot_type` para um launch
 por plant, sem conditionals. Default segue `diffdrive`.
 
-**Não validado:** nada em arm64, nada no módulo, nenhuma confirmação visual em
-GUI (execução headless), e o quadrúpede não foi exercitado no `warehouse.sdf`.
-Marcha em ganho alto continua instável — é sintonia do mapeamento, e é F4.
+**Confirmação visual posterior:** em 17/08/2026 o operador executou o mesmo
+launch do projeto com `gui:=true world:=empty.sdf`, ainda na imagem do spike, e
+confirmou o modelo Go2 visível no Gazebo. RViz2 não foi validado.
+
+**Não validado:** nada em arm64, nada no módulo, RobotModel/TF no RViz2, imagem
+`sim` oficial e o quadrúpede no `warehouse.sdf`. Marcha em ganho alto continua
+instável — é sintonia do mapeamento, e é F4.
 
 ---
 

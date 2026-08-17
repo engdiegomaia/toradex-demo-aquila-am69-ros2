@@ -133,6 +133,8 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   as malhas bit-idênticas por hash — é essa a base legal da vendorização, não a
   string do `package.xml`. Ver `ros2_ws/src/go2_description/README.md`.
   F3 **não foi retarget de cinemática**: a troca de alvo eliminou esse trabalho.
+  Aparência do Go2 confirmada pelo operador no Gazebo GUI em 17/08/2026, com
+  `world:=empty.sdf`; RobotModel/TF no RViz2 ainda pendente.
   A containerização entra em F1, **antes** da troca do robô, para separar risco
   de Docker/DDS de risco de marcha.
 - **L4 (ML4)** — depois: absorvida em grande parte pelo F1 do ML3.5.
