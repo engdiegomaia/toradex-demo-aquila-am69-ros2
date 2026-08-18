@@ -116,6 +116,35 @@ On a slower machine, raise both timers (and the matching ones in
 
 ## Running
 
+### Go2 no spike
+
+Na imagem `demo-sim:spike-go2`, execute o script na raiz do repositório. O
+padrão é o fixture `quadruped_empty.sdf` (com Sensors); um caminho absoluto
+para outro cenário pode ser passado:
+
+```bash
+./scripts/run_quadruped_sim.sh
+# quando disponível:
+./scripts/run_quadruped_sim.sh /caminho/absoluto/warehouse.sdf
+```
+
+O script compila os seis pacotes no container e usa o nome fixo
+`aquila-go2`. Em outro terminal, depois do log `fixed stand. Waiting for a
+non-zero /demo/cmd_vel`, envie uma velocidade baixa:
+
+```bash
+docker exec -it aquila-go2 bash -lc '
+  . /opt/ros/jazzy/setup.sh && . /test/install/setup.sh
+  ros2 topic pub -r 10 /demo/cmd_vel geometry_msgs/msg/Twist \
+    "{linear: {x: 0.03}}"
+'
+```
+
+O robô entra no trote, mas a passada dinâmica ainda está instável: no ensaio
+de 18/08/2026 ele avançou sem alternância de pernas confiável e caiu. Portanto
+F4 continua aberto; a estabilidade em `FIXEDSTAND` é o critério atualmente
+validado. Pare o publisher com `Ctrl-C` e o simulador no primeiro terminal.
+
 ```bash
 # terminal 1 — simulator, robot, bridge
 ros2 launch demo_simulation simulation.launch.py

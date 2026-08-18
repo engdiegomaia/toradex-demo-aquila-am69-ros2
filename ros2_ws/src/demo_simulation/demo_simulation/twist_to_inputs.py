@@ -14,8 +14,10 @@ must not learn that the robot has legs.
 
 So this node owns two jobs that the diff-drive plant never needed:
 
-1. Walk the gait state machine up to TROTTING. A quadruped does not accept
-   velocity commands from a cold start; it has to stand up first.
+1. Walk the gait state machine up to FIXEDSTAND. A quadruped does not accept
+   velocity commands from a cold start; it has to stand up first. TROTTING is
+   entered only when a non-zero Twist arrives, so an idle robot remains in the
+   stable stand controller.
 2. Convert Twist to normalized stick axes once trotting.
 
 F4 MAPPING
@@ -86,7 +88,7 @@ class TwistToInputs(Node):
 
     def _advance_gait_fsm(self) -> None:
         """
-        Walk PASSIVE -> FIXEDDOWN -> FIXEDSTAND -> TROTTING, then stop.
+        Walk PASSIVE -> FIXEDDOWN -> FIXEDSTAND, then wait for motion.
 
         Wall-clock paced on purpose — see _TRANSITION_HOLD_S.
         """
@@ -104,17 +106,11 @@ class TwistToInputs(Node):
             self._stage = 'fixed_stand'
             self.get_logger().info('gait FSM: fixed down -> fixed stand')
         elif self._stage == 'fixed_stand':
-            self._send_command(_CMD_START_TROT)
-            self._stage = 'trotting'
-            self.get_logger().info(
-                'gait FSM: fixed stand -> trotting. Now driven by /demo/cmd_vel.'
-            )
-            # Nothing left to sequence. Leaving the timer running would keep
-            # publishing command codes and fight the velocity commands: a
-            # stray command=2 forces the FSM back to FIXEDSTAND even from
-            # stable trotting (StateTrotting::checkChange), which reads as the
-            # robot randomly stopping.
             self._timer.cancel()
+            self.get_logger().info(
+                'gait FSM: fixed stand. Waiting for a non-zero /demo/cmd_vel '
+                'before entering trotting.'
+            )
 
     def _send_command(self, command: int) -> None:
         message = Inputs()
@@ -123,6 +119,16 @@ class TwistToInputs(Node):
 
     def _on_twist(self, twist: Twist) -> None:
         """Map Twist onto the controller's normalized stick axes."""
+        if self._stage == 'fixed_stand':
+            if not _has_motion_command(twist):
+                return
+            self._send_command(_CMD_START_TROT)
+            self._stage = 'trotting'
+            self.get_logger().info(
+                'gait FSM: fixed stand -> trotting. Now driven by /demo/cmd_vel.'
+            )
+            return
+
         # Velocity commands before TROTTING are not queued, they are dropped.
         # Forwarding them would inject axis values while the robot is still
         # standing up and knock it over mid-transition.
@@ -143,6 +149,18 @@ def _twist_to_inputs(twist: Twist) -> Inputs:
     message.rx = -_to_safe_stick(twist.angular.z)
     message.ry = 0.0
     return message
+
+
+def _has_motion_command(twist: Twist) -> bool:
+    """Return whether a Twist requests translation or yaw motion."""
+    return any((
+        float(twist.linear.x),
+        float(twist.linear.y),
+        float(twist.linear.z),
+        float(twist.angular.x),
+        float(twist.angular.y),
+        float(twist.angular.z),
+    ))
 
 
 def _to_safe_stick(value: float) -> float:

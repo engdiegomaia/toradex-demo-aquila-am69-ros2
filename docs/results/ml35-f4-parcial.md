@@ -117,3 +117,48 @@ nenhum `aquila-f4-contract` ativo.
 - regressão diff-drive;
 - RViz2 do Go2;
 - qualquer execução arm64 ou no Aquila AM69.
+
+## Execução adicional — 18/08/2026
+
+O ensaio com `world:=empty.sdf` confirmou dois problemas distintos:
+
+- sem `/demo/cmd_vel`, o robô entrava automaticamente em `TROTTING` após
+  15 s e podia cair por deriva de velocidade/yaw;
+- ao aplicar `linear.x=0.03`, a passada dinâmica ainda tombava em cerca de 20 s,
+  mesmo após sintonia conservadora temporária.
+
+Foi corrigido no workspace o primeiro problema: `twist_to_inputs` agora para em
+`FIXEDSTAND` e só envia `command=4` quando recebe um `Twist` não nulo. A
+execução runtime ficou em `fixed stand` até t≈61 s, com `z=0,347 m`, orientação
+nivelada e velocidade zero.
+
+Também foi corrigida a conversão de posição/velocidade dos pés no estimador
+vendorizado para o frame global, incluindo a velocidade angular do corpo. Build
+limpo e suíte passaram: **10 testes, 0 falhas**.
+
+O trote permanece bloqueado: a transformação do estimador melhora o repouso,
+mas a passada ainda cai. Não marcar F4 como concluída nem aumentar o limite de
+`_SAFE_STICK_LIMIT` até haver retuning/teste específico do controlador dinâmico.
+
+### Reensaio de movimentação — 18/08/2026
+
+Com o container identificado (`lucid_bohr`) e o comando
+`linear.x=0.03` publicado a 10 Hz, o Go2 avançou sem alternância de pernas
+observável e caiu. Isso confirma que o tópico DDS e o caminho
+`/demo/cmd_vel -> /control_input` estão funcionando; a falha está na marcha
+dinâmica (gait/estimador/ganhos), não no throttle nem na inicialização.
+
+Próximas etapas são deliberadamente separadas:
+
+1. Medir cada ciclo de trote com `/demo/odom`, IMU e pose do modelo, começando
+   por um único comando curto e sem yaw; não aumentar o limite seguro de 0,03.
+2. Instrumentar as fases de swing/stance e revisar o sinal dos pés e o ganho
+   de yaw no `unitree_guide_controller`; validar primeiro trote parado, depois
+   avanço de 0,01 m/s.
+3. Repetir o teste no `warehouse.sdf` somente após o trote ficar estável no
+   `quadruped_empty.sdf`. O script `scripts/run_quadruped_sim.sh` aceita o
+   caminho absoluto do cenário e mantém a execução reproduzível.
+4. Com a rede disponível, instalar/vendoriar o mundo oficial no compose,
+   executar `robot_type:=quadruped` e então confirmar RViz2, TF e sensores.
+5. Rodar `--profile learn` e exigir goal Nav2 `SUCCEEDED` para fechar a
+   regressão do diff-drive antes de declarar F4 concluída.
