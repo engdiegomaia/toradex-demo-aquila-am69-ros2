@@ -114,6 +114,7 @@ private:
     bool hold_captured_{false};
     double tilt_{};
     double settled_s_{};
+    double entry_s_{};
     int diag_ticks_{};
 
     // Control Parameters

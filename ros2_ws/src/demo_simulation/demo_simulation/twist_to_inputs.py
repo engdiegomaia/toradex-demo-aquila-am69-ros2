@@ -83,6 +83,21 @@ _SAFE_STICK_LIMIT = 0.03
 _CONTROL_PERIOD_S = 0.05
 _CMD_TIMEOUT_S = 0.3
 
+# The FSM handshake is wider than one message, and the tick above will close it
+# if you let it. The controller does not act on messages: the subscription
+# writes into a single control_inputs_ struct and the update loop reads whatever
+# is there when it runs. Publishing `command=4` once and then a control message
+# 50 ms later means the 4 can be overwritten before any update sees it -- and
+# the failure is silent, because the sticks keep streaming, the bridge logs
+# "fixed stand -> trotting", and the robot just stands there in fixed stand.
+# Measured on 18/08/2026, exactly that way.
+#
+# Repeating the start command costs nothing: StateTrotting::checkChange treats
+# anything that is not 1 (passive) or 2 (fixed stand) as "stay trotting". So it
+# is repeated across a window instead of sent once.
+_START_TROT_HOLD_S = 0.5
+_START_TROT_TICKS = int(_START_TROT_HOLD_S / _CONTROL_PERIOD_S)
+
 
 class _CommandGate:
     """
@@ -120,6 +135,24 @@ class _CommandGate:
         return message
 
 
+class _StartLatch:
+    """Repeat the trot start command for a window, then go quiet."""
+
+    def __init__(self, ticks: int = _START_TROT_TICKS) -> None:
+        self._ticks = ticks
+        self._left = 0
+
+    def arm(self) -> None:
+        self._left = self._ticks
+
+    def next_command(self) -> int:
+        """Return the command byte for this tick, consuming one repeat."""
+        if self._left <= 0:
+            return _CMD_NONE
+        self._left -= 1
+        return _CMD_START_TROT
+
+
 class TwistToInputs(Node):
     """Bridge /demo/cmd_vel -> /control_input, driving the gait FSM first."""
 
@@ -139,6 +172,7 @@ class TwistToInputs(Node):
         # single writer keeps "what the controller last heard" a function of
         # time alone, which is what makes the watchdog meaningful.
         self._gate = _CommandGate()
+        self._start_latch = _StartLatch()
         self._stale = True
         self._control_timer = self.create_timer(
             _CONTROL_PERIOD_S, self._publish_control_input,
@@ -187,7 +221,9 @@ class TwistToInputs(Node):
         if self._stage == 'fixed_stand':
             if not _has_motion_command(twist):
                 return
-            self._send_command(_CMD_START_TROT)
+            # Arm, do not publish: the tick is the only writer of control
+            # messages, which is what makes the repeat above reliable.
+            self._start_latch.arm()
             self._stage = 'trotting'
             self.get_logger().info(
                 'gait FSM: fixed stand -> trotting. Now driven by /demo/cmd_vel.'
@@ -215,7 +251,9 @@ class TwistToInputs(Node):
             )
             self._stale = stale
 
-        self._publisher.publish(self._gate.sample(now))
+        message = self._gate.sample(now)
+        message.command = self._start_latch.next_command()
+        self._publisher.publish(message)
 
     def _now(self) -> float:
         """Seconds on the node clock (sim time here — see the launch file)."""

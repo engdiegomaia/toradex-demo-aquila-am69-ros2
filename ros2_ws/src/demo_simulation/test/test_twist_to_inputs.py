@@ -3,6 +3,7 @@
 from demo_simulation.twist_to_inputs import (
     _CommandGate,
     _has_motion_command,
+    _StartLatch,
     _to_safe_stick,
     _twist_to_inputs,
 )
@@ -114,3 +115,34 @@ def test_gate_keeps_the_controller_sign_convention():
 
     assert sample.lx == pytest.approx(-0.02)
     assert sample.rx == pytest.approx(-0.02)
+
+
+def test_start_latch_repeats_the_trot_command():
+    # One message is not enough: the controller reads a struct, not a stream,
+    # so a single command=4 can be overwritten before any update loop sees it.
+    latch = _StartLatch(ticks=3)
+    latch.arm()
+
+    assert [latch.next_command() for _ in range(3)] == [4, 4, 4]
+
+
+def test_start_latch_goes_quiet_after_the_window():
+    latch = _StartLatch(ticks=2)
+    latch.arm()
+    latch.next_command()
+    latch.next_command()
+
+    assert latch.next_command() == 0
+
+
+def test_start_latch_is_quiet_until_armed():
+    assert _StartLatch(ticks=2).next_command() == 0
+
+
+def test_start_latch_rearms():
+    latch = _StartLatch(ticks=1)
+    latch.arm()
+    latch.next_command()
+    latch.arm()
+
+    assert latch.next_command() == 4
