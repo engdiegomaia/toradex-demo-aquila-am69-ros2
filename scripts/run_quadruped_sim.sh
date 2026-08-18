@@ -37,5 +37,5 @@ docker run --rm --name "${container_name}" --network=host \
     if [ "${world}" = quadruped_empty.sdf ]; then
       world=/test/install/demo_simulation/share/demo_simulation/worlds/quadruped_empty.sdf
     fi
-    ros2 launch demo_simulation quadruped.launch.py gui:=true world="${world}"
+    ros2 launch demo_simulation quadruped.launch.py gui:=true world:="${world}"
   '
