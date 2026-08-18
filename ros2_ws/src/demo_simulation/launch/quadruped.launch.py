@@ -48,13 +48,17 @@ from launch_ros.substitutions import FindPackageShare
 
 
 def generate_launch_description() -> LaunchDescription:
-    # Same world as the diff-drive plant, same reasoning: it ships with
-    # ros-jazzy-nav2-minimal-tb4-sim and is not vendored (see
-    # simulation.launch.py and demo_simulation/README.md).
+    # Keep the spike self-contained.  The official warehouse world is not in
+    # demo-sim:spike-go2; resolving it here would make even an explicit
+    # world:=empty.sdf fail while constructing the unused default substitution.
+    # The project-owned empty world includes the sensor system and is therefore
+    # the correct default for this image.  The official compose can pass an
+    # absolute warehouse.sdf path explicitly.
     world_arg = DeclareLaunchArgument(
         'world',
         default_value=PathJoinSubstitution([
-            FindPackageShare('nav2_minimal_tb4_sim'), 'worlds', 'warehouse.sdf',
+            FindPackageShare('demo_simulation'), 'worlds',
+            'quadruped_empty.sdf',
         ]),
         description='Absolute path to the SDF world to load.',
     )

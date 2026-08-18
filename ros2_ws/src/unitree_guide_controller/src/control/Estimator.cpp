@@ -154,6 +154,21 @@ void Estimator::update() {
     Q = QInit_;
     R = RInit_;
 
+    Quat quat;
+    quat << ctrl_interfaces_.imu_state_interface_[0].get().get_optional().value(),
+            ctrl_interfaces_.imu_state_interface_[1].get().get_optional().value(),
+            ctrl_interfaces_.imu_state_interface_[2].get().get_optional().value(),
+            ctrl_interfaces_.imu_state_interface_[3].get().get_optional().value();
+    rotation_ = quatToRotMat(quat);
+
+    gyro_ << ctrl_interfaces_.imu_state_interface_[4].get().get_optional().value(),
+            ctrl_interfaces_.imu_state_interface_[5].get().get_optional().value(),
+            ctrl_interfaces_.imu_state_interface_[6].get().get_optional().value();
+
+    acceleration_ << ctrl_interfaces_.imu_state_interface_[7].get().get_optional().value(),
+            ctrl_interfaces_.imu_state_interface_[8].get().get_optional().value(),
+            ctrl_interfaces_.imu_state_interface_[9].get().get_optional().value();
+
     foot_poses_ = robot_model_->getFeet2BPositions();
     foot_vels_ = robot_model_->getFeet2BVelocities();
     feet_h_.setZero();
@@ -177,24 +192,15 @@ void Estimator::update() {
             R(24 + i, 24 + i) =
                     (1 + (1 - trust) * large_variance_) * RInit_(24 + i, 24 + i);
         }
-        feet_pos_body_.segment(3 * i, 3) = Vec3(foot_poses_[i].p.data);
-        feet_vel_body_.segment(3 * i, 3) = Vec3(foot_vels_[i].data);
+        const Vec3 foot_pos_body(foot_poses_[i].p.data);
+        const Vec3 foot_vel_body(foot_vels_[i].data);
+        // The filter state is expressed in the global frame.  KDL returns
+        // both quantities in the body frame; leaving them unrotated makes
+        // the estimator inject a yaw-dependent velocity error.
+        feet_pos_body_.segment(3 * i, 3) = rotation_ * foot_pos_body;
+        feet_vel_body_.segment(3 * i, 3) =
+                rotation_ * (foot_vel_body + gyro_.cross(foot_pos_body));
     }
-
-    Quat quat;
-    quat << ctrl_interfaces_.imu_state_interface_[0].get().get_optional().value(),
-            ctrl_interfaces_.imu_state_interface_[1].get().get_optional().value(),
-            ctrl_interfaces_.imu_state_interface_[2].get().get_optional().value(),
-            ctrl_interfaces_.imu_state_interface_[3].get().get_optional().value();
-    rotation_ = quatToRotMat(quat);
-
-    gyro_ << ctrl_interfaces_.imu_state_interface_[4].get().get_optional().value(),
-            ctrl_interfaces_.imu_state_interface_[5].get().get_optional().value(),
-            ctrl_interfaces_.imu_state_interface_[6].get().get_optional().value();
-
-    acceleration_ << ctrl_interfaces_.imu_state_interface_[7].get().get_optional().value(),
-            ctrl_interfaces_.imu_state_interface_[8].get().get_optional().value(),
-            ctrl_interfaces_.imu_state_interface_[9].get().get_optional().value();
 
     u_ = rotation_ * acceleration_ + g_;
     x_hat_ = A * x_hat_ + B * u_;

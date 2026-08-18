@@ -1,6 +1,10 @@
 """Unit tests for the public Twist to private gait-input contract."""
 
-from demo_simulation.twist_to_inputs import _to_safe_stick, _twist_to_inputs
+from demo_simulation.twist_to_inputs import (
+    _has_motion_command,
+    _to_safe_stick,
+    _twist_to_inputs,
+)
 from geometry_msgs.msg import Twist
 import pytest
 
@@ -42,3 +46,11 @@ def test_all_axes_saturate_symmetrically():
 def test_safe_stick_boundary_is_inclusive():
     assert _to_safe_stick(0.03) == pytest.approx(0.03)
     assert _to_safe_stick(-0.03) == pytest.approx(-0.03)
+
+
+def test_zero_twist_does_not_start_trotting():
+    assert not _has_motion_command(_twist())
+
+
+def test_any_motion_axis_starts_trotting():
+    assert _has_motion_command(_twist(yaw=0.001))
