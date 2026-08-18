@@ -162,3 +162,13 @@ Próximas etapas são deliberadamente separadas:
    executar `robot_type:=quadruped` e então confirmar RViz2, TF e sensores.
 5. Rodar `--profile learn` e exigir goal Nav2 `SUCCEEDED` para fechar a
    regressão do diff-drive antes de declarar F4 concluída.
+
+### Step seguinte — ganho de stance no trote
+
+O teste de parada confirmou `state=trotting`, `ly=0` e
+`contact=[1 1 1 1]` durante toda a janela. Assim, a queda não depende da
+alternância de pés: ela começa quando `FIXEDSTAND` entrega o controle ao
+`TROTTING`. A próxima hipótese isolada é a descontinuidade de ganhos
+`80/3.5 -> 0.8/0.8`. O workspace passa a usar `Kp=3.0`, `Kd=2.0` também para
+stance, igual ao swing. Período, estimador e QP permanecem inalterados; o
+resultado deve ser medido novamente antes de qualquer ajuste adicional.
