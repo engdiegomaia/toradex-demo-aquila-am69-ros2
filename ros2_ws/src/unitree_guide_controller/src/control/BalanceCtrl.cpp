@@ -20,7 +20,19 @@ BalanceCtrl::BalanceCtrl(const std::shared_ptr<QuadrupedRobot> &robot) {
             friction_ratio_, 0, 0, 1;
 
     pcb_ = Vec3(0.0, 0.0, 0.0);
-    Ib_ = Vec3(0.0792, 0.2085, 0.2265).asDiagonal();
+    // Whole-robot inertia about the COM, in the body frame -- see calVectorBd,
+    // which uses it as R * Ib_ * R^T * dWbd.  The upstream value
+    // (0.0792, 0.2085, 0.2265) is the A1's and stayed here through the Go2
+    // port, under-stating this robot by a factor of 2.3 on every axis: the QP
+    // then asks for 43% of the moment needed to arrest a tilt, which is why
+    // the trot lost attitude and fell while HOLD stayed level.
+    //
+    // Computed from go2_description at the stand pose (hip 0, thigh 0.8,
+    // calf -1.5), summing every link with the parallel-axis theorem:
+    // 15.098 kg, COM (-0.0016, 0.0, -0.0231) m, diag (0.1817, 0.4899, 0.5262).
+    // Off-diagonal terms are below 4% of the diagonal and are dropped, as
+    // upstream does.
+    Ib_ = Vec3(0.1817, 0.4899, 0.5262).asDiagonal();
 
     Vec6 s;
     Vec12 w, u;
