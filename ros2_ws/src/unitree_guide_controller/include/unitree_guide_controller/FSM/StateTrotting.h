@@ -8,6 +8,23 @@
 #include <unitree_guide_controller/gait/GaitGenerator.h>
 #include "controller_common/FSM/FSMState.h"
 
+/**
+ * What the trot supervisor decided to do on this control tick.
+ *
+ * Upstream TROTTING has no such concept: it always integrates the velocity
+ * command into a body reference, and a threshold on the resulting tracking
+ * error decides whether the feet leave the ground.  Those two decisions are
+ * independent, so the state can (and on this robot did) push the body sideways
+ * with all four feet planted, and keep pushing after the command went back to
+ * zero.  Splitting the behaviour into three explicit modes makes both the gait
+ * activation and the stop condition observable in the diagnostics line.
+ */
+enum class MotionMode {
+    HOLD, //!< four feet down, body parked on the captured reference
+    WALK, //!< gait enabled, body reference tracks the velocity command
+    RECOVER, //!< tilted out of the safe band: cancel the command, level the body
+};
+
 class StateTrotting final : public FSMState {
 public:
     explicit StateTrotting(CtrlInterfaces &ctrl_interfaces,
@@ -43,10 +60,33 @@ private:
     void calcGain() const;
 
     /**
-     * Check whether the robot should take a step or not
-     * @return
+     * Update tilt_, mode_ and walking_ from the current command and attitude.
+     * Runs before calcCmd() so that a cancelled command never reaches the
+     * body reference in the first place.
      */
-    bool checkStepOrNot();
+    void updateMotionMode();
+
+    /**
+     * Latch the walk decision with hysteresis, from commanded motion only.
+     * @return whether the gait should be running this tick
+     */
+    bool updateWalkIntent();
+
+    /**
+     * Drop the velocity and yaw-rate command, filter state included.
+     */
+    void cancelCommand();
+
+    /**
+     * Park the horizontal position and yaw reference on the current pose, so
+     * that leaving WALK leaves no residual reference for BalanceCtrl to chase.
+     */
+    void captureBodyReference();
+
+    /**
+     * One line per second: mode, command, tilt, tracking error and contacts.
+     */
+    void logDiagnostics();
 
     std::shared_ptr<Estimator> &estimator_;
     std::shared_ptr<QuadrupedRobot> &robot_model_;
@@ -67,6 +107,14 @@ private:
     Vec3 w_cmd_global_;
     Vec34 pos_feet_global_goal_, vel_feet_global_goal_;
     RotMat Rd;
+
+    // Motion supervisor
+    MotionMode mode_{MotionMode::HOLD};
+    bool walking_{false};
+    bool hold_captured_{false};
+    double tilt_{};
+    double settled_s_{};
+    int diag_ticks_{};
 
     // Control Parameters
     double gait_height_;
