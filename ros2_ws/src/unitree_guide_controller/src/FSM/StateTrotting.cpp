@@ -285,10 +285,20 @@ void StateTrotting::calcCmd() {
     vel_target_(1) =
             saturation(vel_target_(1), Vec2(vel_body_(1) - 0.2, vel_body_(1) + 0.2));
 
+    // How far the integrated reference may run ahead of the body.  Upstream
+    // allows 0.05 m, and with Kpp = 70 that is 3.5 m/s^2 of horizontal
+    // acceleration -- a third of gravity -- demanded of a robot commanded to
+    // walk at 4 mm/s.  Every recorded run shows posErrXY climbing to exactly
+    // this limit and staying there: the trot does not propel the body, the
+    // reference keeps integrating, pegs at the clamp, and the QP then pushes
+    // flat out until the robot pitches over.  The clamp is the throttle on
+    // that runaway, so it is sized to the command, not to the A1's tuning.
+    constexpr double REFERENCE_BAND = 0.01;
+
     pcd_(0) = saturation(pcd_(0) + vel_target_(0) * dt_,
-                         Vec2(pos_body_(0) - 0.05, pos_body_(0) + 0.05));
+                         Vec2(pos_body_(0) - REFERENCE_BAND, pos_body_(0) + REFERENCE_BAND));
     pcd_(1) = saturation(pcd_(1) + vel_target_(1) * dt_,
-                         Vec2(pos_body_(1) - 0.05, pos_body_(1) + 0.05));
+                         Vec2(pos_body_(1) - REFERENCE_BAND, pos_body_(1) + REFERENCE_BAND));
 
     vel_target_(2) = 0;
 
