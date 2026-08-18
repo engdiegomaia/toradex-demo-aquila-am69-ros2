@@ -4,10 +4,59 @@
 
 #include "unitree_guide_controller/FSM/StateTrotting.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <unitree_guide_controller/common/mathTools.h>
 #include <unitree_guide_controller/control/CtrlComponent.h>
 #include <unitree_guide_controller/control/Estimator.h>
 #include <unitree_guide_controller/gait/WaveGenerator.h>
+
+namespace {
+    // Walk-intent thresholds, in SI units, applied where StateTrotting has
+    // already turned stick axes into a body velocity command.  They are NOT the
+    // upstream numbers, and the difference is arithmetic rather than taste:
+    //
+    //   Twist.linear.x = 0.01 m/s
+    //     -> twist_to_inputs keeps unit gain and clamps the stick: ly = 0.01
+    //     -> getUserCmd(): invNormalize(0.01, -0.4, 0.4) = 0.4 * 0.01 = 0.004 m/s
+    //
+    // So the slowest command in the F4 plan arrives here as 4 mm/s, while
+    // upstream only starts stepping above 0.03 m/s — 7.5x more than this bridge
+    // can ever produce with its 0.03 stick clamp.  That is why the recorded run
+    // shows `state=trotting`, `ly=0.01..0.03` and `contact=[1 1 1 1]` for the
+    // whole window (docs/results/ml35-f4-parcial.md): no step was ever
+    // requested.  Tuning gains against that log would have measured nothing.
+    //
+    // Widening the stick envelope in twist_to_inputs changes this arithmetic;
+    // revisit these numbers together with it, not separately.
+    constexpr double V_START = 0.002; // m/s, fires for Twist.linear.x >= 0.005
+    constexpr double V_STOP = 0.001; // m/s
+    constexpr double W_START = 0.005; // rad/s, fires for Twist.angular.z >= 0.01
+    constexpr double W_STOP = 0.002; // rad/s
+
+    // Attitude supervision, radians of body-z tilt away from gravity.  Starting
+    // points for simulation, not Go2 specifications: log the tilt column of the
+    // diagnostics line across a run before moving them.
+    //
+    // Upstream only reacts through FSM::checkSafty(), around 60 deg, which is
+    // well past the point where a quadruped can still recover by standing.
+    constexpr double TILT_OK = 0.087; // 5 deg: attitude considered settled
+    constexpr double TILT_DERATE = 0.140; // 8 deg: start fading the command out
+    constexpr double TILT_RECOVER = 0.209; // 12 deg: cancel locomotion entirely
+    constexpr double RECOVER_SETTLE_S = 0.3; // time below TILT_OK before HOLD
+
+    const char *modeName(const MotionMode mode) {
+        switch (mode) {
+            case MotionMode::WALK:
+                return "WALK";
+            case MotionMode::RECOVER:
+                return "RECOVER";
+            default:
+                return "HOLD";
+        }
+    }
+}
 
 StateTrotting::StateTrotting(CtrlInterfaces &ctrl_interfaces,
                              CtrlComponent &ctrl_component) : FSMState(FSMStateName::TROTTING, "trotting",
@@ -39,6 +88,17 @@ void StateTrotting::enter() {
     Rd = rotz(yaw_cmd_);
     w_cmd_global_.setZero();
 
+    // FIXEDSTAND hands over a standing robot with no command pending, which is
+    // exactly the HOLD contract; the reference above is the captured one.
+    mode_ = MotionMode::HOLD;
+    walking_ = false;
+    hold_captured_ = true;
+    tilt_ = 0.0;
+    settled_s_ = 0.0;
+    diag_ticks_ = 0;
+    d_yaw_cmd_ = 0.0;
+    d_yaw_cmd_past_ = 0.0;
+
     ctrl_interfaces_.control_inputs_.command = 0;
     gait_generator_.restart();
 }
@@ -51,7 +111,18 @@ void StateTrotting::run(const rclcpp::Time &/*time*/, const rclcpp::Duration &/*
     G2B_RotMat = B2G_RotMat.transpose();
 
     getUserCmd();
+    // Decide before integrating: a cancelled command must never reach pcd_.
+    updateMotionMode();
     calcCmd();
+
+    if (mode_ != MotionMode::WALK) {
+        // calcCmd() saturates the velocity target against the *measured* body
+        // velocity, so a body that is already sliding would re-create the
+        // velocity target that was just cancelled.  Zero it after the fact.
+        vel_target_.setZero();
+        w_cmd_global_.setZero();
+        captureBodyReference();
+    }
 
     gait_generator_.setGait(vel_target_.segment(0, 2), w_cmd_global_(2), gait_height_);
     gait_generator_.generate(pos_feet_global_goal_, vel_feet_global_goal_);
@@ -59,13 +130,15 @@ void StateTrotting::run(const rclcpp::Time &/*time*/, const rclcpp::Duration &/*
     calcTau();
     calcQQd();
 
-    if (checkStepOrNot()) {
-        wave_generator_->status_ = WaveStatus::WAVE_ALL;
-    } else {
-        wave_generator_->status_ = WaveStatus::STANCE_ALL;
-    }
+    // The wave generator does not switch every foot at once: it holds the
+    // previous contact condition per leg until that leg can legally change,
+    // so entering and leaving the gait mid-cycle is safe.
+    wave_generator_->status_ = mode_ == MotionMode::WALK
+                                   ? WaveStatus::WAVE_ALL
+                                   : WaveStatus::STANCE_ALL;
 
     calcGain();
+    logDiagnostics();
 }
 
 void StateTrotting::exit() {
@@ -73,6 +146,8 @@ void StateTrotting::exit() {
 }
 
 FSMStateName StateTrotting::checkChange() {
+    // A zero command means HOLD, not FIXEDSTAND.  Leaving TROTTING stays an
+    // explicit operator decision, as upstream.
     switch (ctrl_interfaces_.control_inputs_.command) {
         case 1:
             return FSMStateName::PASSIVE;
@@ -93,6 +168,91 @@ void StateTrotting::getUserCmd() {
     d_yaw_cmd_ = -invNormalize(ctrl_interfaces_.control_inputs_.rx, w_yaw_limit_(0), w_yaw_limit_(1));
     d_yaw_cmd_ = 0.9 * d_yaw_cmd_past_ + (1 - 0.9) * d_yaw_cmd_;
     d_yaw_cmd_past_ = d_yaw_cmd_;
+}
+
+void StateTrotting::updateMotionMode() {
+    // Tilt of the body z axis away from gravity, straight off the rotation
+    // matrix: acos(R(2,2)).  No Euler conversion and no gimbal edge case.
+    const double r22 = B2G_RotMat(2, 2);
+    tilt_ = std::acos(std::clamp(r22, -1.0, 1.0));
+
+    settled_s_ = tilt_ < TILT_OK ? settled_s_ + dt_ : 0.0;
+
+    if (mode_ == MotionMode::RECOVER) {
+        cancelCommand();
+        if (settled_s_ >= RECOVER_SETTLE_S) {
+            // Back to HOLD, never straight back to WALK: walking again needs a
+            // fresh command crossing V_START/W_START.
+            mode_ = MotionMode::HOLD;
+            walking_ = false;
+        }
+        return;
+    }
+
+    if (tilt_ > TILT_RECOVER) {
+        mode_ = MotionMode::RECOVER;
+        walking_ = false;
+        cancelCommand();
+        return;
+    }
+
+    // Between TILT_DERATE and TILT_RECOVER the command fades out linearly, so
+    // an increasingly tilted robot slows down before it is forced to stop.  The
+    // faded command feeds the hysteresis below, which means the transition into
+    // HOLD happens on its own instead of needing a second threshold.
+    const double derate = std::clamp((TILT_RECOVER - tilt_) / (TILT_RECOVER - TILT_DERATE), 0.0, 1.0);
+    v_cmd_body_ *= derate;
+    d_yaw_cmd_ *= derate;
+    d_yaw_cmd_past_ = d_yaw_cmd_;
+
+    if (updateWalkIntent()) {
+        mode_ = MotionMode::WALK;
+        hold_captured_ = false;
+    } else {
+        mode_ = MotionMode::HOLD;
+        cancelCommand();
+    }
+}
+
+bool StateTrotting::updateWalkIntent() {
+    const double v = std::hypot(v_cmd_body_(0), v_cmd_body_(1));
+    const double w = std::fabs(d_yaw_cmd_);
+
+    if (!walking_) {
+        walking_ = v > V_START || w > W_START;
+    } else if (v < V_STOP && w < W_STOP) {
+        walking_ = false;
+    }
+    return walking_;
+}
+
+void StateTrotting::cancelCommand() {
+    v_cmd_body_.setZero();
+    d_yaw_cmd_ = 0.0;
+    // The yaw command is low-pass filtered against its own past value; leaving
+    // the past value behind would keep replaying the cancelled turn.
+    d_yaw_cmd_past_ = 0.0;
+}
+
+void StateTrotting::captureBodyReference() {
+    // HOLD parks the body: capture once, on the way out of WALK, then let
+    // BalanceCtrl hold that point.  pcd_ is an *integrated* reference, so
+    // without this it keeps its pre-stop offset (up to the 0.05 m saturation
+    // band) and the QP keeps accelerating the body to close it — the robot
+    // creeps after the command is already zero.
+    //
+    // RECOVER re-captures every tick on purpose: that leaves pos_error_ at
+    // zero, so the horizontal term becomes pure velocity damping while the
+    // attitude term does the levelling.
+    if (mode_ != MotionMode::RECOVER && hold_captured_) {
+        return;
+    }
+
+    pcd_(0) = pos_body_(0);
+    pcd_(1) = pos_body_(1);
+    yaw_cmd_ = estimator_->getYaw();
+    Rd = rotz(yaw_cmd_);
+    hold_captured_ = true;
 }
 
 void StateTrotting::calcCmd() {
@@ -200,12 +360,22 @@ void StateTrotting::calcGain() const {
     }
 }
 
-bool StateTrotting::checkStepOrNot() {
-    if (fabs(v_cmd_body_(0)) > 0.03 || fabs(v_cmd_body_(1)) > 0.03 ||
-        fabs(pos_error_(0)) > 0.08 || fabs(pos_error_(1)) > 0.08 ||
-        fabs(vel_error_(0)) > 0.05 || fabs(vel_error_(1)) > 0.05 ||
-        fabs(d_yaw_cmd_) > 0.20) {
-        return true;
+void StateTrotting::logDiagnostics() {
+    const int period_ticks = std::max(1, ctrl_interfaces_.frequency_);
+    if (++diag_ticks_ < period_ticks) {
+        return;
     }
-    return false;
+    diag_ticks_ = 0;
+
+    // Everything needed to tell the four failure modes apart in one line:
+    // no step requested, residual reference after stop, attitude loss, and
+    // tracking error.  Reading `contact` alone cannot distinguish them.
+    RCLCPP_INFO(rclcpp::get_logger("StateTrotting"),
+                "trot supervisor: mode=%s cmd=(%.4f,%.4f,%.4f) tilt=%.1fdeg "
+                "posErrXY=%.4f velErrXY=%.4f contact=[%d %d %d %d]",
+                modeName(mode_), v_cmd_body_(0), v_cmd_body_(1), d_yaw_cmd_,
+                tilt_ * 180.0 / M_PI,
+                pos_error_.head(2).norm(), vel_error_.head(2).norm(),
+                wave_generator_->contact_(0), wave_generator_->contact_(1),
+                wave_generator_->contact_(2), wave_generator_->contact_(3));
 }
