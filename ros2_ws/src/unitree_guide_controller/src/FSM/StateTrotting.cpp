@@ -46,6 +46,17 @@ namespace {
     constexpr double TILT_RECOVER = 0.209; // 12 deg: cancel locomotion entirely
     constexpr double RECOVER_SETTLE_S = 0.3; // time below TILT_OK before HOLD
 
+    // Entry settle: hold four feet down for this long after FIXEDSTAND hands
+    // over, before any gait is allowed.  Without it, whether the robot starts
+    // walking on the first tick depends on whether the velocity command
+    // happened to arrive in the same message as the FSM start command -- and
+    // the wave generator's phase is free-running since construction, so
+    // starting on tick 1 can lift a diagonal pair at an arbitrary point of the
+    // cycle, on a body that has not settled. That is not a tuning detail: it
+    // made two unrelated experiments fall in the same 1 s, hiding what they
+    // were supposed to measure.
+    constexpr double ENTRY_SETTLE_S = 0.3;
+
     const char *modeName(const MotionMode mode) {
         switch (mode) {
             case MotionMode::WALK:
@@ -95,6 +106,7 @@ void StateTrotting::enter() {
     hold_captured_ = true;
     tilt_ = 0.0;
     settled_s_ = 0.0;
+    entry_s_ = 0.0;
     diag_ticks_ = 0;
     d_yaw_cmd_ = 0.0;
     d_yaw_cmd_past_ = 0.0;
@@ -177,6 +189,15 @@ void StateTrotting::updateMotionMode() {
     tilt_ = std::acos(std::clamp(r22, -1.0, 1.0));
 
     settled_s_ = tilt_ < TILT_OK ? settled_s_ + dt_ : 0.0;
+
+    // Deterministic entry: stand first, walk after.  See ENTRY_SETTLE_S.
+    if (entry_s_ < ENTRY_SETTLE_S) {
+        entry_s_ += dt_;
+        mode_ = MotionMode::HOLD;
+        walking_ = false;
+        cancelCommand();
+        return;
+    }
 
     if (mode_ == MotionMode::RECOVER) {
         cancelCommand();
