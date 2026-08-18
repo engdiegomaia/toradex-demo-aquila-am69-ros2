@@ -12,13 +12,24 @@ Nothing in the stack speaks that message, and nothing should have to — the
 topic contract (CLAUDE.md) says the plant is driven by /demo/cmd_vel, and Nav2
 must not learn that the robot has legs.
 
-So this node owns two jobs that the diff-drive plant never needed:
+So this node owns three jobs that the diff-drive plant never needed:
 
 1. Walk the gait state machine up to FIXEDSTAND. A quadruped does not accept
    velocity commands from a cold start; it has to stand up first. TROTTING is
    entered only when a non-zero Twist arrives, so an idle robot remains in the
    stable stand controller.
 2. Convert Twist to normalized stick axes once trotting.
+3. Own command freshness. Inputs is a gamepad message: it has no timeout, and
+   the controller acts on the last value it received, forever. A publisher that
+   simply stops -- `ros2 topic pub` killed by `timeout`, a Nav2 goal that ends,
+   a crashed node -- therefore leaves the robot walking on a command nobody is
+   sending any more, and the log looks identical to normal operation. This node
+   publishes on a fixed tick and zeroes the sticks once the last Twist is older
+   than _CMD_TIMEOUT_S, so silence means stop.
+
+Freshness lives here and not in the controller on purpose: the controller
+cannot tell "the operator wants zero" from "the link died", and this node is
+the only place that sees the arrival times.
 
 F4 MAPPING
 
@@ -65,6 +76,49 @@ _TICKS_PER_TRANSITION = int(_TRANSITION_HOLD_S / _TICK_PERIOD_S)
 # controller's mathematical maximum; see the module docstring before changing.
 _SAFE_STICK_LIMIT = 0.03
 
+# Command freshness. The tick has to be several times faster than the timeout,
+# otherwise the age measured at each tick is dominated by the tick itself; the
+# timeout in turn has to tolerate the slowest publisher the demo uses, which is
+# the 10 Hz `ros2 topic pub` of the operation guide (0.1 s between messages).
+_CONTROL_PERIOD_S = 0.05
+_CMD_TIMEOUT_S = 0.3
+
+
+class _CommandGate:
+    """
+    Hold the last velocity command and decide whether it is still valid.
+
+    Deliberately free of ROS and of wall clocks: `now` is passed in, so the
+    staleness rule is unit-testable and the node stays free to feed it sim
+    time (which is what it does -- the whole stack runs on /clock, and a paused
+    simulator must not age a command).
+    """
+
+    def __init__(self, timeout_s: float = _CMD_TIMEOUT_S) -> None:
+        self._timeout_s = timeout_s
+        self._sticks = (0.0, 0.0, 0.0)
+        self._stamp: float | None = None
+
+    def record(self, twist: Twist, now: float) -> None:
+        """Take a new command and stamp its arrival."""
+        message = _twist_to_inputs(twist)
+        self._sticks = (message.lx, message.ly, message.rx)
+        self._stamp = now
+
+    def is_stale(self, now: float) -> bool:
+        """Return whether the last command is too old to act on."""
+        if self._stamp is None:
+            return True
+        return now - self._stamp > self._timeout_s
+
+    def sample(self, now: float) -> Inputs:
+        """Return the command to publish now: the last one, or centered sticks."""
+        message = Inputs()
+        message.command = _CMD_NONE
+        if not self.is_stale(now):
+            message.lx, message.ly, message.rx = self._sticks
+        return message
+
 
 class TwistToInputs(Node):
     """Bridge /demo/cmd_vel -> /control_input, driving the gait FSM first."""
@@ -80,6 +134,15 @@ class TwistToInputs(Node):
         self._stage = 'settling'
         self._ticks = 0
         self._timer = self.create_timer(_TICK_PERIOD_S, self._advance_gait_fsm)
+
+        # Command path: the subscription only records, the tick publishes.  A
+        # single writer keeps "what the controller last heard" a function of
+        # time alone, which is what makes the watchdog meaningful.
+        self._gate = _CommandGate()
+        self._stale = True
+        self._control_timer = self.create_timer(
+            _CONTROL_PERIOD_S, self._publish_control_input,
+        )
 
         self.get_logger().info(
             'twist_to_inputs up: /demo/cmd_vel -> /control_input. '
@@ -118,7 +181,9 @@ class TwistToInputs(Node):
         self._publisher.publish(message)
 
     def _on_twist(self, twist: Twist) -> None:
-        """Map Twist onto the controller's normalized stick axes."""
+        """Record the command and its arrival time; publishing is the tick's job."""
+        self._gate.record(twist, self._now())
+
         if self._stage == 'fixed_stand':
             if not _has_motion_command(twist):
                 return
@@ -127,16 +192,34 @@ class TwistToInputs(Node):
             self.get_logger().info(
                 'gait FSM: fixed stand -> trotting. Now driven by /demo/cmd_vel.'
             )
-            return
 
-        # Velocity commands before TROTTING are not queued, they are dropped.
-        # Forwarding them would inject axis values while the robot is still
-        # standing up and knock it over mid-transition.
+        # Velocity commands before TROTTING are not queued, they are dropped:
+        # _publish_control_input only publishes once trotting. Forwarding them
+        # would inject axis values while the robot is still standing up and
+        # knock it over mid-transition.
+
+    def _publish_control_input(self) -> None:
+        """Publish the current command, or centered sticks if it went stale."""
         if self._stage != 'trotting':
             return
 
-        message = _twist_to_inputs(twist)
-        self._publisher.publish(message)
+        now = self._now()
+        stale = self._gate.is_stale(now)
+        if stale != self._stale:
+            # Worth a line: this is the difference between "the operator asked
+            # for zero" and "nobody is publishing", and the two look identical
+            # from the controller side.
+            self.get_logger().info(
+                'cmd_vel watchdog: stale, holding position'
+                if stale else 'cmd_vel watchdog: command stream is live'
+            )
+            self._stale = stale
+
+        self._publisher.publish(self._gate.sample(now))
+
+    def _now(self) -> float:
+        """Seconds on the node clock (sim time here — see the launch file)."""
+        return self.get_clock().now().nanoseconds * 1e-9
 
 
 def _twist_to_inputs(twist: Twist) -> Inputs:

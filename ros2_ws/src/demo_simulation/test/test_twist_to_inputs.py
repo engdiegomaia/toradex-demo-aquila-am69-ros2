@@ -1,6 +1,7 @@
 """Unit tests for the public Twist to private gait-input contract."""
 
 from demo_simulation.twist_to_inputs import (
+    _CommandGate,
     _has_motion_command,
     _to_safe_stick,
     _twist_to_inputs,
@@ -54,3 +55,62 @@ def test_zero_twist_does_not_start_trotting():
 
 def test_any_motion_axis_starts_trotting():
     assert _has_motion_command(_twist(yaw=0.001))
+
+
+def test_gate_publishes_a_fresh_command():
+    gate = _CommandGate(timeout_s=0.3)
+    gate.record(_twist(x=0.01), now=10.0)
+
+    sample = gate.sample(now=10.2)
+
+    assert not gate.is_stale(now=10.2)
+    assert sample.ly == pytest.approx(0.01)
+    assert sample.command == 0
+
+
+def test_gate_zeroes_a_stale_command():
+    gate = _CommandGate(timeout_s=0.3)
+    gate.record(_twist(x=0.01, y=0.01, yaw=0.01), now=10.0)
+
+    sample = gate.sample(now=10.4)
+
+    assert gate.is_stale(now=10.4)
+    assert (sample.ly, sample.lx, sample.rx) == (0.0, 0.0, 0.0)
+
+
+def test_gate_is_stale_before_any_command_arrives():
+    gate = _CommandGate(timeout_s=0.3)
+
+    assert gate.is_stale(now=0.0)
+    assert gate.sample(now=0.0).ly == 0.0
+
+
+def test_gate_keeps_the_command_exactly_at_the_timeout():
+    # The boundary is inclusive: a command that is exactly one timeout old is
+    # still the operator's command, not a gap in the stream.
+    gate = _CommandGate(timeout_s=0.5)
+    gate.record(_twist(x=0.02), now=0.0)
+
+    assert not gate.is_stale(now=0.5)
+    assert gate.is_stale(now=0.6)
+
+
+def test_gate_refreshes_on_every_command():
+    gate = _CommandGate(timeout_s=0.3)
+    gate.record(_twist(x=0.02), now=1.0)
+    gate.record(_twist(x=0.01), now=1.2)
+
+    sample = gate.sample(now=1.4)
+
+    assert not gate.is_stale(now=1.4)
+    assert sample.ly == pytest.approx(0.01)
+
+
+def test_gate_keeps_the_controller_sign_convention():
+    gate = _CommandGate(timeout_s=0.3)
+    gate.record(_twist(y=0.02, yaw=0.02), now=1.0)
+
+    sample = gate.sample(now=1.0)
+
+    assert sample.lx == pytest.approx(-0.02)
+    assert sample.rx == pytest.approx(-0.02)
