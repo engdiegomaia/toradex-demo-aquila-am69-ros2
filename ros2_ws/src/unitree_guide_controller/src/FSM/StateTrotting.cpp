@@ -186,10 +186,15 @@ void StateTrotting::calcGain() const {
                 std::ignore = ctrl_interfaces_.joint_kd_command_interface_[i * 3 + j].get().set_value(2.0);
             }
         } else {
-            // stable gain
+            // Keep the stance leg tracking at the same conservative PD gain
+            // used by the swing leg.  The previous 0.8/0.8 values created a
+            // large discontinuity when FIXEDSTAND (80/3.5) handed control to
+            // TROTTING; even with zero velocity command the body then slowly
+            // sagged.  This step changes only the gain discontinuity.  Gait
+            // period, estimator and force controller remain untouched.
             for (int j = 0; j < 3; j++) {
-                std::ignore = ctrl_interfaces_.joint_kp_command_interface_[i * 3 + j].get().set_value(0.8);
-                std::ignore = ctrl_interfaces_.joint_kd_command_interface_[i * 3 + j].get().set_value(0.8);
+                std::ignore = ctrl_interfaces_.joint_kp_command_interface_[i * 3 + j].get().set_value(3.0);
+                std::ignore = ctrl_interfaces_.joint_kd_command_interface_[i * 3 + j].get().set_value(2.0);
             }
         }
     }
