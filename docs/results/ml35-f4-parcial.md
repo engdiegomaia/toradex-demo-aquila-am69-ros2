@@ -172,3 +172,133 @@ alternância de pés: ela começa quando `FIXEDSTAND` entrega o controle ao
 `80/3.5 -> 0.8/0.8`. O workspace passa a usar `Kp=3.0`, `Kd=2.0` também para
 stance, igual ao swing. Período, estimador e QP permanecem inalterados; o
 resultado deve ser medido novamente antes de qualquer ajuste adicional.
+
+## Separação WALK / HOLD / RECOVER — 18/08/2026
+
+Todos os ensaios abaixo em `quadruped_empty.sdf`, host x86, container
+`aquila-go2` subido por `./scripts/run_quadruped_sim.sh`, com o código de
+`StateTrotting` e `twist_to_inputs` desta data.
+
+### O que estava errado, medido e não inferido
+
+O `checkStepOrNot()` do upstream só pede passada acima de `|v| > 0.03 m/s`. O
+caminho de comando inteiro não alcança esse valor:
+
+```text
+Twist.linear.x = 0.03      (máximo do plano de teste)
+  -> stick ly = 0.03       (clamp de twist_to_inputs, ganho unitário)
+  -> invNormalize(-0.4, 0.4) = 0.4 * 0.03 = 0.012 m/s
+```
+
+0,012 m/s é 2,5× menor que o gatilho. Os critérios de erro também não podiam
+disparar: o gatilho pede `|posError| > 0.08 m`, mas `pcd_` é saturado em
+`posBody ± 0.05 m` uma linha antes. Por isso o registro anterior deste arquivo
+mostra `state=trotting`, `ly=0.03` e `contact=[1 1 1 1]` durante toda a janela:
+**nenhuma passada foi pedida**. Sintonizar ganhos contra aquele log não mediria
+nada.
+
+### Ensaio A — `linear.x=0.01` por 4 s, depois silêncio
+
+```bash
+timeout 4s ros2 topic pub -r 20 /demo/cmd_vel geometry_msgs/msg/Twist \
+  "{linear: {x: 0.01}}"
+```
+
+| | Antes | Depois (6 s de silêncio) |
+|---|---:|---:|
+| x | 0,0424 m | 0,0088 m |
+| y | 0,0018 m | 0,0411 m |
+| z | 0,3469 m | 0,3600 m |
+| orientação | nivelada | yaw −2,1°, nivelada |
+
+Log:
+
+```text
+mode=WALK cmd=(0.0040,-0.0000,0.0000) tilt=2.0deg contact=[0 1 1 0]
+mode=WALK cmd=(0.0040,-0.0000,0.0000) tilt=0.6deg contact=[0 1 1 0]
+cmd_vel watchdog: stale, holding position
+mode=HOLD cmd=(0.0000,0.0000,0.0000) tilt=0.3deg posErrXY=0.0018 contact=[1 1 1 1]
+```
+
+Resultado: passada real, watchdog disparando 0,3 s após o publisher morrer,
+`HOLD` com quatro pés no chão e `posErrXY` entre 0,0018 e 0,0077 m estável por
+mais de 35 s. **Sem movimento residual** — era o sintoma de `pcd_` integrado.
+
+O deslocamento líquido não prova avanço: 4 s × 0,004 m/s = 16 mm comandados,
+menor que a deriva do próprio trote (34 mm em x, no sentido contrário).
+
+### Ensaio B — `linear.x=0.03` por 20 s
+
+| | Antes | Depois |
+|---|---:|---:|
+| x | 0,0056 m | −0,359 m |
+| y | 0,0393 m | 0,760 m |
+| z | 0,3598 m | **0,152 m** |
+| orientação | nivelada | tombada (`qx=0,784`) |
+
+```text
+mode=WALK  tilt=0.7deg  posErrXY=0.0067 contact=[1 0 0 1]
+mode=WALK  tilt=1.5deg  posErrXY=0.0160 contact=[1 0 0 1]
+mode=WALK  tilt=4.6deg  posErrXY=0.0301 contact=[0 1 1 0]
+mode=RECOVER tilt=19.5deg  -> 102deg -> 128deg
+```
+
+Duas leituras: a alternância `[1 0 0 1]` ↔ `[0 1 1 0]` prova swing físico dos
+pares diagonais, e a queda leva cerca de 3 s de trote. O `RECOVER` detectou e
+zerou o comando (`posErrXY=0.0000` confirma a recaptura contínua da
+referência), mas quatro pés em stance não seguram uma queda que já estava
+balística: entre 4,6° e 19,5° passou menos de 1 s.
+
+### Ensaio C — `linear.x=0.01` por 30 s, container reiniciado
+
+| | Antes | Depois |
+|---|---:|---:|
+| x | 0,0462 m | −0,0149 m |
+| y | 0,0020 m | 0,266 m |
+| z | 0,3468 m | **0,226 m** |
+| orientação | nivelada | tombada de lado |
+
+Trote sustentado por cerca de 8 s, com `tilt` oscilando 1,1 → 6,0 → 3,0 → 1,1
+→ 3,0 → 3,0 → 3,2 → 9,0° e então queda. Durante o trote, `velErrXY` ficou entre
+0,03 e 0,09 m/s **com comando de 0,004 m/s**: o corpo é arremessado pela própria
+passada, não pelo comando.
+
+### O que ficou provado e o que não ficou
+
+| Item | Estado |
+|---|---|
+| gait ativa no comando mais lento do plano | ✅ `mode=WALK` em `Twist 0.01` |
+| pernas levantam de fato, em pares diagonais | ✅ `[1 0 0 1]` ↔ `[0 1 1 0]` |
+| parada zera o comando sem depender do publisher | ✅ watchdog em 0,3 s |
+| `HOLD` sem movimento residual | ✅ `posErrXY ≈ 0,005 m` por >35 s |
+| supervisor de atitude detecta perda de postura | ✅ `RECOVER` em 12° |
+| `RECOVER` **recupera** a postura | ❌ queda continua |
+| anda em `0.01` sem cair | ❌ cai em ~8 s |
+| anda em `0.03` sem tombar | ❌ cai em ~3 s |
+| `/demo/odom` monotônico em x | ❌ deriva domina |
+
+F4 continua aberta. O trote dinâmico é agora o único bloqueador isolado — antes
+havia três sobrepostos.
+
+### Próximo experimento isolado, em ordem
+
+Um variável por ensaio, mesma janela de 30 s em `linear.x=0.01`, mesmo mundo.
+
+1. **Ganho de stance de volta ao upstream (`Kp=0.8`, `Kd=0.8`).** O valor atual
+   `3.0/2.0` foi escolhido contra o log em que **nenhuma passada era pedida** —
+   aquela evidência não vale mais. Em trote, a perna de apoio é controlada por
+   força pelo QP; um PD de junta rígido perseguindo um alvo de pé congelado
+   briga com ele.
+2. **`BalanceCtrl::Ib_` é do A1, fixo no código.** `Vec3(0.0792, 0.2085, 0.2265)`
+   com `pcb_ = (0,0,0)`. O tronco do Go2 é `(0.02448, 0.098077, 0.107)` com CoM
+   em `(0.0211, 0, −0.0054)` (`go2_description/xacro/const.xacro`), e a massa
+   total vem do URDF, ou seja está correta e a inércia não. O QP pesa erro
+   angular em 450 contra 20 do linear: essa constante domina o controle de
+   atitude. Atenção ao comparar: o valor do A1 é inércia de corpo inteiro, não
+   só do tronco, então não basta copiar o tronco do Go2 no lugar.
+3. **`stance ratio` 0,50 → 0,60** (`WaveGenerator(0.4, 0.6, ...)`), só depois
+   dos dois acima.
+
+Registrado para ninguém procurar no lugar errado: `feet_pos_normal_stand_`
+também tem números do A1, mas **não está no caminho** — `FeetEndCalc::init()`
+usa `estimator_->getFeetPos2Body()` e a linha da constante está comentada.

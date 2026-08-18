@@ -27,7 +27,7 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `5d95934` |
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
-| **F4** | Contrato atravessando fronteira de container | 🟡 **em andamento** | checkpoint parcial |
+| **F4** | Contrato atravessando fronteira de container | 🟡 **em andamento** | marcha ativa, trote dinâmico ainda cai |
 | **F5** | Nav2 sobre pernas + modo HIL | ⬜ | — |
 | **F6** | Fallback selecionável e testes | ⬜ | — |
 
@@ -539,7 +539,7 @@ manda não editar. Corrigir destruiria o byte-idêntico; deixar torna
 
 ---
 
-## F4 — em andamento 17/08/2026
+## F4 — em andamento 17/08/2026, atualizada 18/08/2026
 
 Checkpoint detalhado em `docs/results/ml35-f4-parcial.md`. Nomes, tipos e
 mensagens reais de odom, scan e imagem atravessaram dois containers por DDS. O
@@ -547,6 +547,24 @@ primeiro mapeamento SI → stick derrubou o Go2 e foi substituído por clamp no
 envelope `0.03` comprovado em F3, mas essa última edição ainda não foi
 revalidada em runtime. Perception, warehouse oficial e regressão diff-drive
 seguem pendentes; portanto o portão de F4 permanece aberto.
+
+**18/08/2026 — a marcha passou a existir.** `StateTrotting` foi separado em
+`WALK`, `HOLD` e `RECOVER`, e `twist_to_inputs` ganhou watchdog de comando. Três
+falhas estavam sobrepostas e uma escondia as outras:
+
+1. o gate de passada do upstream pedia `|v| > 0.03 m/s` e o caminho de comando
+   inteiro entrega no máximo `0.012 m/s` — nenhuma passada era pedida, e o
+   `contact=[1 1 1 1]` registrado antes era isso, não dinâmica;
+2. `pcd_` é referência integrada e não era recapturada ao parar, então o QP
+   continuava acelerando o corpo depois do comando zerar;
+3. `Inputs` não tem timeout: um publisher que simplesmente para deixava o robô
+   andando com um comando que ninguém enviava.
+
+Medido: `mode=WALK` já em `Twist linear.x=0.01`, pares diagonais alternando,
+`HOLD` estável por mais de 35 s com `posErrXY ≈ 0,005 m`. **O trote dinâmico
+continua caindo** (~8 s em `0.01`, ~3 s em `0.03`), e o `RECOVER` detecta a
+12° mas não recupera. O bloqueador de F4 é agora único e isolado; os próximos
+experimentos, um por vez, estão listados no fim de `ml35-f4-parcial.md`.
 
 ---
 

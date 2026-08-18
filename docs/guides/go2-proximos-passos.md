@@ -18,11 +18,21 @@ Já validado:
 - a conversão de posição/velocidade dos pés para o frame global foi corrigida;
 - a suíte do `demo_simulation` passou com 10 testes.
 
+Validado em 18/08/2026, depois da separação WALK/HOLD/RECOVER (evidência
+completa em `docs/results/ml35-f4-parcial.md`):
+
+- a marcha ativa no comando mais lento do plano, `Twist linear.x=0.01`;
+- as pernas levantam de fato, em pares diagonais (`[1 0 0 1]` ↔ `[0 1 1 0]`);
+- parar de publicar zera o comando em 0,3 s pelo watchdog do bridge;
+- `HOLD` mantém o corpo sem movimento residual (`posErrXY ≈ 0,005 m` por >35 s);
+- o supervisor de atitude entra em `RECOVER` a 12° de inclinação.
+
 Ainda em aberto:
 
-- o trote dinâmico ainda pode fazer o corpo afundar e cair;
-- a estabilidade após a troca para `TROTTING` precisa ser medida novamente
-  após o ajuste de ganho de stance `Kp=3.0`, `Kd=2.0`;
+- **o trote dinâmico continua caindo**: ~8 s em `0.01`, ~3 s em `0.03`;
+- `RECOVER` detecta mas não recupera: a queda já está balística aos 12°;
+- o próximo experimento isolado é o ganho de stance, depois `BalanceCtrl::Ib_`,
+  que ainda tem a inércia do A1 fixa no código;
 - o warehouse com Go2, RViz2 e TF completo ainda precisam de validação;
 - F4 não deve ser marcada como concluída antes desses gates.
 
@@ -69,7 +79,7 @@ docker ps --filter name=aquila-go2 \
   --format 'table {{.Names}}\t{{.Status}}'
 
 docker logs -f aquila-go2 2>&1 | grep -E \
-  'gait FSM|gait diagnostics|Switched|controller'
+  'gait FSM|gait diagnostics|trot supervisor|watchdog|Switched|controller'
 ```
 
 Aguarde:
@@ -83,11 +93,23 @@ comando de movimento.
 
 ## 3. Diagnóstico mínimo antes de alterar código
 
-O controlador imprime uma linha por segundo:
+Duas linhas por segundo, de fontes diferentes. A do controlador mostra o que
+chegou pelo tópico:
 
 ```text
 gait diagnostics: state=... command=... sticks=(...) contact=[...]
 ```
+
+A do supervisor de trote mostra o que o controlador decidiu com isso:
+
+```text
+trot supervisor: mode=WALK cmd=(0.0040,-0.0000,0.0000) tilt=2.0deg \
+  posErrXY=0.0147 velErrXY=0.0337 contact=[0 1 1 0]
+```
+
+`cmd` já está em unidades SI, depois da conversão de stick. A conversão custa
+um fator 0,4: `Twist 0.01 -> ly 0.01 -> 0.004 m/s`. Não compare `cmd` com o
+valor do `Twist` sem lembrar disso.
 
 Interpretação:
 
@@ -95,34 +117,42 @@ Interpretação:
 |---|---|
 | `ly` não muda após publicar Twist | problema no DDS ou no bridge |
 | `state` não muda para `trotting` | comando chegou antes da FSM estar pronta |
-| `ly` muda e `contact` nunca alterna | problema no `WaveGenerator` |
+| `mode=HOLD` com `Twist` não nulo em curso | comando abaixo de `V_START`, ou watchdog considerando o stream morto |
+| `mode=WALK` e `contact` nunca alterna | problema no `WaveGenerator` |
 | `contact` alterna e o robô cai | dinâmica, ganhos, estimador ou QP |
-| `ly=0` e `contact=[1 1 1 1]`, mas cai | controle de postura do trote está fraco |
+| `mode=HOLD` e `posErrXY` cresce | o corpo está sendo empurrado; não é comando |
+| `mode=RECOVER` seguido de `tilt > 90°` | o robô caiu; o supervisor só registrou |
+| `tilt` cresce mas `cmd` já é zero | postura, não comando |
 
 Nunca conclua sucesso apenas pelo log `controller ... active`; isso não prova
-que as juntas estão mantendo o corpo.
+que as juntas estão mantendo o corpo. E `mode=WALK` sozinho também não prova
+marcha: só `contact` alternando prova.
 
 ## 4. Teste de postura sem andar
 
-Este teste inicia o trote e em seguida mantém velocidade zero:
+Este teste entra em trote com o comando mais lento e depois **para de publicar**.
+Não publique zeros: o objetivo é justamente exercitar o watchdog, que é quem
+garante que silêncio significa parar.
 
 ```bash
 docker exec -it aquila-go2 bash -lc '
   . /opt/ros/jazzy/setup.sh
   . /test/install/setup.sh
 
-  timeout 5s ros2 topic pub -r 10 /demo/cmd_vel \
+  timeout 3s ros2 topic pub -r 20 /demo/cmd_vel \
     geometry_msgs/msg/Twist \
-    "{linear: {x: 0.03}}"
+    "{linear: {x: 0.01}}" || true
 
-  timeout 20s ros2 topic pub -r 10 /demo/cmd_vel \
-    geometry_msgs/msg/Twist \
-    "{linear: {x: 0.0}}"
+  timeout 20s ros2 topic echo /demo/odom --field pose.pose >/dev/null || true
 '
 ```
 
-Critério: `state=trotting`, `ly=0.0000`, `contact=[1 1 1 1]` e corpo estável por
-20 s. Se falhar, não testar avanço ainda.
+Critério, no log do supervisor: `mode=WALK` durante a publicação, `cmd_vel
+watchdog: stale` até 0,3 s depois dela terminar, e então `mode=HOLD`,
+`contact=[1 1 1 1]`, `posErrXY` abaixo de 0,01 m e `tilt` abaixo de 2° por 20 s.
+
+Executado em 18/08/2026: passou, com `posErrXY` entre 0,0018 e 0,0077 m estável
+por mais de 35 s. Se falhar, não testar avanço ainda.
 
 ## 5. Melhorar o movimento em steps pequenos
 
@@ -152,18 +182,26 @@ docker exec -it aquila-go2 bash -lc '
 Se as juntas publicam mas não acompanham as referências, investigar primeiro o
 PD no hardware Gazebo (`joint_effort + kp*(q_cmd-q) + kd*(qd_cmd-qd)`).
 
-### Step 5.2 — ajustar apenas os ganhos de stance
+### Step 5.2 — ganhos de stance: **próximo experimento isolado**
 
-O primeiro ajuste aplicado foi igualar stance e swing em `Kp=3.0`, `Kd=2.0`.
-Recompile e repita o teste de postura antes de qualquer mudança no período:
+O valor atual, `Kp=3.0` / `Kd=2.0` igual ao swing, foi escolhido contra um log
+em que **nenhuma passada era pedida** (`contact=[1 1 1 1]` o tempo inteiro).
+Essa evidência não vale mais: com a marcha ativa, a perna de apoio passa a ser
+controlada por força pelo QP, e um PD de junta rígido perseguindo um alvo de pé
+congelado briga com ele. O upstream usa `Kp=0.8` / `Kd=0.8` no stance.
+
+Ensaio: voltar ao valor do upstream, recompilar, repetir **exatamente** a mesma
+janela de 30 s em `linear.x=0.01`, e comparar tempo até queda e envelope de
+`tilt` contra a linha de base já registrada (queda em ~8 s, `tilt` oscilando
+até 9°).
 
 ```bash
 ./scripts/run_quadruped_sim.sh
 ```
 
-Se ainda houver queda, testar somente uma alternativa conservadora, por
-exemplo `Kp=5.0`, `Kd=2.5`, e repetir exatamente a mesma janela de 20 s. Nunca
-alterar simultaneamente ganhos, `gait_height` e período.
+Se não melhorar, o próximo suspeito é `BalanceCtrl::Ib_`, que tem a inércia do
+A1 fixa no código — ver `docs/results/ml35-f4-parcial.md`. Nunca alterar
+simultaneamente ganhos, `gait_height`, inércia e período.
 
 ### Step 5.3 — testar avanço muito lento
 
@@ -205,13 +243,17 @@ Se houver rotação no sentido errado, revisar o sinal de `rx` em
 `twist_to_inputs.py` e em `StateTrotting::getUserCmd()`. Se houver tombamento,
 reduzir yaw antes de mexer na translação.
 
-### Step 5.5 — adicionar parada segura
+### Step 5.5 — parada segura: **implementado em 18/08/2026**
 
-O estado atual aceita `ly=0` e permanece em `TROTTING` com todos os pés em
-stance. Uma melhoria posterior é implementar no bridge um watchdog que, após
-um período configurável de Twist zero, envie `command=2` e retorne a
-`FIXEDSTAND`. Essa alteração deve ser feita somente depois de medir que a
-postura em trote parado está estável, para não esconder uma falha de controle.
+O bridge tem watchdog: `twist_to_inputs` publica a 20 Hz e zera os sticks
+quando o último `Twist` passa de 0,3 s. Silêncio agora significa parar, e o
+controlador entra em `HOLD` sozinho.
+
+O que **não** foi implementado, de propósito: voltar a `FIXEDSTAND` por
+`command=2` depois de N segundos parado. `HOLD` é postura em trote com quatro
+pés no chão, medida estável por mais de 35 s; trocar de estado da FSM
+esconderia uma eventual falha do controlador de postura atrás do controlador
+de `FIXEDSTAND`, que é justamente o que não se quer medir agora.
 
 ## 6. Medir odometria e pose
 
@@ -327,17 +369,24 @@ no mesmo commit.
 
 ## 11. Critérios para fechar F4
 
-Marcar F4 somente quando todos forem verdadeiros:
+Marcar F4 somente quando todos forem verdadeiros. Estado em 18/08/2026:
 
-- Go2 aparece com malhas e proporções corretas;
-- fica estável em `FIXEDSTAND` por pelo menos 60 s;
-- fica estável em trote parado por pelo menos 20 s;
-- anda em `linear.x=0.01` sem cair;
-- anda em `linear.x=0.03` sem tombar;
-- yaw controlado não produz rotação explosiva;
-- warehouse carrega com câmera e lidar ativos;
-- RViz2 mostra as 12 juntas e TF consistente;
-- diff-drive mantém goal Nav2 `SUCCEEDED`.
+| Critério | Estado |
+|---|---|
+| Go2 aparece com malhas e proporções corretas | ✅ |
+| estável em `FIXEDSTAND` por pelo menos 60 s | ✅ |
+| há swing físico das pernas em pares diagonais | ✅ `[1 0 0 1]` ↔ `[0 1 1 0]` |
+| comando zerado leva a `HOLD` sem movimento residual | ✅ >35 s |
+| estável em trote parado por pelo menos 20 s | ✅ |
+| anda em `linear.x=0.01` sem cair | ❌ cai em ~8 s |
+| anda em `linear.x=0.03` sem tombar | ❌ cai em ~3 s |
+| yaw controlado não produz rotação explosiva | ⬜ não ensaiado |
+| warehouse carrega com câmera e lidar ativos | ⬜ |
+| RViz2 mostra as 12 juntas e TF consistente | ⬜ |
+| diff-drive mantém goal Nav2 `SUCCEEDED` | ⬜ |
+
+A ordem importa: não ensaiar yaw nem warehouse enquanto o avanço reto cair, ou
+os dois ensaios medem a mesma queda com nomes diferentes.
 
 Cada ajuste deve ser um commit separado, com comando, duração, pose inicial e
 pose final registrados neste documento ou em
