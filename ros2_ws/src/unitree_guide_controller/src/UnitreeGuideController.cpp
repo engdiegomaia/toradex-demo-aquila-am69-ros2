@@ -77,6 +77,15 @@ namespace unitree_guide_controller
         if (mode_ == FSMMode::NORMAL)
         {
             current_state_->run(time, period);
+            const auto &inputs = ctrl_interfaces_.control_inputs_;
+            const auto &contact = ctrl_component_.wave_generator_->contact_;
+            RCLCPP_INFO_THROTTLE(
+                get_node()->get_logger(), *get_node()->get_clock(), 1000,
+                "gait diagnostics: state=%s command=%d sticks=(lx=%.4f ly=%.4f rx=%.4f) "
+                "contact=[%d %d %d %d]",
+                current_state_->state_name_string.c_str(), inputs.command,
+                inputs.lx, inputs.ly, inputs.rx,
+                contact(0), contact(1), contact(2), contact(3));
             next_state_name_ = current_state_->checkChange();
             if (next_state_name_ != current_state_->state_name)
             {

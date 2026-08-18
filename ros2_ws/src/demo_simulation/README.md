@@ -145,6 +145,12 @@ de 18/08/2026 ele avançou sem alternância de pernas confiável e caiu. Portant
 F4 continua aberto; a estabilidade em `FIXEDSTAND` é o critério atualmente
 validado. Pare o publisher com `Ctrl-C` e o simulador no primeiro terminal.
 
+Nesta etapa o controlador também imprime, uma vez por segundo, a linha
+`gait diagnostics`. Durante o trote, confirme `state=trotting`, `ly` diferente
+de zero e `contact` alternando entre os pares de pernas. Se `ly` mudar mas
+`contact` ficar constante, o próximo ajuste é o `WaveGenerator`; se ambos
+mudarem e o corpo cair, o próximo ajuste é a dinâmica/estimador.
+
 ```bash
 # terminal 1 — simulator, robot, bridge
 ros2 launch demo_simulation simulation.launch.py
