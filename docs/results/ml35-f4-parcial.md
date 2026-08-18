@@ -302,3 +302,110 @@ Um variável por ensaio, mesma janela de 30 s em `linear.x=0.01`, mesmo mundo.
 Registrado para ninguém procurar no lugar errado: `feet_pos_normal_stand_`
 também tem números do A1, mas **não está no caminho** — `FeetEndCalc::init()`
 usa `estimator_->getFeetPos2Body()` e a linha da constante está comentada.
+
+## Experimentos isolados sobre a marcha — 18/08/2026
+
+Mesma janela em todos: `linear.x=0.01` a 20 Hz por 30 s, `quadruped_empty.sdf`,
+container reiniciado antes de cada ensaio. Linha de base a bater: queda em ~8 s,
+`tilt` oscilando até 9°.
+
+### Falha silenciosa encontrada primeiro: handshake de partida perdido
+
+O primeiro ensaio não andou, e não por dinâmica: o robô ficou em `fixed stand`
+com `sticks=(ly=0.0100)` fluindo e `command=0`. O watchdog introduzido nesta
+data publica a 20 Hz; a ponte enviava `command=4` **uma vez**, e a mensagem
+seguinte do tick sobrescrevia o campo antes de qualquer iteração do
+`update()` do controlador ler a struct `control_inputs_`.
+
+O controlador não consome mensagens, consome o **último valor** da struct. Um
+handshake de uma mensagem só funciona enquanto ninguém mais publica no tópico.
+E a falha é muda: a ponte loga "fixed stand -> trotting", os sticks continuam
+chegando, e o robô fica de pé parado.
+
+Corrigido com `_StartLatch`: o comando de partida é repetido por 0,5 s (10
+ticks). Repetir é idempotente porque `StateTrotting::checkChange` trata
+qualquer valor que não seja 1 nem 2 como "continua trotando". 4 testes novos;
+suíte do `demo_simulation` em **20 testes, 0 falhas**.
+
+### Ensaio 1 — ganho de stance do upstream (`Kp=0.8`, `Kd=0.8`): **pior**
+
+| | Antes | Depois |
+|---|---:|---:|
+| x | 0,0778 m | −0,247 m |
+| z | 0,3468 m | tombado |
+
+```text
+Switched from fixed stand to trotting     t=383.59
+mode=RECOVER tilt=3.2deg                  t=384.60
+mode=RECOVER tilt=157.3deg                t=385.61
+```
+
+Não sustentou `WALK` por sequer um ciclo de diagnóstico. Contra a linha de base
+de ~8 s com `3.0/2.0`, a hipótese de que o PD rígido de stance brigava com o QP
+**cai**: nesta planta o stance depende do PD de junta mais do que o upstream
+supõe. Revertido para `3.0/2.0`.
+
+Registro do raciocínio que não sobreviveu ao ensaio: o argumento era correto
+sobre o upstream (lá o stance é dominado por força), mas a base vendorizada usa
+`gz_quadruped_hardware`, cujo PD entra somado ao torque comandado — o balanço
+entre os dois canais não é o mesmo do robô real.
+
+### Ensaio 2 — inércia do corpo do Go2 em `BalanceCtrl`: **melhora, não resolve**
+
+`calVectorBd` usa `Ib_` como `R·Ib_·Rᵀ·dWbd`, ou seja é a inércia do robô
+inteiro em torno do CoM, no frame do corpo. O valor que sobreviveu ao port
+A1 → Go2 é do A1 e **subestima este robô em 2,3× em todos os eixos**: o QP pede
+43% do momento necessário para frear uma inclinação.
+
+Calculado do `go2_description` na pose de stand (hip 0, thigh 0,8, calf −1,5),
+somando os 18 links com o teorema dos eixos paralelos: 15,098 kg, CoM
+`(−0,0016, 0, −0,0231)` m, diagonal `(0,1817, 0,4899, 0,5262)`. Termos fora da
+diagonal ficam abaixo de 4% e são descartados, como no upstream.
+
+| | `tilt` por segundo | queda |
+|---|---|---|
+| base | 2,1 4,2 3,3 0,3 0,8 7,4 | 7 s |
+| com `Ib_` do Go2 | 0,6 0,4 0,4 1,0 1,5 1,9 6,0 | 8 s |
+
+Mantido: atitude mais calma e 1 s a mais. Não é a causa da queda.
+
+### Ensaio 3 — banda da referência `pcd_` de 0,05 → 0,01 m: **elimina o runaway**
+
+`pcd_` é referência de posição integrada, saturada em `posBody ± 0,05 m`. Com
+`Kpp = 70`, essa saturação autoriza `3,5 m/s²` de aceleração horizontal — um
+terço da gravidade — num robô comandado a 4 mm/s. Todos os ensaios anteriores
+mostram `posErrXY` subindo até exatamente 0,05 e **grudando lá**: a passada não
+propulsiona o corpo, a referência continua integrando, satura, e o QP passa a
+empurrar no máximo.
+
+| | `posErrXY` | `tilt` por segundo | queda |
+|---|---|---|---|
+| banda 0,05 | 0,017 → 0,056 (grudado) | 0,6 0,4 0,4 1,0 1,5 1,9 6,0 | 8 s |
+| banda 0,01 | 0,005 → 0,013 | 0,2 0,3 0,2 0,2 0,3 1,6 | ~7 s |
+
+Atitude mais plana de todos os ensaios, e o runaway desapareceu. **Não compra
+tempo de sobrevivência**, mas muda a forma da falha: a queda agora acontece de
+forma abrupta a partir de um estado nivelado e bem rastreado (1,6° → 18,1°
+dentro de um segundo), em vez de no fim de uma divergência lenta.
+
+### Onde a investigação parou, e por quê
+
+Três hipóteses foram testadas e nenhuma é a causa: ganho de stance (pior),
+inércia (melhora marginal), banda de referência (limpa, sem ganho de tempo).
+O que restou é uma falha **discreta**, não um desequilíbrio acumulado: o robô
+está nivelado a 0,3°, com erro de posição de 1 cm, e perde tudo em menos de um
+segundo.
+
+Candidatos, em ordem, e o que instrumentar antes de mexer em código:
+
+1. **Pé tropeçando.** `FeetEndCalc::calcFootPos` força `foot_pos(2) = 0.0`, ou
+   seja, o alvo de apoio é o solo em `z` **global**, assumindo solo em zero e
+   estimador de `z` correto. Se o `z` estimado derivar, o alvo entra no chão.
+   Instrumentar: `z` de cada pé alvo contra `z` medido, por ciclo.
+2. **Deriva do estimador.** `/demo/odom` é ground truth do Gazebo, mas o
+   controlador usa o estimador interno. Comparar os dois durante o trote
+   separa "o robô caiu" de "o controlador acha que caiu".
+3. **Limite de junta / singularidade de IK** na perna em extensão.
+
+Não sintonizar mais nada antes de (1) e (2). Os três ensaios acima mostram que
+tuning cego já esgotou o que tinha a dar.
