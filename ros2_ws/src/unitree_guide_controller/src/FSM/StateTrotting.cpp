@@ -275,6 +275,34 @@ void StateTrotting::captureBodyReference() {
     // RECOVER re-captures every tick on purpose: that leaves pos_error_ at
     // zero, so the horizontal term becomes pure velocity damping while the
     // attitude term does the levelling.
+    // Two ways of treating this heading while standing were measured and both
+    // reverted; the numbers are here so neither gets retried by accident.
+    //
+    // Instrumented over a 90 s stop after a turning walk, the yaw error settles
+    // at a constant -3.8 deg the controller cannot remove, while the demand
+    // sits at 322-347 rad/s^2 against a clamp of 10 -- a 33x overdemand, at the
+    // rail on 100% of ticks, always the same sign.  That is the note below's
+    // "it only drags the feet trying", quantified, and the drag is what tips a
+    // standing robot: 17.8 s after a walk with yaw, 46.1 s after five straight
+    // ones, never when the residual was small enough.
+    //
+    // (1) Re-capturing yaw_cmd_ every tick while WaveStatus is STANCE_ALL.
+    // Removes the bias, and two 90 s stops held with zero RECOVER.  Reverted
+    // anyway: with no proportional term the robot rotates freely while it
+    // stands -- 17 deg and 23 deg measured across single 8 s stops -- which
+    // re-breaks an F4 criterion that is already green, and the long stop still
+    // collapsed, at 33.0 s against 46.1 s without the change.
+    //
+    // (2) A first-order low pass on the yaw rate feeding the damping term,
+    // measured alongside (1).  The gyro carries trunk vibration this axis has
+    // no authority over: mean demand equal to peak demand, the signature of a
+    // symmetric high-frequency oscillation, while ground truth has the body
+    // turning at 1-2 deg/s.  The filter cut the peak by an order of magnitude
+    // and the axis still sat at the rail on 80-89% of ticks.  Filtering
+    // *without* (1) is the one combination not yet tried.
+    //
+    // The clamp is the real constraint, and it cannot simply be widened --
+    // see the note in calcTau() on the +-25 experiment.
     if (mode_ != MotionMode::RECOVER && hold_captured_) {
         return;
     }
@@ -337,8 +365,23 @@ void StateTrotting::calcTau() {
     vel_error_ = vel_target_ - vel_body_;
 
     Vec3 dd_pcd = Kpp * pos_error_ + Kdp * vel_error_;
-    Vec3 d_wbd = kp_w_ * rotMatToExp(Rd * G2B_RotMat) +
+    const Vec3 att_error = rotMatToExp(Rd * G2B_RotMat);
+    Vec3 d_wbd = kp_w_ * att_error +
                  Kd_w_ * (w_cmd_global_ - estimator_->getGyroGlobal());
+
+    // Record what the yaw axis is being asked for, before the clamp below
+    // truncates the evidence.  Standing, this axis is a relay: the clamp is
+    // 10 rad/s^2 and the measured demand runs to 322-347, at the rail on 100%
+    // of ticks, so the clamped value alone shows nothing.  Only the demand and
+    // the duty cycle distinguish "regulating" from "hard over and helpless".
+    yaw_err_ = att_error(2);
+    yaw_err_peak_ = std::max(yaw_err_peak_, std::fabs(yaw_err_));
+    d_wz_peak_ = std::max(d_wz_peak_, std::fabs(d_wbd(2)));
+    d_wz_sum_ += std::fabs(d_wbd(2));
+    ++yaw_win_ticks_;
+    if (std::fabs(d_wbd(2)) >= 10.0) {
+        ++yaw_sat_ticks_;
+    }
 
     dd_pcd(0) = saturation(dd_pcd(0), Vec2(-3, 3));
     dd_pcd(1) = saturation(dd_pcd(1), Vec2(-3, 3));
@@ -475,7 +518,8 @@ void StateTrotting::logDiagnostics() {
                 "trot supervisor: mode=%s cmd=(%.4f,%.4f,%.4f) tilt=%.1fdeg "
                 "posErrXY=%.4f velErrXY=%.4f contact=[%d %d %d %d] "
                 "estPos=(%.3f,%.3f,%.3f) estVel=(%.3f,%.3f) estYaw=%.1fdeg "
-                "Mz=%.1f/%.1fNm Fz=%.0f/%.0fN footErr=[%.3f %.3f %.3f %.3f]",
+                "Mz=%.1f/%.1fNm Fz=%.0f/%.0fN footErr=[%.3f %.3f %.3f %.3f] "
+                "yawErr=%.2f/pk%.2fdeg dWzPk=%.1f dWzMed=%.1f yawSat=%.0f%%",
                 modeName(mode_), v_cmd_body_(0), v_cmd_body_(1), d_yaw_cmd_,
                 tilt_ * 180.0 / M_PI,
                 pos_error_.head(2).norm(), vel_error_.head(2).norm(),
@@ -488,5 +532,15 @@ void StateTrotting::logDiagnostics() {
                 balance_ctrl_->getWrenchAchieved()(5),
                 balance_ctrl_->getWrenchDemand()(2),
                 balance_ctrl_->getWrenchAchieved()(2),
-                foot_err(0), foot_err(1), foot_err(2), foot_err(3));
+                foot_err(0), foot_err(1), foot_err(2), foot_err(3),
+                yaw_err_ * 180.0 / M_PI, yaw_err_peak_ * 180.0 / M_PI,
+                d_wz_peak_,
+                yaw_win_ticks_ > 0 ? d_wz_sum_ / yaw_win_ticks_ : 0.0,
+                yaw_win_ticks_ > 0 ? 100.0 * yaw_sat_ticks_ / yaw_win_ticks_ : 0.0);
+
+    yaw_err_peak_ = 0.0;
+    d_wz_peak_ = 0.0;
+    d_wz_sum_ = 0.0;
+    yaw_sat_ticks_ = 0;
+    yaw_win_ticks_ = 0;
 }
