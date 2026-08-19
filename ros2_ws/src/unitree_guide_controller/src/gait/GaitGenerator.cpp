@@ -30,8 +30,23 @@ void GaitGenerator::generate(Vec34 &feet_pos, Vec34 &feet_vel) {
 
     for (int i = 0; i < 4; i++) {
         if (wave_generator_->contact_(i) == 1) {
-            if (wave_generator_->phase_(i) < 0.5) {
-                // foot contact the ground
+            // Latch where the foot is planted, so the stance target is the
+            // ground the leg is standing on.
+            //
+            // `phase < 0.5` alone is not enough once the gait stops:
+            // WaveGenerator pins the phase at exactly 0.5 in STANCE_ALL, so
+            // the condition is never true again and the two legs that were
+            // mid-swing when the command went to zero keep the target from
+            // their lift-off point for as long as the robot stands.  Measured
+            // at 6-8 cm on one diagonal pair, constant, with the joint PD
+            // pulling on it the whole time -- enough to rotate a standing
+            // robot tens of degrees and, twice, to tip it over.
+            //
+            // Latching on touchdown covers both cases: during the gait it
+            // fires at the start of stance, which `phase < 0.5` already did,
+            // and after the gait stops it fires once for each leg as it lands.
+            const bool just_landed = contact_past_(i) == 0;
+            if (wave_generator_->phase_(i) < 0.5 || just_landed) {
                 start_p_.col(i) = estimator_->getFootPos(i);
             }
             feet_pos.col(i) = start_p_.col(i);
@@ -42,6 +57,7 @@ void GaitGenerator::generate(Vec34 &feet_pos, Vec34 &feet_vel) {
             feet_pos.col(i) = getFootPos(i);
             feet_vel.col(i) = getFootVel(i);
         }
+        contact_past_(i) = wave_generator_->contact_(i);
     }
 }
 

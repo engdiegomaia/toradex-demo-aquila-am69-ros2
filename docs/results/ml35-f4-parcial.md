@@ -592,3 +592,116 @@ permanecem pequenos: o corpo gira arrastando os pés. Mesmo teto de 5,3 N·m —
 `captureBodyReference()` fixa a referência de yaw uma vez na borda WALK→HOLD, o
 erro cresce até ~37° e o controlador saturado nunca o vence. Não corrigido:
 fora do escopo de "fazer o robô andar" e não deve ser adivinhado.
+
+## Estabilização após o movimento terminar — 18/08/2026
+
+Sintoma relatado: os movimentos melhoraram, mas repetindo andar/parar o robô
+"acaba se perdendo". Reproduzido com 3 ciclos de (andar 8 s, parar 6 s):
+
+| ciclo | yaw após andar | yaw após parado | acréscimo do HOLD |
+|---|---|---|---|
+| 1 | +2,43° | +1,97° | −0,5° |
+| 2 | **−11,62°** | −10,68° | +0,9° |
+| 3 | −1,27° | **−9,90°** | −8,6° |
+
+Posição estava boa (0,78 / 0,77 / 0,65 m por ciclo, `y` perto de zero): o robô
+não se perde em translação, se perde em **rumo**. E num ciclo posterior ele
+**caiu parado**, sem comando: tilt subindo 0,2 → 1,8° ao longo de 8 s e então
+`RECOVER tilt=31.4`.
+
+### Medição — alvo de apoio obsoleto
+
+Instrumentado o erro de posição por pé (alvo do gait contra posição medida).
+Em 40 s de HOLD:
+
+```
+HOLD tilt=0.1 yaw=6.5 Fz=142>142 err=[0.010 0.080 0.075 0.009]
+```
+
+Constante, e assimétrico: **8,0 cm e 7,5 cm em um par diagonal**, 1,0 cm nos
+outros dois, para sempre. Causa em `GaitGenerator::generate()`:
+
+```cpp
+if (contact_(i) == 1) {
+    if (phase_(i) < 0.5) start_p_.col(i) = estimator_->getFootPos(i);
+    feet_pos.col(i) = start_p_.col(i);
+```
+
+`WaveGenerator` fixa a fase em **exatamente 0,5** em `STANCE_ALL`, então
+`0.5 < 0.5` é falso e `start_p_` nunca é re-travado depois que a marcha para.
+As duas pernas que estavam em balanço no instante da parada ficam com o alvo
+congelado no ponto de **decolagem**, não onde pousaram. O PD de junta puxa esse
+erro de 8 cm indefinidamente — perturbação constante e assimétrica que gira o
+robô parado e, duas vezes, o derrubou.
+
+### Correção — travar o alvo de apoio no toque do pé
+
+`GaitGenerator` passa a travar `start_p_` também na transição para contato, não
+só enquanto `phase < 0.5`. Durante a marcha o comportamento é o mesmo; parado,
+cada perna trava uma vez ao pousar.
+
+Validação, 5 ciclos de (andar 8 s, parar 8 s):
+
+| | antes | depois |
+|---|---|---|
+| quedas | 1 (ciclo 3, parado) | **0** |
+| tilt máx. parado | explodia a 31° | **0,9°** |
+| tilt máx. andando | — | 1,0° |
+| `footErr` parado | 8 cm fixo, um par diagonal | **0,4–1,3 cm, simétrico** |
+| efeito do HOLD no rumo | +5,6 / +13,3 / +41,2 / +43,9° | **−3,1 / −1,7 / −0,8 / +0,9 / −1,4°** |
+| deslocamento | — | 3,85 m em 5 ciclos |
+
+O HOLD deixou de ser fonte de erro de rumo e passou a corrigi-lo em 4 dos 5
+ciclos. Em três execuções independentes desta configuração: **zero quedas** nas
+três; rumo final após 4–5 ciclos de 43°, 29° e 12°. Limitado, sem acumulação
+monotônica, mas com variância grande entre execuções — não há malha fechada de
+rumo, e não deve haver neste nível (ver abaixo).
+
+### Ensaio 7 — rumo persistente em HOLD: **pior**
+
+Em vez de recapturar `yaw_cmd_` a cada parada, mantê-lo como setpoint movido só
+por `d_yaw_cmd_`. Motivação: recapturar faz o controlador adotar como correto
+qualquer rumo para onde derivou, então o erro nunca é corrigido.
+
+Resultado: o robô tombou no ciclo 3 (z 0,354 → 0,217 → 0,086, yaw 164,7°), 83
+amostras em RECOVER, tilt máximo em HOLD 8,1°, e já no ciclo 1 o HOLD
+*acrescentou* +11,6° de guinada. Com o momento de guinada limitado a ~5,3 N·m o
+controlador não gira um robô parado: ele só arrasta os pés tentando, até
+desestabilizar. Revertido.
+
+**Consequência de projeto:** este controlador não mantém rumo em malha aberta,
+e isso é correto. Um trote cego com essa autoridade de guinada faz passeio
+aleatório — a própria Unitree embarca um trim de operador para deriva de
+guinada pelo mesmo motivo, a ser aplicado durante o trote
+(`docs.quadruped.de`, operação do Go1 e quick-start do A1). Fechar essa malha é
+papel da navegação, que enxerga pose e comanda `angular.z` por `/demo/cmd_vel`.
+
+### Ensaio 8 — ganho de apoio mais rígido quando parado: **muito pior**
+
+Motivado pela análise de `unitreerobotics/unitree_ros`: os ganhos de referência
+da Unitree para ficar em pé (`unitree_controller/src/body.cpp`, `paramInit()`)
+são `Kp` 70 / 180 / 300 em quadril / coxa / canela, e o `StateFixedStand` deste
+repositório usa 80/3,5, contra os 3,0/2,0 do trote. Testado 80/3,5 quando
+`mode_ != WALK`.
+
+Resultado: caiu no primeiro ciclo e não levantou — 300 amostras em RECOVER,
+tilt 52°, `footErr` de 35 a 46 cm.
+
+A analogia estava errada. Aqueles ganhos são de um PD **puro**, único atuador da
+junta. Aqui `gz_quadruped_hardware` **soma** o PD ao torque que o `BalanceCtrl`
+já calculou: a 80 os dois disputam a perna e o PD vence o controlador de força
+que sustenta o robô. **3,0/2,0 é um teto para um PD auxiliar, não um alvo de
+rigidez.** Revertido.
+
+### Análise de `unitreerobotics/unitree_ros`
+
+Repositório oficial (ROS 1 Melodic/Kinetic, Gazebo 8): descrições de 19 robôs,
+`unitree_gazebo`, `unitree_legged_control` e `unitree_controller` — este último
+com controle de junta em torque, posição e velocidade, mais exemplos `servo` e
+`move_kinetic`. O README declara que **"Gazebo simulation cannot do high-level
+control, namely walking"**: a pilha oficial não caminha em simulação, o que é
+exatamente por que o `unitree_guide` da comunidade existe e por que não há
+referência de sintonia de marcha ali. Pose de apoio oficial `{0.0, 0.67, −1.3}`
+por perna, contra `(0.0, 0.8, −1.5)` no nosso `gazebo.yaml` — o oficial é menos
+agachado. Os ganhos citados acima são o único dado de sintonia aproveitável, e
+com a ressalva do Ensaio 8.
