@@ -117,6 +117,17 @@ private:
     double entry_s_{};
     int diag_ticks_{};
 
+    // Yaw-axis relay statistics.  The control loop runs at 500 Hz and the
+    // diagnostic line at 4 Hz, so an instantaneous sample of a bang-bang axis
+    // aliases into noise.  What characterises a relay is the size of its
+    // demand and its duty cycle at the rail, accumulated over the window.
+    double yaw_err_{};
+    double yaw_err_peak_{};
+    double d_wz_peak_{};
+    double d_wz_sum_{};
+    int yaw_sat_ticks_{};
+    int yaw_win_ticks_{};
+
     // Control Parameters
     double gait_height_;
     Vec3 pos_error_, vel_error_;

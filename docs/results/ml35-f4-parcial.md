@@ -862,8 +862,46 @@ transitório, por isso o defeito passou despercebido.
 
 Os quatro experimentos de ganho já rejeitados (clamp de guinada em ±25, ganhos
 de atitude por eixo, `yaw_cmd_` persistente, rigidez de apoio 80/3,5) foram
-medidos sobre a **caminhada**. Este defeito é de **parado**, e um tratamento
-específico de apoio continua não ensaiado.
+medidos sobre a **caminhada**. Este defeito é de **parado**.
+
+##### Instrumentação do eixo de guinada
+
+A linha do supervisor passou a carregar a demanda antes do clamp, com pico,
+média e ciclo de trabalho no batente acumulados na janela — amostrar um relé de
+500 Hz a 4 Hz sem isso é aliasing. Assinatura típica em HOLD:
+
+```
+yawErr=4.86/pk5.31deg  dWzPk=366.2  dWzMed=287.6  yawSat=100%
+```
+
+O erro **não oscila em torno de zero**: fica cravado em 3,5–5,3°, sempre do
+mesmo lado. A demanda é de 322–367 rad/s² contra um clamp de 10 — sobredemanda
+de 33× — com saturação em 100% dos ticks. É o que a nota do `captureBodyReference`
+já dizia em palavras ("só arrasta os pés tentando"), agora medido.
+
+O dano vem da saturação em si: o QP pesa o resíduo de momento em 450 contra
+20/20/50 na força, então um momento inalcançável não é ignorado — o solver
+troca a distribuição de força para persegui-lo. É o mesmo mecanismo que fez o
+clamp de ±25 ser pior que inútil na caminhada.
+
+##### Dois tratamentos medidos e rejeitados
+
+| Experimento | O que melhorou | Por que foi revertido |
+|---|---|---|
+| Rastrear `yaw_cmd_` a cada tick em `STANCE_ALL` (termo proporcional → 0) | remove o viés; dois HOLDs de 90 s com zero `RECOVER`; tilt 0,1–0,3° | sem termo proporcional o robô **gira solto parado** — 17° e 23° medidos em paradas de 8 s — o que **re-quebra o critério F4 de não derivar em guinada**, já verde; e a parada longa ainda colapsou, aos 33,0 s contra 46,1 s sem a mudança |
+| Passa-baixa (τ = 0,1 s) na taxa de guinada do termo derivativo, medido junto | corta o pico em uma ordem de grandeza | o eixo ainda ficou no batente em 80–89% dos ticks e a parada longa ainda colapsou |
+
+O passa-baixa é justificado pela medição: a média da demanda é igual ao pico
+(assinatura de oscilação simétrica de alta frequência), e o ground truth tem o
+corpo girando a 1–2 °/s com picos de 13 — o termo derivativo lia ~50× a rotação
+real. Mas ele foi medido **junto** com o rastreio de rumo, e a combinação piorou
+o cenário de regressão. **Filtrar sem zerar o termo proporcional é a única
+combinação ainda não ensaiada** e é por onde continuar.
+
+O caminho alternativo é casar o ganho com a autoridade em vez de zerá-lo: com
+`kp_w_ = 780` e clamp de 10 a banda proporcional é de 0,73°, então qualquer erro
+real satura. Um `kp` de apoio da ordem de 40–60 daria banda de 10–14°, dentro do
+envelope de erro observado, sem abrir mão da retenção de rumo. Não ensaiado.
 
 Lição de método incorporada ao script de ensaio: verificar `z > 0,30` **antes de
 cada medição**. Uma varredura inteira foi perdida medindo um robô já tombado
