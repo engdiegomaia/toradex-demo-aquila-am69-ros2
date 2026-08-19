@@ -92,8 +92,39 @@ direções.
 `gz_quadruped_hardware` teve `Apache 2` normalizado para `Apache-2.0` (grafia
 SPDX). Titular e conteúdo intactos.
 
-Nenhum arquivo de código (`.cpp`, `.h`, `.hpp`), CMake ou xacro foi editado em
-nenhum dos quatro pacotes.
+### 3. Código de `unitree_guide_controller` editado a partir de F4
+
+Isto **mudou** depois da vendorização, e a versão anterior deste arquivo dizia o
+contrário. A frase "nenhum arquivo de código foi editado" era verdade em
+17/08/2026 e deixou de ser no dia seguinte, quando F4 começou a mexer na marcha.
+Registrado aqui em vez de corrigido em silêncio.
+
+Editados em `unitree_guide_controller`, todos com o número medido e o motivo em
+comentário no ponto de uso:
+
+| Arquivo | O que mudou |
+|---|---|
+| `src/FSM/StateTrotting.cpp` + `.h` | reescrito: modos WALK/HOLD/RECOVER, supervisor de atitude, banda de referência dimensionada ao comando, diagnóstico e instrumentação do eixo de guinada |
+| `src/control/BalanceCtrl.cpp` + `.h` | inércia do Go2 no lugar da do A1; pesos do QP e cone de atrito vindos de parâmetro |
+| `src/gait/FeetEndCalc.cpp` | ganho de rumo `k_yaw` 0,005 → 0,15; os três ganhos de Raibert vindos de parâmetro |
+| `src/gait/GaitGenerator.cpp` + `.h` | alvo de apoio reancorado no toque e enquanto a marcha está parada |
+| `src/control/Estimator.cpp` + `.h` | acesso a estado usado pelo diagnóstico |
+| `src/UnitreeGuideController.cpp` + `.h` | declaração e validação dos parâmetros de marcha |
+| `include/.../control/GaitParams.h` | **arquivo novo, nosso**: a superfície de sintonia |
+
+Histórico completo em `git log ae3d9a1..HEAD --
+ros2_ws/src/unitree_guide_controller/`; a evidência que motivou cada mudança
+está em `docs/results/ml35-f4-parcial.md`.
+
+**O que continua intacto, e por quê importa:** `src/quadProgpp/` (solver de
+terceiro), `CMakeLists.txt`, `package.xml` além da licença, e o plugin XML. E,
+fora deste pacote, `go2_description/` inteiro — nenhum arquivo em `meshes/`,
+`xacro/`, `urdf/` ou `config/` foi tocado. Foi por isso que a sintonia da marcha
+foi para `demo_simulation/config/gait_go2.yaml`, injetada pelo spawner, em vez de
+para `go2_description/config/gazebo.yaml`: o argumento de licença daquele pacote
+depende de ele continuar byte a byte igual ao upstream.
+
+Nenhum arquivo CMake ou xacro foi editado em nenhum dos quatro pacotes.
 
 ---
 

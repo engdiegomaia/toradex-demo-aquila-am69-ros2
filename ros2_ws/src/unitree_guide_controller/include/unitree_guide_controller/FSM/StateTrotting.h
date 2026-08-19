@@ -5,6 +5,7 @@
 #ifndef STATETROTTING_H
 #define STATETROTTING_H
 #include <unitree_guide_controller/control/BalanceCtrl.h>
+#include <unitree_guide_controller/control/GaitParams.h>
 #include <unitree_guide_controller/gait/GaitGenerator.h>
 #include "controller_common/FSM/FSMState.h"
 
@@ -94,6 +95,14 @@ private:
     std::shared_ptr<WaveGenerator> &wave_generator_;
 
     GaitGenerator gait_generator_;
+
+    /**
+     * Tuning, owned by CtrlComponent and filled from ROS parameters before this
+     * state is constructed.  Held by reference rather than copied so that the
+     * clamps read at every tick and the gains read once in the constructor
+     * cannot drift apart.
+     */
+    const GaitParams &params_;
 
     // Robot State
     Vec3 pos_body_, vel_body_;

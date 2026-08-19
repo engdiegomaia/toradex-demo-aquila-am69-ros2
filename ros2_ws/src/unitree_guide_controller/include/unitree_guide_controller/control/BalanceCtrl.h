@@ -8,11 +8,12 @@
 #include <memory>
 
 #include "unitree_guide_controller/common/mathTypes.h"
+#include "unitree_guide_controller/control/GaitParams.h"
 class QuadrupedRobot;
 
 class BalanceCtrl {
 public:
-    explicit BalanceCtrl(const std::shared_ptr<QuadrupedRobot>& robot);
+    BalanceCtrl(const std::shared_ptr<QuadrupedRobot>& robot, const GaitParams& params);
 
     ~BalanceCtrl() = default;
 

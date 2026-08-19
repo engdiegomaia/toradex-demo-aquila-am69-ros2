@@ -1,5 +1,11 @@
 # ML3.5 — plano dos próximos passos
 
+> **SUPERADO em 19/08/2026 por `plano-movimentacao.md`.** Mantido como registro.
+> As Fases 1, 2 e 3 daqui foram executadas — resultados em
+> `docs/results/ml35-f4-parcial.md` §"Fases 1-3" — e a Fase 3 derrubou a premissa
+> de que a árvore TF fecha: não existe frame `odom`, e isso é bloqueador
+> confirmado de F5. Não use este arquivo para decidir o próximo passo.
+
 Escrito em 18/08/2026, depois de o Go2 passar a caminhar e parar de forma
 repetível. Evidência do estado atual em `docs/results/ml35-f4-parcial.md`;
 comandos de operação em `docs/guides/go2-testes.md`.

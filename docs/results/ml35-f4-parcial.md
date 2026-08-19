@@ -906,3 +906,91 @@ envelope de erro observado, sem abrir mão da retenção de rumo. Não ensaiado.
 Lição de método incorporada ao script de ensaio: verificar `z > 0,30` **antes de
 cada medição**. Uma varredura inteira foi perdida medindo um robô já tombado
 sendo arrastado, com números que pareciam plausíveis.
+
+---
+
+## Fase A do plano de movimentação — 19/08/2026
+
+`docs/ml35/plano-movimentacao.md`. Toda a sintonia do trote passou a ser
+parâmetro do controlador, e o banco de ensaio passou a ser script versionado.
+Nenhuma mudança de comportamento pretendida: os defaults compilados são os
+valores que estavam nos literais.
+
+### O ponto de injeção, e por que não é o arquivo óbvio
+
+`go2_description/config/gazebo.yaml` seria o lugar natural, e está errado: o
+README daquele pacote garante que os configs estão intactos byte a byte, e é
+essa garantia que sustenta o argumento de licença da vendorização. O
+`<parameters>` do plugin de hardware também vive num xacro vendorizado.
+
+O ponto de injeção que é nosso é o **spawner**: `--param-file` aplica os
+parâmetros **antes** de `load_controller`, que é quando `on_init()` os lê
+(`controller_manager/spawner.py`, `set_controller_parameters_from_param_files`
+na linha 497, `load_controller` na 506). Um arquivo aplicado depois do load
+seria aceito e nunca lido — falha silenciosa perfeita.
+
+Provado no log, com o nosso arquivo em último e portanto sobrepondo:
+
+```
+Controller 'unitree_guide_controller' node arguments: --ros-args
+  --params-file .../go2_description/share/go2_description/config/gazebo.yaml
+  --params-file .../demo_simulation/share/demo_simulation/config/gait_go2.yaml
+```
+
+### Prova de que o override funciona ponta a ponta
+
+Valores iguais aos defaults compilados são indistinguíveis de "o arquivo não foi
+lido", então a prova exigiu valores distinguíveis. Com um arquivo de três
+entradas:
+
+```
+gait params: period=0.450 st_ratio=0.500 height=0.090 k=(0.0770 0.0050 0.1500)
+             kp_w=780.0 yaw_clamp=10.0 band=0.0100 S_moment=(450 450 111) mu=0.40
+```
+
+`height`, `k_x` e **uma única entrada** do vetor de momento chegaram. Essa
+última é exatamente o que a Fase B1 precisa: baixar o peso de guinada do QP sem
+tocar em rolagem e arfagem. O que não estava no arquivo caiu nos defaults
+compilados, que conferem com o YAML empacotado.
+
+### Linha de base: duas corridas, simulação limpa em cada
+
+`./scripts/gait_trial.sh <csv> --v-cmd 0.10 --cycles 3 --walk 8 --hold 8`, que é
+o roteiro §7.2 com 3 ciclos.
+
+| | corrida 1 | corrida 2 | registrado antes |
+|---|---|---|---|
+| trajetória | 2,928 m | 3,200 m | — (métrica nova) |
+| deslocamento líquido | 2,619 m | 2,481 m | 2,36 m |
+| deriva de rumo | +3,9° | −19,9° | 12° a 43° |
+| tilt de pico andando | 1,02° | 2,58° | 1,0° |
+| tilt de pico parado | 0,54° | 1,08° | 0,9° |
+| `footErr` em HOLD | 0,000 | 0,000 | 0,000 |
+| `RECOVER` na janela | 0 | 0 | 0 |
+| RTF | 1,00 | 1,00 | — |
+
+As duas corridas **cercam** o número registrado, e a dispersão é a que o próprio
+documento já atribui ao passeio de rumo em malha aberta (12° a 43° entre
+execuções). Os invariantes determinísticos batem exatamente. Suíte do
+`demo_simulation`: 20 testes, 0 falhas.
+
+**Portão da Fase A batido**, com a ressalva de que "sem mudança de comportamento"
+está provado por invariante e por dispersão, não por igualdade numérica — a
+marcha em malha aberta não é repetível o suficiente para igualdade.
+
+### Armadilha de medição encontrada na corrida 2
+
+`docker logs aquila-go2 | grep -c mode=RECOVER` devolveu **23** na corrida 2, com
+o recorder mostrando tilt de pico de 2,58° e `z` mínimo de 0,336 m na janela do
+ensaio. Não é contradição: os `RECOVER` são de **31 s depois do fim do ensaio**,
+com `tilt` indo de 49° a 169° — o robô caiu em HOLD prolongado, sem comando.
+
+É o **Defeito 2 se reproduzindo**, dentro da faixa já registrada (17,8 s a
+46,1 s de HOLD, conforme o resíduo de entrada), e não regressão da Fase A.
+
+Duas consequências, as duas úteis:
+
+1. `grep -c mode=RECOVER` sobre o log inteiro **não** é a contagem do ensaio.
+   Tem de ser recortado pela janela de parede do CSV. Corrigido no guia.
+2. O harness reproduz o Defeito 2 sem esforço extra: basta deixar o HOLD correr
+   depois do último ciclo. É o cenário do portão da Fase B.

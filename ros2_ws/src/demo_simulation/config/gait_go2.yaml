@@ -1,0 +1,94 @@
+# Tuning of the Go2 trot, loaded into unitree_guide_controller by the spawner
+# in quadruped.launch.py (`--param-file`).
+#
+# Why this file is here and not in go2_description/config/gazebo.yaml: that file
+# is part of a vendored package whose README guarantees it is byte-identical to
+# upstream, and the guarantee is what carries the licence argument. The gz
+# hardware plugin's `<parameters>` tag lives in a vendored xacro too, so the
+# project-owned injection point is the spawner. The spawner sets controller
+# parameters BEFORE load_controller, which is when on_init() reads them
+# (controller_manager/spawner.py: set_controller_parameters_from_param_files at
+# line 497, load_controller at 506) — a param file applied after load would be
+# accepted and never read.
+#
+# Every value below equals the compiled default in GaitParams.h, so this file
+# changing nothing is the correct state until an experiment changes one line.
+# If the file is not found or not applied, the controller falls back to those
+# same defaults; the `gait params: ...` line it logs on init is what proves
+# which values are actually live. Read that line before trusting a sweep.
+#
+# One variable per run, and record the run — docs/results/ml35-f4-parcial.md has
+# the format, and four reverted experiments are the reason for the rule.
+
+unitree_guide_controller:
+  ros__parameters:
+
+    # Contact schedule. period 0.45 with stance_ratio 0.5 gives
+    # t_stance = t_swing = 0.225 s, which is the number the foot-placement
+    # comments in FeetEndCalc.cpp are written against.
+    gait:
+      period: 0.45
+      stance_ratio: 0.5
+      height: 0.08
+
+    # Where the swing foot lands. k_x/k_y are the Raibert velocity-feedback
+    # gains, k_yaw the heading one. 0.005 is upstream's A1 value for all three;
+    # k_yaw was raised to 0.15 on measured grounds and is what made the robot
+    # walk. The capture-point coefficient for this body height, sqrt(h/g) with
+    # h ~ 0.33 m, is about 0.18 s — the scale k_x/k_y would have if they were
+    # doing the job their term is named for. Sweeping them is ML3.5 phase B.
+    foot_placement:
+      k_x: 0.005
+      k_y: 0.005
+      k_yaw: 0.15
+
+    # Body pose control feeding the balance QP.
+    #
+    # kp_w 780 against the yaw clamp of 10 rad/s^2 leaves a proportional band
+    # of 0.73 degrees, which is why that axis behaves as a relay rather than a
+    # regulator; the alternatives measured so far are in
+    # StateTrotting::captureBodyReference. reference_band is the throttle on the
+    # integrated body reference and is coupled to k_x/k_y: a trot that propels
+    # the body no longer needs it this tight.
+    trot:
+      kp_p: [70.0, 70.0, 70.0]
+      kd_p: [10.0, 10.0, 10.0]
+      kp_w: 780.0
+      kd_w: [70.0, 70.0, 70.0]
+      kp_swing: [400.0, 400.0, 400.0]
+      kd_swing: [10.0, 10.0, 10.0]
+
+      # Stick-to-SI envelope. twist_to_inputs clamps the stick well inside
+      # these, so widening them here alone changes nothing.
+      v_x_limit: [-0.4, 0.4]
+      v_y_limit: [-0.3, 0.3]
+      w_yaw_limit: [-0.5, 0.5]
+
+      reference_band: 0.01
+
+      # Clamps on the demand handed to the QP. ang_acc_limit_yaw = 10 rad/s^2 is
+      # 5.3 N.m on this robot, which the QP tracks to within 2%; raising it to
+      # 25 was measured and is worse (13.2 asked, 5.8 delivered, robot fell in
+      # 4 s instead of 7). It also sets the threshold of the yaw saturation
+      # statistic in the diagnostics line.
+      acc_limit_xy: 3.0
+      acc_limit_z: 5.0
+      ang_acc_limit_roll_pitch: 40.0
+      ang_acc_limit_yaw: 10.0
+
+    # QP residual weights and friction cone.
+    #
+    # weight_moment against weight_force is what makes an unreachable moment
+    # harmful rather than merely unmet: the solver trades force distribution to
+    # chase it, which is the measured mechanism behind the long-stop collapse
+    # (defect 2). Lowering only the yaw entry of weight_moment is ML3.5 phase C
+    # and has not been tried.
+    #
+    # friction_ratio 0.4 is deliberately below the simulated foot friction
+    # (mu = 0.6 in go2_description/xacro/leg.xacro): it is the number that has
+    # to hold on real ground, so raising it would buy simulated authority the
+    # hardware will not have.
+    balance:
+      weight_force: [20.0, 20.0, 50.0]
+      weight_moment: [450.0, 450.0, 450.0]
+      friction_ratio: 0.4
