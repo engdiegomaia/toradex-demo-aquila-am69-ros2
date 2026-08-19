@@ -775,17 +775,95 @@ Relacionado: `/demo/odom` hoje é ground truth do Gazebo. Em hardware real ela
 tem que sair do estimador. A decisão de onde a odometria é produzida precisa ser
 tomada **antes** de declarar F5, não depois.
 
-### Observação não reproduzida — HOLD depois de caminhada com giro
+### Instrumentação ativa e cronometragem — a observação resolvida
 
-Numa execução, depois de um comando combinado (`linear.x=0.25` com
-`angular.z=0.3`) que terminou **de pé** em `z = 0,358`, o robô foi encontrado
-caído (`z = 0,153`, `RECOVER` acumulado) após um período parado sem comando e
-sem instrumentação ativa.
+A hipótese acima foi ensaiada com instrumentação contínua: um gravador de
+ground truth a 10 Hz carimbando **tempo de simulação e relógio de parede
+juntos** (sem a coluna de ligação, a odometria e a linha do supervisor não se
+cruzam), mais a linha do supervisor a 4 Hz. A ordem das condições foi
+**contrabalanceada** entre duas corridas, para separar "depois de girar" de
+"mais tarde na sessão" — sem isso uma queda na segunda condição não distingue
+as duas causas.
 
-Os 5 ciclos de andar/parar validados eram de caminhada **reta**. Não há
-evidência controlada de que HOLD após giro seja menos estável — a queda não foi
-observada nem cronometrada. Fica registrado como hipótese a ensaiar, não como
-resultado.
+| Corrida | Condição | Resultado |
+|---|---|---|
+| A | reto 15 s → HOLD 90 s | sobreviveu (`z` 0,3607 → 0,3490) |
+| A | religar com giro a partir daquele estado | **caiu em 2,0 s**, em rolagem |
+| B | giro 15 s partindo do fixed stand | **caminhou sem cair** (`z` = 0,3462) |
+| B | HOLD 90 s depois do giro | **caiu em 18,3 s** |
+
+O contrabalanço derruba a hipótese original: **o giro não quebra a caminhada**.
+O que existe são dois defeitos distintos, que a falta de instrumentação vinha
+somando em um só sintoma.
+
+#### Defeito 1 — alvo de apoio ancorado em referencial que deriva (corrigido)
+
+`footErr` não era erro de pé: era a deriva de posição do estimador. Medido
+durante os 90 s parados da corrida A, com o ground truth ao lado:
+
+| t (s) | erro de posição do estimador (m) | `footErr` médio (m) |
+|---|---|---|
+| 10 | 0,076 | 0,071 |
+| 30 | 0,159 | 0,166 |
+| 90 | 0,178 | 0,189 |
+
+As duas colunas são a mesma grandeza. A guinada estimada acompanha o ground
+truth perfeitamente; só a posição deriva, porque o estimador não tem nenhuma
+medida absoluta de XY — a posição só é observável enquanto os pés em contato
+estiverem realmente parados. E eles não estão: o ground truth mostra que, nos
+primeiros 30 s de HOLD, o robô fisicamente girou de −7,5° a −33,8° e voltou a
+−15°, arrastando 12 cm. Esse escorregamento integra direto na posição.
+
+O laço se fechava: alvo travado → `pos_feet_target = alvo − pos_body_` desloca
+sob a pata → o PD de junta empurra → a pata escorrega → a deriva cresce.
+
+**Correção** (`GaitGenerator::generate`): enquanto `WaveStatus::STANCE_ALL`, as
+quatro patas estão no chão e nenhum balanço vai rodar até a marcha religar, então
+o alvo é reancorado a cada tick em vez de ficar preso ao valor do toque.
+
+| Métrica | Antes | Depois |
+|---|---|---|
+| `footErr` ao longo do HOLD | 0,18–0,23 m | **0,000** |
+| passeio de guinada no HOLD | ±26° | ±5° |
+| tilt no HOLD após reto | 1,1° | 0,2° |
+| religar após 90 s parado | queda em 2,0 s | **anda** |
+
+Regressão do critério F4 com a correção: 5 ciclos de andar/parar, 3,37 m, tilt
+máximo em HOLD 2,0°, zero quedas. Sem regressão.
+
+#### Defeito 2 — oscilação crescente em HOLD longo (aberto)
+
+Com `footErr` zerado, o HOLD após giro **continuou caindo**, agora aos 17,8 s
+contra 18,3 s antes. Logo `footErr` nunca foi a causa deste. A assinatura é
+outra: oscilação crescente do corpo com o momento de guinada no batente.
+
+`Mz` fica saturado em ±5,3 N·m **100% do tempo em todos os HOLDs** — inclusive
+nos estáveis — porque o clamp de `d_wbd(2)` em ±10 rad/s² vezes `Izz` dá
+exatamente isso, e `kp_w_ = 780` satura com 0,73° de erro de guinada. O eixo é
+liga-desliga, sem banda proporcional: não amortece resíduo, bombeia.
+
+O que decide o desfecho é o resíduo com que o robô entra no HOLD. Três corridas
+independentes, relação monótona:
+
+| `velErrXY` no início do HOLD | Origem | Tempo até a queda |
+|---|---|---|
+| 0,010 | reto, partida limpa | não caiu em 90 s |
+| 0,020 | reto, após 5 ciclos | 46,1 s |
+| 0,034 | após giro | 17,8 s |
+
+Na corrida que caiu aos 17,8 s, o pico-a-pico de `estPos` x cresceu de 0,049 m
+(janela 0–3 s) para 0,190 m (12–15 s) antes de tombar; na estável ficou em
+0,002–0,014 m o ensaio inteiro.
+
+**Não é específico de giro comandado.** A caminhada "reta" também acumula
+guinada em malha aberta, e a corrida de regressão caiu aos 46,1 s depois de 5
+ciclos retos. O critério de HOLD validado antes usava 8 s — só via o começo do
+transitório, por isso o defeito passou despercebido.
+
+Os quatro experimentos de ganho já rejeitados (clamp de guinada em ±25, ganhos
+de atitude por eixo, `yaw_cmd_` persistente, rigidez de apoio 80/3,5) foram
+medidos sobre a **caminhada**. Este defeito é de **parado**, e um tratamento
+específico de apoio continua não ensaiado.
 
 Lição de método incorporada ao script de ensaio: verificar `z > 0,30` **antes de
 cada medição**. Uma varredura inteira foi perdida medindo um robô já tombado

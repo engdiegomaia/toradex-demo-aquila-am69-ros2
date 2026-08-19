@@ -45,8 +45,30 @@ void GaitGenerator::generate(Vec34 &feet_pos, Vec34 &feet_vel) {
             // Latching on touchdown covers both cases: during the gait it
             // fires at the start of stance, which `phase < 0.5` already did,
             // and after the gait stops it fires once for each leg as it lands.
+            //
+            // Latching once is still not enough once the gait *stays* stopped.
+            // The target is a point in the estimator frame, and this robot's
+            // estimator has no absolute XY measurement: position is observable
+            // only while the contacting feet are genuinely still.  Measured
+            // over a 90 s stop, the estimate drifted 0.18 m away from ground
+            // truth, and the latched target carried that whole difference into
+            // the joint PD as a body-relative foot offset (`pos_feet_target`
+            // in StateTrotting is `goal - pos_body_`, so a drifting body moves
+            // the target under the foot).  The offset makes the legs push, the
+            // push makes the feet slip, and the slip feeds the drift back.
+            // After a straight walk the loop settled at 0.18 m and the robot
+            // held; after a walk with yaw it did not settle -- the error blew
+            // through 0.2 m at 15 s and the robot rolled over at 18.3 s.
+            // Restarting the trot from an already-drifted stance fell in 2.0 s.
+            //
+            // In STANCE_ALL all four feet are down and no swing runs until the
+            // gait restarts, so re-latching every tick costs nothing and keeps
+            // the stance target on the foot instead of on a stale point.  The
+            // loop then never closes.  Station keeping is unaffected: it comes
+            // from the QP regulating the body against `pcd_`, not from this PD.
             const bool just_landed = contact_past_(i) == 0;
-            if (wave_generator_->phase_(i) < 0.5 || just_landed) {
+            const bool gait_stopped = wave_generator_->status_ == WaveStatus::STANCE_ALL;
+            if (gait_stopped || wave_generator_->phase_(i) < 0.5 || just_landed) {
                 start_p_.col(i) = estimator_->getFootPos(i);
             }
             feet_pos.col(i) = start_p_.col(i);
