@@ -46,6 +46,14 @@ fecha, não existe frame `odom`, e isso é bloqueador confirmado de F5. Fase A
 (parametrizar a marcha + banco de ensaio versionado) concluída em 19/08/2026;
 próxima é a Fase B, o Defeito 2.
 
+Fase B (Defeito 2, queda em `HOLD` prolongado) **em andamento, portão aberto**.
+O que já está feito: gatilho repetível fixado (caminhada com giro, `--final-hold
+90`; a base cai aos 39,4 s) e a primeira condição ensaiada com **n = 1** — B1a,
+`balance.weight_moment: [450, 450, 100]`, sobreviveu os 90 s com zero `RECOVER`.
+Nada virou default: `gait_go2.yaml` continua em 450. Falta repetição por
+condição, B1b/B1c, e reexecutar o roteiro de 3 ciclos de andar/parar sob a
+condição vencedora — o gatilho de guinada não mede esse critério.
+
 Note que F3 **não foi retarget de cinemática**. A troca A1→Go2 eliminou esse
 trabalho: o Go2 é o robô nativo da base upstream. F3 virou vendorização
 criteriosa + integração.

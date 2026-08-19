@@ -110,9 +110,10 @@ em ordem de valor esperado:
 
 | # | Experimento | Por que agora |
 |---|---|---|
-| B1 | baixar **só a entrada de guinada** de `balance.weight_moment` (450 → 100 → 50) | nunca tentado, e ataca o mecanismo medido: o QP troca distribuição de força para perseguir um `Mz` que a Fase 2 provou inalcançável acima de 5,3 N·m |
-| B2 | `trot.kp_w` casado com a autoridade (40–60), mantendo o termo proporcional | com 780 e clamp 10 a banda proporcional é 0,73° — relé. 40–60 dá 10–14° |
+| B1a | baixar **só a entrada de guinada** de `balance.weight_moment` (450 → 100) | ataca o mecanismo medido: o QP troca distribuição de força para perseguir um `Mz` que a Fase 2 provou inalcançável acima de 5,3 N·m. **Ensaiado 19/08, n = 1, sinal bom:** sobreviveu 90 s onde a base caiu aos 39,4 s, zero `RECOVER`, eixo fora do batente (54–84% contra 100% cravado), caminhada dentro de 3%. Custo previsto apareceu: rastreamento de guinada 76% contra 85%, deriva de rumo +13,5° em 90 s parado |
+| B1b | o mesmo com 450 → 50 | não ensaiado. Só vale se B1a repetir e o custo de rumo incomodar menos que a queda |
 | B1c | `trot.kd_w` por eixo: `[70, 70, X]` com X de 70 → 20 → 10 | o termo derivativo lê ~50× a rotação real do corpo (medido: média igual ao pico, assinatura de vibração de tronco). Escalar o termo é knob diferente de filtrá-lo, e mais barato |
+| B2 | `trot.kp_w` casado com a autoridade (40–60), mantendo o termo proporcional | com 780 e clamp 10 a banda proporcional é 0,73° — relé. 40–60 dá 10–14° |
 | B3 | passa-baixa na taxa de guinada **sem** zerar o proporcional | a única combinação ainda não ensaiada |
 
 **B1a/b e B1c são edições de YAML; B2 e B3 são código.** Isso saiu de uma
@@ -215,7 +216,7 @@ Registrar como ADR, com um orçamento de CPU medido no Aquila como condição.
 
 | Risco | Prob. | Mitigação |
 |---|---|---|
-| B1 conserta o parado e degrada a **caminhada** — os quatro experimentos rejeitados foram medidos andando, este defeito é de parado | Média | ambos os cenários no portão de B |
+| B1 conserta o parado e degrada a **caminhada** — os quatro experimentos rejeitados foram medidos andando, este defeito é de parado | Média → **baixa para B1a** | ambos os cenários no portão de B. B1a (n = 1) deixou trajetória, tilt e `z` dentro de 3%; o custo caiu na guinada, não na caminhada |
 | `k_x` alto amplifica ruído de velocidade estimada e alonga o passo além do espaço de trabalho a 0,20 m/s | Média | varredura em 4 pontos; tilt e `RECOVER` como parada |
 | Fase D escolhe o caminho 1 (bridge do ground truth) e o débito é esquecido | **Alta** | só com ADR e prazo; F5 não pode ser declarada sobre ele |
 | Estimador próprio (caminho 2) herda a deriva de XY do Defeito 1 | **Alta** | medir deriva contra ground truth antes de ligar no Nav2 |
