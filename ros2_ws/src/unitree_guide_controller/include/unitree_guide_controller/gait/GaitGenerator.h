@@ -27,6 +27,7 @@ public:
 
     void restart();
 
+
 private:
     Vec3 getFootPos(int i);
 
@@ -75,6 +76,7 @@ private:
     Vec2 vxy_goal_;
     double d_yaw_goal_{};
     Vec34 start_p_, end_p_, ideal_p_, past_p_;
+    VecInt4 contact_past_{VecInt4::Zero()};
     bool first_run_;
 };
 

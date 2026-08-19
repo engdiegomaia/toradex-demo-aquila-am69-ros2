@@ -281,8 +281,22 @@ void StateTrotting::captureBodyReference() {
 
     pcd_(0) = pos_body_(0);
     pcd_(1) = pos_body_(1);
+    // Heading is re-captured together with position, even though that means
+    // accepting whatever heading the walk drifted to.
+    //
+    // Keeping it as a persistent setpoint was tried and is worse: with the yaw
+    // moment capped near 5.3 N.m the controller cannot turn a standing robot,
+    // it only drags the feet trying, and over four walk/stop cycles that tipped
+    // the robot over on the third.  Accepting the drift keeps the robot upright.
+    //
+    // The consequence is that open-loop heading is not held by this controller,
+    // by design: a blind trot with this little yaw authority random-walks, and
+    // Unitree's own robots ship an operator yaw-drift trim for the same reason.
+    // Closing that loop belongs to navigation, which sees pose and commands
+    // angular.z through /demo/cmd_vel.
     yaw_cmd_ = estimator_->getYaw();
     Rd = rotz(yaw_cmd_);
+
     hold_captured_ = true;
 }
 
@@ -397,15 +411,28 @@ void StateTrotting::calcGain() const {
                 std::ignore = ctrl_interfaces_.joint_kd_command_interface_[i * 3 + j].get().set_value(2.0);
             }
         } else {
-            // Keep the stance leg tracking at the same conservative PD gain
-            // used by the swing leg.  The previous 0.8/0.8 values created a
-            // large discontinuity when FIXEDSTAND (80/3.5) handed control to
-            // TROTTING; even with zero velocity command the body then slowly
-            // sagged.  This step changes only the gain discontinuity.  Gait
-            // period, estimator and force controller remain untouched.
+            // Stance gain, and it must stay low -- see below.
+            //
+            // 3.0/2.0 replaced upstream's 0.8/0.8, which left a large
+            // discontinuity against FIXEDSTAND's 80/3.5 and let the body sag.
+            //
+            // Raising it further for the stopped robot was tried, reasoning
+            // that a robot which is not about to swing a leg could be stiffer,
+            // and citing Unitree's own reference stand gains (Kp 70/180/300 on
+            // hip/thigh/calf in unitree_ros/unitree_controller/src/body.cpp)
+            // and this codebase's FIXEDSTAND at 80/3.5.  That reasoning is
+            // wrong here: those gains are for a *pure* PD stand where the PD is
+            // the only actuator, while gz_quadruped_hardware sums this PD with
+            // the torque BalanceCtrl already computed.  At 80 the two fight and
+            // the leg overpowers the force controller holding the robot up --
+            // measured, the robot fell on the first walk and never recovered
+            // (tilt 52 deg, foot tracking error 35-46 cm).  This value is a
+            // ceiling on an auxiliary PD, not a stiffness target.
+            const double kp = 3.0;
+            const double kd = 2.0;
             for (int j = 0; j < 3; j++) {
-                std::ignore = ctrl_interfaces_.joint_kp_command_interface_[i * 3 + j].get().set_value(3.0);
-                std::ignore = ctrl_interfaces_.joint_kd_command_interface_[i * 3 + j].get().set_value(2.0);
+                std::ignore = ctrl_interfaces_.joint_kp_command_interface_[i * 3 + j].get().set_value(kp);
+                std::ignore = ctrl_interfaces_.joint_kd_command_interface_[i * 3 + j].get().set_value(kd);
             }
         }
     }
@@ -420,6 +447,18 @@ void StateTrotting::logDiagnostics() {
         return;
     }
     diag_ticks_ = 0;
+
+    // Distance from each foot to the position the gait asked it to be at.
+    // In HOLD the goals are frozen global points, so this separates the two
+    // ways a standing robot can lose its posture: if the body rotates while
+    // these stay small the feet are travelling with it, i.e. slipping against
+    // frozen targets that no longer anchor anything; if they grow instead, the
+    // feet are pinned and the legs are failing to hold the body against them.
+    const Vec34 feet_now = estimator_->getFeetPos();
+    Vec4 foot_err;
+    for (int i = 0; i < 4; ++i) {
+        foot_err(i) = (pos_feet_global_goal_.col(i) - feet_now.col(i)).norm();
+    }
 
     // Everything needed to tell the four failure modes apart in one line:
     // no step requested, residual reference after stop, attitude loss, and
@@ -436,7 +475,7 @@ void StateTrotting::logDiagnostics() {
                 "trot supervisor: mode=%s cmd=(%.4f,%.4f,%.4f) tilt=%.1fdeg "
                 "posErrXY=%.4f velErrXY=%.4f contact=[%d %d %d %d] "
                 "estPos=(%.3f,%.3f,%.3f) estVel=(%.3f,%.3f) estYaw=%.1fdeg "
-                "Mz=%.1f/%.1fNm",
+                "Mz=%.1f/%.1fNm Fz=%.0f/%.0fN footErr=[%.3f %.3f %.3f %.3f]",
                 modeName(mode_), v_cmd_body_(0), v_cmd_body_(1), d_yaw_cmd_,
                 tilt_ * 180.0 / M_PI,
                 pos_error_.head(2).norm(), vel_error_.head(2).norm(),
@@ -446,5 +485,8 @@ void StateTrotting::logDiagnostics() {
                 vel_body_(0), vel_body_(1),
                 estimator_->getYaw() * 180.0 / M_PI,
                 balance_ctrl_->getWrenchDemand()(5),
-                balance_ctrl_->getWrenchAchieved()(5));
+                balance_ctrl_->getWrenchAchieved()(5),
+                balance_ctrl_->getWrenchDemand()(2),
+                balance_ctrl_->getWrenchAchieved()(2),
+                foot_err(0), foot_err(1), foot_err(2), foot_err(3));
 }

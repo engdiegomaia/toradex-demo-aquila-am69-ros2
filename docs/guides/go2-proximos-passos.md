@@ -38,11 +38,23 @@ Validado em 18/08/2026, depois da correção de rumo por colocação de pé
 - a parada pelo watchdog leva a `HOLD` de pé, sem `RECOVER`, tilt ≤ 0,7°;
 - a suíte do `demo_simulation` passou com 20 testes.
 
+Validado em 18/08/2026, depois do travamento do alvo de apoio no toque do pé
+(`GaitGenerator::generate`):
+
+- **andar e parar repetidamente é estável**: 5 ciclos de (andar 8 s, parar 8 s),
+  3,85 m percorridos, **zero quedas**, tilt máximo 1,0° andando e 0,9° parado;
+- o erro de posição por pé parado caiu de 8 cm fixo num par diagonal para
+  0,4–1,3 cm simétrico;
+- parar passou a **corrigir** o rumo em 4 dos 5 ciclos, em vez de acrescentar
+  até +44° por parada.
+
 Ainda em aberto:
 
-- **deriva de guinada em HOLD**: parado, quatro pés no chão, o corpo gira ~3°/s
-  arrastando os pés (19,6° → 44,5° em 9 s) enquanto tilt e `posErrXY` ficam
-  pequenos. Mesmo teto de momento de 5,3 N·m do QP;
+- **rumo em malha aberta não é mantido**, por projeto: sem comando de guinada o
+  trote faz passeio aleatório (rumo final de 43°, 29° e 12° em três execuções de
+  5 ciclos). O teto de ~5,3 N·m de momento de guinada do QP não permite corrigir
+  rumo parado — tentar derruba o robô (ensaio 7). Fechar a malha é papel do
+  Nav2, via `angular.z` em `/demo/cmd_vel`; falta ensaiar;
 - o `z` estimado fica 24 mm abaixo do real, constante, por `foot_radius = 0.02`
   contra `feet_h_ = 0` no estimador: todo alvo de pé em balanço mira 2 cm abaixo
   do solo;
