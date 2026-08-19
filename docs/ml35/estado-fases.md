@@ -561,10 +561,33 @@ falhas estavam sobrepostas e uma escondia as outras:
    andando com um comando que ninguém enviava.
 
 Medido: `mode=WALK` já em `Twist linear.x=0.01`, pares diagonais alternando,
-`HOLD` estável por mais de 35 s com `posErrXY ≈ 0,005 m`. **O trote dinâmico
-continua caindo** (~8 s em `0.01`, ~3 s em `0.03`), e o `RECOVER` detecta a
-12° mas não recupera. O bloqueador de F4 é agora único e isolado; os próximos
-experimentos, um por vez, estão listados no fim de `ml35-f4-parcial.md`.
+`HOLD` estável por mais de 35 s com `posErrXY ≈ 0,005 m`.
+
+**18/08/2026 — o robô anda.** 30 s de trote contínuo a `v_cmd = 0,1 m/s`, 3,00 m
+percorridos, nenhuma entrada em `RECOVER`, tilt máximo 2,3°, velocidade média
+medida 0,106 m/s. Duas causas, ambas medidas antes de qualquer ajuste:
+
+1. **O comando estava fora do regime da marcha.** `_SAFE_STICK_LIMIT = 0.03`
+   estava documentado como "envelope estável de F3", mas foi medido enquanto a
+   marcha nunca ativava — descrevia o empurrão sobre um robô de pés plantados,
+   não velocidade de caminhada. A `v_cmd = 0,004 m/s` o passo pedido é de 4 mm
+   sob elevação de pé de 8 cm: o robô marchava no lugar. Elevado para `0.5`.
+2. **O rumo não é controlável pelo QP neste robô.** Instrumentando `bd_` contra
+   `A_ * F_`, o momento de guinada pedido ficava travado em ±5,3 N·m = o batente
+   `d_wbd(2) ±10 rad/s²` vezes `Izz`. Com `kp_w_ = 780` esse batente satura com
+   **0,73°** de erro de guinada, e acima disso o sinal passa a ser escolhido pela
+   ondulação do giroscópio, não pelo erro. Guinada em robô com pernas se controla
+   com onde o pé pousa: `k_yaw_` em `FeetEndCalc` valia 0,005 contra os 0,1125
+   que precisa cancelar no instante do pouso, então o padrão de apoio era
+   assentado girado e as pernas cruzavam para o centro. `k_yaw_ = 0.15` resolve.
+
+Alargar o batente (±25) e desmembrar os ganhos de atitude por eixo foram
+ensaiados e **rejeitados por medição** — evidência em `ml35-f4-parcial.md`.
+
+F4 segue aberta: deriva de guinada de ~3°/s parado em `HOLD`, viés de 24 mm no
+`z` estimado (`foot_radius` contra `feet_h_ = 0`), warehouse, RViz2/TF e
+regressão diff-drive. Os gates de `linear.x = 0.01` e `0.03` herdaram a premissa
+nula do item 1 e precisam ser reescritos em termos de `v_cmd`.
 
 ---
 

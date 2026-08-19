@@ -80,6 +80,16 @@ StateTrotting::StateTrotting(CtrlInterfaces &ctrl_interfaces,
     gait_height_ = 0.08;
     Kpp = Vec3(70, 70, 70).asDiagonal();
     Kdp = Vec3(10, 10, 10).asDiagonal();
+    // Upstream values.  Splitting these per axis was tried, on the measured
+    // grounds that kp_w_ = 780 saturates the yaw clamp at 0.73 degrees of
+    // heading error and hands that axis to bang-bang: with Kp_yaw = 100 and
+    // Kd_yaw = 20 the yaw demand does leave the clamp and the heading recovers
+    // once mid-run (-19 deg back to -4 deg) instead of diverging monotonically.
+    // It is kept out anyway because it did not make the robot walk longer
+    // (5.5 s against 7 s), and the reason is in the same measurement: the QP
+    // tops out near 5.3 N.m of yaw moment, so no attitude gain can regulate
+    // heading here.  Heading is a foot-placement problem -- see k_yaw_ in
+    // FeetEndCalc, which is where the fix belongs.
     kp_w_ = 780;
     Kd_w_ = Vec3(70, 70, 70).asDiagonal();
     Kp_swing_ = Vec3(400, 400, 400).asDiagonal();
@@ -322,6 +332,16 @@ void StateTrotting::calcTau() {
 
     d_wbd(0) = saturation(d_wbd(0), Vec2(-40, 40));
     d_wbd(1) = saturation(d_wbd(1), Vec2(-40, 40));
+    // Upstream's yaw clamp, kept after measuring it.  A friction-cone estimate
+    // suggests two diagonal feet could produce ~14 N.m of yaw moment, which
+    // would allow 26 rad/s^2, but that assumes the whole tangential budget goes
+    // to yaw; it also has to propel and balance the body.  Raising the clamp to
+    // 25 was tried and is worse: the demand pinned at the new limit and the QP
+    // fell behind it (13.2 asked, 5.8 delivered), and because the moment
+    // residual carries weight 450 against 20/20/50 on force, chasing the
+    // impossible moment wrecked the linear force distribution -- the robot
+    // walked backwards and fell in 4 s instead of 7.  10 rad/s^2 is 5.3 N.m on
+    // this robot, which the QP tracks to within 2%.
     d_wbd(2) = saturation(d_wbd(2), Vec2(-10, 10));
 
     const Vec34 pos_feet_body_global = estimator_->getFeetPos2Body();
@@ -392,7 +412,10 @@ void StateTrotting::calcGain() const {
 }
 
 void StateTrotting::logDiagnostics() {
-    const int period_ticks = std::max(1, ctrl_interfaces_.frequency_);
+    // 4 Hz, not 1 Hz: the observed failure goes from a level body to a fallen
+    // one inside a single second, so a 1 Hz line samples the collapse at most
+    // once and cannot show its shape.
+    const int period_ticks = std::max(1, ctrl_interfaces_.frequency_ / 4);
     if (++diag_ticks_ < period_ticks) {
         return;
     }
@@ -401,12 +424,27 @@ void StateTrotting::logDiagnostics() {
     // Everything needed to tell the four failure modes apart in one line:
     // no step requested, residual reference after stop, attitude loss, and
     // tracking error.  Reading `contact` alone cannot distinguish them.
+    //
+    // est* is the estimator's own belief about the body.  It is logged next to
+    // the errors because every foot target is built from it -- calcFootPos()
+    // places the foot at estimator position + radius * cos(estimator yaw + ...)
+    // and then forces global z to 0.  If the estimator drifts, the whole
+    // placement pattern translates and rotates with it while the tracking
+    // errors, which are computed against the same drifting belief, stay small.
+    // Comparing this against /demo/odom is the only way to see that.
     RCLCPP_INFO(rclcpp::get_logger("StateTrotting"),
                 "trot supervisor: mode=%s cmd=(%.4f,%.4f,%.4f) tilt=%.1fdeg "
-                "posErrXY=%.4f velErrXY=%.4f contact=[%d %d %d %d]",
+                "posErrXY=%.4f velErrXY=%.4f contact=[%d %d %d %d] "
+                "estPos=(%.3f,%.3f,%.3f) estVel=(%.3f,%.3f) estYaw=%.1fdeg "
+                "Mz=%.1f/%.1fNm",
                 modeName(mode_), v_cmd_body_(0), v_cmd_body_(1), d_yaw_cmd_,
                 tilt_ * 180.0 / M_PI,
                 pos_error_.head(2).norm(), vel_error_.head(2).norm(),
                 wave_generator_->contact_(0), wave_generator_->contact_(1),
-                wave_generator_->contact_(2), wave_generator_->contact_(3));
+                wave_generator_->contact_(2), wave_generator_->contact_(3),
+                pos_body_(0), pos_body_(1), pos_body_(2),
+                vel_body_(0), vel_body_(1),
+                estimator_->getYaw() * 180.0 / M_PI,
+                balance_ctrl_->getWrenchDemand()(5),
+                balance_ctrl_->getWrenchAchieved()(5));
 }

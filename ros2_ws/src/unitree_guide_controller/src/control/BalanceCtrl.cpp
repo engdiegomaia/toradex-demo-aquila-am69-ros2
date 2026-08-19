@@ -58,6 +58,7 @@ Vec34 BalanceCtrl::calF(const Vec3 &ddPcd, const Vec3 &dWbd, const RotMat &rot_m
 
     solveQP();
 
+    wrench_achieved_ = A_ * F_;
     F_prev_ = F_;
     return vec12ToVec34(F_);
 }

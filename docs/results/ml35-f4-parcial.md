@@ -409,3 +409,186 @@ Candidatos, em ordem, e o que instrumentar antes de mexer em código:
 
 Não sintonizar mais nada antes de (1) e (2). Os três ensaios acima mostram que
 tuning cego já esgotou o que tinha a dar.
+
+## O robô anda — 18/08/2026
+
+Fecha a investigação aberta na seção anterior. As duas hipóteses que ficaram
+como "instrumentar antes de mexer" foram medidas, ambas **refutadas** como
+causa, e a medição levou à causa real.
+
+### Medição 1 — estimador contra ground truth: o estimador está certo
+
+`/demo/odom` (Gazebo) contra o estado interno do estimador, durante um trote,
+amostrados a 4 Hz:
+
+| t (s) | yaw ground truth | yaw estimador |
+|---|---|---|
+| 5,5 | +3,9° | +3,4° |
+| 6,7 | −5,2° | −6,0° |
+| 8,0 | +1,8° | +0,3° |
+| 8,5 | +10,2° | +9,4° |
+| 10,0 | −16,4° | −23,7° |
+| 10,5 | −35,7° | −35,5° |
+
+O estimador rastreia o ground truth. **Não há deriva.** O que existe é uma
+oscilação real de guinada, divergente, dobrando de amplitude a cada meio-ciclo
+(±0,5° → ±4° → ±10° → −36° → queda), com **comando de yaw igual a zero**. Roll
+e pitch ficam em ±1° o tempo todo — a falha é de rumo, não de atitude.
+
+Achado secundário: o `z` estimado fica ~24 mm abaixo do real, **constante**, não
+derivando. A causa é `foot_radius = 0.02` no `go2_description`: o frame do pé é
+o centro da esfera de colisão, mas `Estimator::update()` mede `feet_h_ = 0` para
+o pé em contato. Consequência: o corpo é estimado 2 cm mais baixo, e todo alvo
+de balanço em `calcFootPos` (`foot_pos(2) = 0.0`) fica 2 cm abaixo do solo real.
+Não é regressão do Go2 — o A1 também tem `foot_radius = 0.02` — mas é um erro
+real. Não foi corrigido nesta rodada: não é a causa da queda, e mexer nele junto
+com a correção de rumo criaria confundimento.
+
+### Medição 2 — o QP: o "sinal de controle" de guinada era o batente
+
+Instrumentado `bd_` contra `A_ * F_` em `BalanceCtrl` (momento pedido contra
+realizado). Durante toda a caminhada saudável:
+
+```
+WALK tilt=0.5 yaw=-0.4 Mz_pedido=-5.3 Mz_real=-5.2
+WALK tilt=0.4 yaw=-3.6 Mz_pedido= 5.3 Mz_real= 5.2
+WALK tilt=0.2 yaw= 6.0 Mz_pedido=-5.3 Mz_real=-5.2
+WALK tilt=1.0 yaw= 8.4 Mz_pedido=-5.2 Mz_real=-5.1
+```
+
+`Mz_pedido` travado em ±5,3 N·m alternando de sinal, com o erro de guinada
+crescendo. 5,3 N·m = 10 rad/s² × `Izz = 0,5262` — é exatamente o batente de
+`StateTrotting::calcTau`:
+
+```cpp
+d_wbd(2) = saturation(d_wbd(2), Vec2(-10, 10));
+```
+
+Com `kp_w_ = 780`, o termo proporcional satura esse batente com `10/780` =
+0,0128 rad = **0,73° de erro de guinada**. Acima disso o eixo é bang-bang, e
+quem escolhe o sinal é o termo derivativo reagindo à ondulação do giroscópio na
+frequência da marcha — por isso o sinal alterna enquanto o erro permanece em
++6°, +8°, +9°. O termo proporcional nunca corrige o rumo.
+
+### Ensaio 4 — alargar o batente de yaw para ±25 rad/s²: **pior**
+
+Motivado por uma estimativa de cone de atrito (2 pés × 0,4 × 74 N × 0,235 m ≈
+14 N·m ⇒ 26 rad/s²). Resultado: WALK caiu de 7 s para 4 s e o robô andou **para
+trás** (x final = −0,85 m).
+
+A medição mostra por quê: o pedido gruda no novo batente (±13,1 N·m) e o
+realizado despenca atrás dele — 13,2→7,3, 13,5→5,8, −13,3→−3,6. **O QP não
+entrega 13 N·m.** A estimativa era otimista: supôs que toda a força tangencial
+vai para guinada, quando ela também precisa propelir e equilibrar. Como o
+resíduo de momento pesa 450 contra 20/20/50 nas forças lineares, perseguir o
+momento impossível destrói a distribuição de força linear.
+
+**O batente de ±10 rad/s² do upstream está bem dimensionado.** Revertido.
+
+### Ensaio 5 — ganhos de atitude por eixo (`Kp_yaw=100`, `Kd_yaw=20`): **não incluído**
+
+Com o batente correto, desmembrar `kp_w_` por eixo tira o yaw da saturação e o
+rumo passa a se recuperar no meio do trajeto (−19° → −4°) em vez de divergir
+monotonicamente. Mas **não faz o robô andar mais tempo** (5,5 s contra 7 s), e a
+razão está na mesma medição: o QP topa em ~5,3 N·m de momento de guinada. Nenhum
+ganho de atitude regula rumo aqui. Revertido para o upstream; a análise ficou
+registrada em comentário no código para não ser refeita.
+
+### Ensaio 6 — `k_yaw_` de 0,005 → 0,15 em `FeetEndCalc`: **resolve**
+
+Rumo em robô com pernas se controla com onde o pé pousa, não com torque de
+atitude. Em `calcFootPos`:
+
+```
+next_yaw = d_yaw·(1−phase)·t_swing + d_yaw·t_stance/2 + k_yaw_·(0 − d_yaw)
+next_step += raio · [cos, sin](yaw + ângulo_inicial + next_yaw)
+```
+
+Os dois primeiros termos giram o ponto de pouso de cada pé em torno do corpo
+pela taxa de guinada que o corpo **já tem** — colocação neutra, que preserva o
+giro. No instante do pouso (`phase → 1`) o coeficiente é `t_stance/2 = 0,1125`,
+então a 1 rad/s o padrão de apoio inteiro é assentado 6,4° rodado e o par
+diagonal em balanço varre para dentro: **as pernas cruzam em direção ao centro**
+(sintoma observado visualmente), o corpo guina mais, e a próxima colocação gira
+mais. Realimentação positiva.
+
+`k_yaw_ = 0.005` é o único termo que se opõe a isso, valendo 4% do que precisa
+cancelar. `0.15` cancela os 0,1125 do pouso e deixa margem corretiva.
+
+Resultado, comando `linear.x = 0.25` (→ `v_cmd = 0,1 m/s`) por 30 s:
+
+| | antes | depois |
+|---|---|---|
+| duração em WALK | 7 s | **30 s, todo o teste** |
+| entradas em RECOVER durante a marcha | 1 (queda) | **nenhuma** |
+| tilt máx. em WALK | 88° | **2,3°** |
+| yaw | −36° divergindo | ±23,7° máx, limitado e auto-corretivo |
+| deslocamento | 0,5 m e caiu | **3,00 m** |
+| velocidade média | — | **0,106 m/s** contra 0,1 comandado |
+
+A transição para HOLD pelo watchdog, ao fim do comando, também é limpa: sem
+RECOVER, tilt ≤ 0,7°.
+
+### Premissa que caiu: o envelope de 0,03 do `_SAFE_STICK_LIMIT`
+
+`_SAFE_STICK_LIMIT = 0.03` estava documentado como "envelope provado estável em
+F3". O número é nulo: foi medido enquanto a marcha **nunca ativava**, então
+descreve com que força o controlador de equilíbrio conseguia empurrar um robô de
+quatro pés plantados, não com que velocidade ele anda.
+
+O comprimento de passo é `v · (t_swing·(1−phase) + t_stance/2) ≈ 0,34·v`, e o
+comando só chega à lei de colocação por `k_x · (v_body − v_goal)` com
+`k_x = 0.005`. Em stick 0,03 → 0,012 m/s isso é um passo de 4 mm pedido por um
+deslocamento de 20 µm do alvo do pé, sob uma elevação de pé de 8 cm: toda a
+perturbação de dar o passo e nenhum benefício de momento. Daí "marcha mas não
+sai do lugar". Elevado para `0.5` → 0,2 m/s.
+
+**Consequência para o gate de F4:** os critérios de `linear.x = 0.01` e `0.03`
+foram escritos sob essa premissa e estão 25× abaixo do ponto de projeto da
+marcha. Precisam ser reescritos em termos de `v_cmd` real antes de serem usados
+como aceitação.
+
+### Insights do modelo do robô — A1 contra Go2
+
+A documentação do A1 em `docs.quadruped.de` é operacional (instalar, calibrar,
+lançar Gazebo/Webots) e não traz ganhos, velocidades de marcha nem parâmetros de
+gait; registra que o A1 chega a 3,3 m/s com 33,5 N·m e que o FSM se dirige por
+`4` = trote, `wasd` = translação, `jl` = rotação — isso confirma a semântica de
+gamepad do `Inputs` que a ponte emula. Os números de movimento estão no modelo:
+
+| | A1 | Go2 | |
+|---|---|---|---|
+| massa total | ~12,5 kg | 15,10 kg | +21% |
+| torque quadril/coxa | 33,5 N·m | **23,7 N·m** | **−29%** |
+| torque canela | 33,5 N·m | 35,55 N·m | +6% |
+| coxa / canela | 0,200 m | 0,213 m | +6,5% |
+| offset lateral do quadril | 0,0838 m | 0,0955 m | +14% |
+| curso do quadril | ±46° | ±60° | mais folgado |
+| `foot_radius` | 0,02 m | 0,02 m | igual |
+
+1. O Go2 é 21% mais pesado com quadril e coxa 29% mais fracos — torque/peso no
+   quadril caiu ~41%. Alvo de força herdado da sintonia do A1 pede torque que o
+   Go2 pode não ter.
+2. Pernas mais longas + quadris mais afastados + mais massa dão exatamente o
+   salto de inércia de 2,3× medido, com o mesmo fator nos três eixos
+   (2,29 / 2,35 / 2,32) — confirma a inércia corrigida em `BalanceCtrl`.
+3. O curso do quadril do Go2 é mais largo que o do A1, o que enfraquece a
+   hipótese de limite articular como mecanismo da queda. Coerente com a causa
+   medida ter sido de controle de rumo, não de cinemática.
+
+### Item aberto — deriva de guinada em HOLD
+
+Exposto pela primeira vez porque antes o robô nunca chegava a parar de pé. Já
+em HOLD, comando zero, quatro pés em contato:
+
+```
+HOLD tilt=0.3 posErr=0.0055 c=[1 1 1 1] z=0.328 yaw=19.6
+...
+HOLD tilt=1.2 posErr=0.0112 c=[1 1 1 1] z=0.328 yaw=44.5
+```
+
+A guinada escorrega monotonicamente ~3°/s enquanto tilt, `z` e `posErrXY`
+permanecem pequenos: o corpo gira arrastando os pés. Mesmo teto de 5,3 N·m —
+`captureBodyReference()` fixa a referência de yaw uma vez na borda WALK→HOLD, o
+erro cresce até ~37° e o controlador saturado nunca o vence. Não corrigido:
+fora do escopo de "fazer o robô andar" e não deve ser adivinhado.

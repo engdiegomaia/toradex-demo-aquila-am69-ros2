@@ -41,13 +41,13 @@ def test_all_axes_saturate_symmetrically():
     positive = _twist_to_inputs(_twist(x=9.0, y=9.0, yaw=9.0))
     negative = _twist_to_inputs(_twist(x=-9.0, y=-9.0, yaw=-9.0))
 
-    assert (positive.ly, positive.lx, positive.rx) == (0.03, -0.03, -0.03)
-    assert (negative.ly, negative.lx, negative.rx) == (-0.03, 0.03, 0.03)
+    assert (positive.ly, positive.lx, positive.rx) == (0.5, -0.5, -0.5)
+    assert (negative.ly, negative.lx, negative.rx) == (-0.5, 0.5, 0.5)
 
 
 def test_safe_stick_boundary_is_inclusive():
-    assert _to_safe_stick(0.03) == pytest.approx(0.03)
-    assert _to_safe_stick(-0.03) == pytest.approx(-0.03)
+    assert _to_safe_stick(0.5) == pytest.approx(0.5)
+    assert _to_safe_stick(-0.5) == pytest.approx(-0.5)
 
 
 def test_zero_twist_does_not_start_trotting():
