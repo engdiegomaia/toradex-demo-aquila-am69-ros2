@@ -112,9 +112,36 @@ em ordem de valor esperado:
 |---|---|---|
 | B1 | baixar **só a entrada de guinada** de `balance.weight_moment` (450 → 100 → 50) | nunca tentado, e ataca o mecanismo medido: o QP troca distribuição de força para perseguir um `Mz` que a Fase 2 provou inalcançável acima de 5,3 N·m |
 | B2 | `trot.kp_w` casado com a autoridade (40–60), mantendo o termo proporcional | com 780 e clamp 10 a banda proporcional é 0,73° — relé. 40–60 dá 10–14° |
+| B1c | `trot.kd_w` por eixo: `[70, 70, X]` com X de 70 → 20 → 10 | o termo derivativo lê ~50× a rotação real do corpo (medido: média igual ao pico, assinatura de vibração de tronco). Escalar o termo é knob diferente de filtrá-lo, e mais barato |
 | B3 | passa-baixa na taxa de guinada **sem** zerar o proporcional | a única combinação ainda não ensaiada |
 
-B1 e B2 são agora edições de YAML; B3 é código.
+**B1a/b e B1c são edições de YAML; B2 e B3 são código.** Isso saiu de uma
+assimetria que a Fase A expôs: `Kd_w_` já é `Mat3` construída de um `Vec3`, então
+ganho derivativo por eixo é de graça — mas `kp_w_` é um `double` que multiplica os
+três eixos, então ganho proporcional por eixo exige mudar o tipo. Ordem de
+execução segue o custo: B1a, B1b, B1c, e só então B2/B3.
+
+#### O gatilho, e por que ele precisou ser fixado antes de medir qualquer correção
+
+Primeira tentativa de linha de base **não reproduziu o defeito**: 3 ciclos a
+`v_cmd = 0,10` e depois 90 s de HOLD ficaram de pé, com tilt de pico de 0,23° e
+deriva de rumo de +0,8°. Isso é coerente com o mecanismo já registrado — o tempo
+até a queda escala com o resíduo deixado quando a marcha para (resíduo 0,010 não
+cai em 90 s; 0,020 cai aos 46,1 s; 0,034 cai aos 17,8 s) — e é fatal para a
+comparação: com n = 1 por condição e um defeito estocástico, qualquer "melhora"
+de B1 seria indistinguível de sorte.
+
+Gatilho que fira sempre, retirado do pior caso já documentado (caminhada com
+giro), e medido:
+
+```bash
+./scripts/gait_trial.sh <csv> --v-cmd 0.10 --w-cmd 0.10   --cycles 1 --walk 15 --hold 0 --final-hold 90
+```
+
+Linha de base com ele: **caiu aos 39,4 s**, dentro da faixa registrada de 18 a
+46 s, com `yawSat = 100%` nas últimas linhas de HOLD. É este o gatilho de todas
+as condições de B, e **cada condição precisa de repetição** — um único número
+não separa efeito de dispersão.
 
 **Portão:** HOLD de 90 s após caminhada com giro, zero `RECOVER`, `yawSat < 50%`,
 **e** os critérios F4 já verdes preservados (sem rotação livre parado, ≤ 5° em
