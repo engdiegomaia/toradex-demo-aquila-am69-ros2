@@ -705,3 +705,88 @@ referência de sintonia de marcha ali. Pose de apoio oficial `{0.0, 0.67, −1.3
 por perna, contra `(0.0, 0.8, −1.5)` no nosso `gazebo.yaml` — o oficial é menos
 agachado. Os ganhos citados acima são o único dado de sintonia aproveitável, e
 com a ressalva do Ensaio 8.
+
+## Fases 1-3 do plano de próximos passos — 18/08/2026
+
+Executadas conforme `docs/ml35/plano-proximos-passos.md`.
+
+### Fase 1 — envelope de velocidade, reescrito em `v_cmd`
+
+15 s por ponto, simulação limpa, guarda de `z > 0,30` antes de cada medição.
+
+| `v_cmd` | percorrido | medido | rastreamento | `z` final |
+|---|---|---|---|---|
+| 0,05 m/s | 0,729 m | 0,049 m/s | 97% | 0,353 |
+| 0,10 m/s | 1,579 m | 0,105 m/s | 105% | 0,354 |
+| 0,20 m/s | 3,339 m | 0,223 m/s | 111% | 0,351 |
+
+**Zero `RECOVER`** em 45 s de caminhada contínua, de pé nos três pontos. O
+rastreamento acima de 100% é curvatura: a distância percorrida inclui o desvio
+de rumo (−22,4° no ponto de 0,10 m/s), então o caminho não é reto e a distância
+é maior que o deslocamento na direção comandada.
+
+Isto substitui os critérios inválidos de `linear.x = 0.01` e `0.03`.
+
+### Fase 2 — guinada comandada
+
+10 s por ponto, robô parado, simulação limpa.
+
+| `d_yaw_cmd` | girou | medido | rastreamento | tilt máx |
+|---|---|---|---|---|
+| 0,05 rad/s | +28,3° | 0,049 rad/s | **99%** | 0,5° |
+| 0,15 rad/s | +53,9° | 0,094 rad/s | **63%** | 0,6° |
+| 0,25 rad/s | +71,3° | 0,125 rad/s | **50%** | 1,3° |
+
+Zero `RECOVER`, nenhuma rotação explosiva: **o critério de F4 passa**.
+
+Mas a guinada **satura em ~0,13 rad/s**. `Mz` fica travado em ±5,3 N·m durante
+os três pontos — o mesmo teto de momento medido antes, agora expresso em taxa.
+Acima de ~0,13 rad/s o comando não tem efeito.
+
+**Consequência direta para F5:** `nav2_params.yaml` precisa de
+`max_vel_theta ≈ 0,12 rad/s`, não os 0,25 que a ponte aceita. Comandar acima
+disso faz o DWB pedir o que o robô não entrega e concluir que está preso. O
+envelope real do robô é **0,20 m/s linear, 0,13 rad/s angular**.
+
+### Fase 3 — TF: o bloqueador de F5 está confirmado
+
+```
+$ ros2 topic list | grep -E "^/tf|joint_states"
+/dynamic_joint_states
+/joint_states
+/tf
+/tf_static
+
+$ ros2 topic echo /tf --once | grep -E "frame_id"
+    frame_id: FL_thigh   child_frame_id: FL_calf
+    frame_id: trunk      child_frame_id: FL_hip
+    ... (12 juntas, 8 transformadas estáticas)
+```
+
+`/joint_states` tem as 12 juntas e `/tf_static` tem 8 transformadas, mas a
+árvore inteira está ancorada em `trunk`: **não existe `odom → base_link`, nem
+sequer um frame `odom`.** A árvore é flutuante.
+
+O Nav2 não localiza sem essa transformada. Este é o risco que o plano marcou
+como probabilidade alta, agora confirmado como fato: publicar a odometria do
+quadrúpede é trabalho obrigatório de F5, e define o tamanho dela.
+
+Relacionado: `/demo/odom` hoje é ground truth do Gazebo. Em hardware real ela
+tem que sair do estimador. A decisão de onde a odometria é produzida precisa ser
+tomada **antes** de declarar F5, não depois.
+
+### Observação não reproduzida — HOLD depois de caminhada com giro
+
+Numa execução, depois de um comando combinado (`linear.x=0.25` com
+`angular.z=0.3`) que terminou **de pé** em `z = 0,358`, o robô foi encontrado
+caído (`z = 0,153`, `RECOVER` acumulado) após um período parado sem comando e
+sem instrumentação ativa.
+
+Os 5 ciclos de andar/parar validados eram de caminhada **reta**. Não há
+evidência controlada de que HOLD após giro seja menos estável — a queda não foi
+observada nem cronometrada. Fica registrado como hipótese a ensaiar, não como
+resultado.
+
+Lição de método incorporada ao script de ensaio: verificar `z > 0,30` **antes de
+cada medição**. Uma varredura inteira foi perdida medindo um robô já tombado
+sendo arrastado, com números que pareciam plausíveis.

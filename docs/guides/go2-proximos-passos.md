@@ -406,17 +406,27 @@ Marcar F4 somente quando todos forem verdadeiros. Estado em 18/08/2026:
 | há swing físico das pernas em pares diagonais | ✅ `[1 0 0 1]` ↔ `[0 1 1 0]` |
 | comando zerado leva a `HOLD` sem movimento residual | ✅ >35 s |
 | estável em trote parado por pelo menos 20 s | ✅ |
-| anda a `v_cmd = 0,1 m/s` por 30 s sem cair | ✅ 3,00 m, tilt máx 2,3° |
-| ~~anda em `linear.x=0.01` sem cair~~ | ⚠️ critério inválido, ver abaixo |
-| ~~anda em `linear.x=0.03` sem tombar~~ | ⚠️ critério inválido, ver abaixo |
+| anda a `v_cmd = 0,05 m/s` sem cair | ✅ 97% de rastreamento |
+| anda a `v_cmd = 0,10 m/s` sem cair | ✅ 105% |
+| anda a `v_cmd = 0,20 m/s` sem cair | ✅ 111%, teto da ponte |
 | guinada limitada com comando de yaw zero | ✅ ±23,7°, auto-corretiva |
-| não deriva em guinada parado em `HOLD` | ❌ ~3°/s arrastando os pés |
-| yaw comandado não produz rotação explosiva | ⬜ não ensaiado |
+| não deriva em guinada parado em `HOLD` | ✅ corrigido pelo latch de toque |
+| yaw comandado não produz rotação explosiva | ✅ zero `RECOVER`, tilt ≤ 1,3° |
+| **guinada comandada rastreável** | ⚠️ satura em ~0,13 rad/s, ver abaixo |
 | warehouse carrega com câmera e lidar ativos | ⬜ |
-| RViz2 mostra as 12 juntas e TF consistente | ⬜ |
+| RViz2 mostra as 12 juntas e TF consistente | ❌ falta `odom → base_link` |
 | diff-drive mantém goal Nav2 `SUCCEEDED` | ⬜ |
 
-Os dois critérios riscados foram escritos quando `_SAFE_STICK_LIMIT = 0.03` era
+**Envelope real do robô, medido em 18/08: 0,20 m/s linear e 0,13 rad/s
+angular.** A guinada satura em ~0,13 rad/s porque o momento do QP topa em
+5,3 N·m — acima disso o comando não tem efeito. `nav2_params.yaml` precisa de
+`max_vel_theta ≈ 0,12`, não os 0,25 que a ponte aceita.
+
+**A árvore TF não tem `odom → base_link`** e nem o frame `odom`: está toda
+ancorada em `trunk`. O Nav2 não localiza assim. Publicar a odometria do
+quadrúpede é trabalho obrigatório de F5.
+
+Os dois critérios anteriores de `linear.x` foram escritos quando `_SAFE_STICK_LIMIT = 0.03` era
 tido como "envelope estável de F3". Esse envelope foi medido com a marcha nunca
 ativando, então descrevia o empurrão máximo sobre um robô de pés plantados, não
 a velocidade de caminhada. `linear.x = 0.01` dá `v_cmd = 0,004 m/s`, 25× abaixo
