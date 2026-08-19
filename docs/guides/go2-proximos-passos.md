@@ -27,12 +27,28 @@ completa em `docs/results/ml35-f4-parcial.md`):
 - `HOLD` mantém o corpo sem movimento residual (`posErrXY ≈ 0,005 m` por >35 s);
 - o supervisor de atitude entra em `RECOVER` a 12° de inclinação.
 
+Validado em 18/08/2026, depois da correção de rumo por colocação de pé
+(`k_yaw_` de 0,005 → 0,15 em `FeetEndCalc`):
+
+- **o robô anda**: 30 s de trote contínuo a `v_cmd = 0,1 m/s`, 3,00 m
+  percorridos, nenhuma entrada em `RECOVER`, tilt máximo 2,3°;
+- velocidade média medida de 0,106 m/s contra 0,1 m/s comandado;
+- a guinada passou de divergente (−36° e queda) para oscilação limitada e
+  auto-corretiva (±23,7°), com comando de yaw zero;
+- a parada pelo watchdog leva a `HOLD` de pé, sem `RECOVER`, tilt ≤ 0,7°;
+- a suíte do `demo_simulation` passou com 20 testes.
+
 Ainda em aberto:
 
-- **o trote dinâmico continua caindo**: ~8 s em `0.01`, ~3 s em `0.03`;
-- `RECOVER` detecta mas não recupera: a queda já está balística aos 12°;
-- o próximo experimento isolado é o ganho de stance, depois `BalanceCtrl::Ib_`,
-  que ainda tem a inércia do A1 fixa no código;
+- **deriva de guinada em HOLD**: parado, quatro pés no chão, o corpo gira ~3°/s
+  arrastando os pés (19,6° → 44,5° em 9 s) enquanto tilt e `posErrXY` ficam
+  pequenos. Mesmo teto de momento de 5,3 N·m do QP;
+- o `z` estimado fica 24 mm abaixo do real, constante, por `foot_radius = 0.02`
+  contra `feet_h_ = 0` no estimador: todo alvo de pé em balanço mira 2 cm abaixo
+  do solo;
+- os gates de `linear.x = 0.01` e `0.03` foram escritos sob a premissa nula do
+  `_SAFE_STICK_LIMIT = 0.03` e estão 25× abaixo do ponto de projeto da marcha —
+  precisam ser reescritos em termos de `v_cmd` antes de servirem como aceitação;
 - o warehouse com Go2, RViz2 e TF completo ainda precisam de validação;
 - F4 não deve ser marcada como concluída antes desses gates.
 
@@ -378,12 +394,22 @@ Marcar F4 somente quando todos forem verdadeiros. Estado em 18/08/2026:
 | há swing físico das pernas em pares diagonais | ✅ `[1 0 0 1]` ↔ `[0 1 1 0]` |
 | comando zerado leva a `HOLD` sem movimento residual | ✅ >35 s |
 | estável em trote parado por pelo menos 20 s | ✅ |
-| anda em `linear.x=0.01` sem cair | ❌ cai em ~8 s |
-| anda em `linear.x=0.03` sem tombar | ❌ cai em ~3 s |
-| yaw controlado não produz rotação explosiva | ⬜ não ensaiado |
+| anda a `v_cmd = 0,1 m/s` por 30 s sem cair | ✅ 3,00 m, tilt máx 2,3° |
+| ~~anda em `linear.x=0.01` sem cair~~ | ⚠️ critério inválido, ver abaixo |
+| ~~anda em `linear.x=0.03` sem tombar~~ | ⚠️ critério inválido, ver abaixo |
+| guinada limitada com comando de yaw zero | ✅ ±23,7°, auto-corretiva |
+| não deriva em guinada parado em `HOLD` | ❌ ~3°/s arrastando os pés |
+| yaw comandado não produz rotação explosiva | ⬜ não ensaiado |
 | warehouse carrega com câmera e lidar ativos | ⬜ |
 | RViz2 mostra as 12 juntas e TF consistente | ⬜ |
 | diff-drive mantém goal Nav2 `SUCCEEDED` | ⬜ |
+
+Os dois critérios riscados foram escritos quando `_SAFE_STICK_LIMIT = 0.03` era
+tido como "envelope estável de F3". Esse envelope foi medido com a marcha nunca
+ativando, então descrevia o empurrão máximo sobre um robô de pés plantados, não
+a velocidade de caminhada. `linear.x = 0.01` dá `v_cmd = 0,004 m/s`, 25× abaixo
+do ponto de projeto do trote: passo de 4 mm sob elevação de pé de 8 cm. Reescrever
+em termos de `v_cmd` antes de usar como aceitação.
 
 A ordem importa: não ensaiar yaw nem warehouse enquanto o avanço reto cair, ou
 os dois ensaios medem a mesma queda com nomes diferentes.

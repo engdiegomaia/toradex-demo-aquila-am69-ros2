@@ -72,9 +72,24 @@ _TRANSITION_HOLD_S = 5.0
 _TICK_PERIOD_S = 1.0
 _TICKS_PER_TRANSITION = int(_TRANSITION_HOLD_S / _TICK_PERIOD_S)
 
-# Maximum normalized stick magnitude proven stable by F3.  This is not the
-# controller's mathematical maximum; see the module docstring before changing.
-_SAFE_STICK_LIMIT = 0.03
+# Maximum normalized stick magnitude.
+#
+# This was 0.03, "the envelope proven stable in F3".  That number is void: it
+# was measured while the gait never activated, so it describes how hard the
+# balance controller could shove a robot with four feet planted, not how fast
+# it can walk.
+#
+# The gait has a design point and 0.03 is nowhere near it.  Step length is
+# roughly v * (t_swing * (1 - phase) + t_stance / 2) ~= 0.34 * v, and the
+# command reaches the placement law only through k_x * (v_body - v_goal) with
+# k_x = 0.005.  At stick 0.03 -> 0.012 m/s that is a 4 mm step requested by a
+# 20 um shift of the foot target, under an 8 cm foot lift: all of the
+# disturbance of stepping and none of the momentum.  Hence a robot that marches
+# in place and lets any yaw drift feed on itself.
+#
+# 0.5 -> 0.2 m/s, a step of about 7 cm, which is what a trot of this period is
+# shaped for.  Nav2 still fails safe: anything faster is clamped here.
+_SAFE_STICK_LIMIT = 0.5
 
 # Command freshness. The tick has to be several times faster than the timeout,
 # otherwise the age measured at each tick is dominated by the tick itself; the

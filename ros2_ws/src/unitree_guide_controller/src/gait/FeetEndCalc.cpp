@@ -13,7 +13,25 @@ FeetEndCalc::FeetEndCalc(CtrlComponent &ctrl_component)
       estimator_(ctrl_component.estimator_) {
     k_x_ = 0.005;
     k_y_ = 0.005;
-    k_yaw_ = 0.005;
+
+    // Heading correction gain, upstream 0.005.  calcFootPos places each foot at
+    //   angle = yaw + feet_init_angle_(i) + next_yaw
+    //   next_yaw = d_yaw*(1-phase)*t_swing + d_yaw*t_stance/2 + k_yaw_*(0 - d_yaw)
+    // The first two terms rotate the landing point around the body by the yaw
+    // rate the body already has -- the neutral, rate-preserving placement.  At
+    // touchdown (phase -> 1) that coefficient is t_stance/2 = 0.1125 s, so at
+    // 1 rad/s the whole support pattern is laid down 6.4 degrees rotated, and
+    // the swinging diagonal pair sweeps inward: the legs visibly cross toward
+    // the body centre, which yaws the body further, which rotates the next
+    // placement more.  k_yaw_ = 0.005 is the only term opposing that, at 4% of
+    // what it has to cancel.
+    //
+    // 0.15 cancels the 0.1125 carried at touchdown and leaves a corrective
+    // margin, so the feet land in a pattern that resists the spin instead of
+    // following it.  This is the only actuator that can hold heading on this
+    // robot: the balance QP tops out near 5.3 N.m of yaw moment, which is not
+    // enough to regulate it (measured -- see StateTrotting's gain comment).
+    k_yaw_ = 0.15;
 }
 
 void FeetEndCalc::init() {
