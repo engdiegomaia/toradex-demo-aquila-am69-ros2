@@ -70,6 +70,20 @@ def generate_launch_description() -> LaunchDescription:
                     'plant so anything keyed on the model name still matches.',
     )
 
+    # Gait tuning, as a controller param file rather than compiled-in literals.
+    # Overridable so a sweep is `gait_params:=/tmp/try.yaml`, not a rebuild of
+    # the sim image — which is what every gait experiment before ML3.5 phase A
+    # cost. See the file's own header for why the spawner is the injection point
+    # instead of go2_description/config/gazebo.yaml.
+    gait_params_arg = DeclareLaunchArgument(
+        'gait_params',
+        default_value=PathJoinSubstitution([
+            FindPackageShare('demo_simulation'), 'config', 'gait_go2.yaml',
+        ]),
+        description='Controller param file with the trot tuning, loaded into '
+                    'unitree_guide_controller before it is configured.',
+    )
+
     x_arg = DeclareLaunchArgument('x', default_value='0.0')
     y_arg = DeclareLaunchArgument('y', default_value='0.0')
     yaw_arg = DeclareLaunchArgument('yaw', default_value='0.0')
@@ -217,11 +231,17 @@ def generate_launch_description() -> LaunchDescription:
     # The gait controller. Classic PD (unitree_guide), no RL policy and no .pt
     # weights — which is why the RL configs were dropped when go2_description
     # was vendored (see its README).
+    #
+    # --param-file, not `parameters=[...]`: the controller's parameters live on
+    # the controller_manager node inside the gz process, not on this spawner
+    # node. The spawner applies the file before load_controller, which is when
+    # the controller's on_init() reads it.
     unitree_guide_controller = Node(
         package='controller_manager',
         executable='spawner',
         arguments=['unitree_guide_controller',
-                   '--controller-manager', '/controller_manager'],
+                   '--controller-manager', '/controller_manager',
+                   '--param-file', LaunchConfiguration('gait_params')],
         output='screen',
     )
 
@@ -256,6 +276,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         world_arg,
         robot_name_arg,
+        gait_params_arg,
         x_arg,
         y_arg,
         yaw_arg,

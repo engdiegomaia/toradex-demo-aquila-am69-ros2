@@ -5,6 +5,55 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-19 — ML3.5 F4: sintonia da marcha vira parâmetro, ensaio vira script
+
+Fase A do `docs/ml35/plano-movimentacao.md`. **Portão batido** — evidência em
+`docs/results/ml35-f4-parcial.md` §"Fase A do plano de movimentação".
+
+Toda a sintonia do trote saiu de literais em construtor e virou parâmetro do
+controlador: período e razão de apoio da onda, altura de passo, os três ganhos de
+Raibert, os ganhos de pose e de balanço, o envelope de comando, a banda de
+referência, os quatro clamps entregues ao QP, a diagonal de pesos do QP e o cone
+de atrito. Defaults iguais aos valores compilados, então o comportamento não
+mudou.
+
+O ponto de injeção **não** é `go2_description/config/gazebo.yaml`: aquele pacote
+é vendorizado e o README dele garante os configs byte a byte, garantia que
+sustenta o argumento de licença. O `<parameters>` do plugin de hardware também é
+xacro vendorizado. O ponto que é nosso é o spawner, com `--param-file`, que
+aplica os parâmetros **antes** de `load_controller` — que é quando `on_init()` os
+lê. Aplicar depois seria aceito e nunca lido.
+
+Provado com valores distinguíveis, não com valores iguais aos defaults:
+`height=0.090 k=(0.0770 …) S_moment=(450 450 111)`. A última é uma entrada só do
+vetor de momento, que é exatamente o que a Fase B1 precisa.
+
+Junto: `scripts/gait_trial.py` + `scripts/gait_trial.sh`, versionados, que
+abortam se `z <= 0,30` antes do ensaio e antes de cada ciclo, paginam as fases
+por **tempo de simulação** com as duas bases de tempo no CSV, e param de publicar
+em vez de publicar zeros — o watchdog é o mecanismo de parada.
+
+**Duas conclusões da primeira versão do plano foram corrigidas antes de virarem
+trabalho**, as duas desmentidas por medição que já estava no repositório:
+
+- "a marcha não tem autoridade sobre velocidade" — falso: a Fase 1 de 18/08 mediu
+  rastreamento de 97/105/111% em 0,05/0,10/0,20 m/s. O laço fecha pelo QP
+  saturando contra `reference_band`, não pela colocação de pé; `k_x`/`k_y` em
+  0,005 continua sendo lacuna real contra a literatura, mas é hipótese de
+  qualidade, não correção de falha medida. Rebaixada de Fase B para Fase C.
+- "a árvore TF fecha em simulação" — falso, e o oposto é o fato:
+  `/go2/ground_truth_tf` não é bridgeado de propósito, não existe frame `odom`, a
+  árvore flutua ancorada em `trunk`. É bloqueador confirmado de F5, e o item
+  maior que resta — não o menor, como o plano dizia.
+
+**Armadilha de medição encontrada:** `grep -c mode=RECOVER` sobre o log inteiro
+não é a contagem do ensaio. Uma corrida devolveu 23 com tilt de pico de 2,58° na
+janela; os 23 eram de 31 s depois do último ciclo, quando o robô tombou em HOLD
+prolongado — o Defeito 2, dentro da faixa registrada de 18 a 46 s. Guia corrigido
+com o recorte por janela, e o harness passa a reproduzir o Defeito 2 de graça.
+
+---
+
 ## 2026-08-17 — ML3.5 F3: quadrúpede Go2 na árvore do projeto, em pé e andando
 
 **Portão batido**, medido por `gz topic -e -t .../dynamic_pose/info`, nunca por

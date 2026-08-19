@@ -120,6 +120,14 @@ namespace unitree_guide_controller {
 
         std::shared_ptr<FSMState> getNextState(FSMStateName stateName) const;
 
+        /**
+         * Declare the gait tuning as ROS parameters and validate it, filling
+         * ctrl_component_.gait_params_.  Called from on_init(), so the values
+         * exist before WaveGenerator and BalanceCtrl (on_configure) and before
+         * StateTrotting and FeetEndCalc (on_activate) read them.
+         */
+        void declareGaitParams();
+
         std::unordered_map<
             std::string, std::vector<std::reference_wrapper<hardware_interface::LoanedStateInterface> > *>
         state_interface_map_ = {

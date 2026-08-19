@@ -307,7 +307,90 @@ Cada linha abaixo foi observada e diagnosticada nesta aplicação.
 
 ---
 
-## 11. Encerrar
+## 11. Sintonia da marcha e ensaio instrumentado
+
+A sintonia do trote não está mais compilada em literais. Ela vive em
+`ros2_ws/src/demo_simulation/config/gait_go2.yaml` e é injetada pelo spawner:
+
+```bash
+# usar outro arquivo, sem rebuild
+ros2 launch demo_simulation quadruped.launch.py \
+  gait_params:=/test/src/demo_simulation/config/minha_varredura.yaml
+```
+
+O arquivo **não** vai em `go2_description/config/gazebo.yaml`: aquele pacote é
+vendorizado e o README dele garante que os configs estão intactos byte a byte —
+essa garantia é o que sustenta o argumento de licença. O `<parameters>` do
+plugin de hardware também está num xacro vendorizado, então o ponto de injeção
+que é nosso é o spawner.
+
+### Provar quais valores estão valendo
+
+Duas linhas, e as duas importam. A primeira prova que o arquivo foi aplicado:
+
+```bash
+docker logs aquila-go2 2>&1 | grep "node arguments"
+# ... --params-file .../go2_description/config/gazebo.yaml
+#     --params-file .../demo_simulation/config/gait_go2.yaml
+```
+
+O nosso arquivo tem de aparecer **por último** — é isso que o faz sobrepor. A
+segunda mostra o que o controlador realmente carregou:
+
+```bash
+docker logs aquila-go2 2>&1 | grep "gait params:"
+# gait params: period=0.450 st_ratio=0.500 height=0.080 k=(0.0050 0.0050 0.1500)
+#              kp_w=780.0 yaw_clamp=10.0 band=0.0100 S_moment=(450 450 450) mu=0.40
+```
+
+Sem a primeira linha, valores iguais aos defaults compilados são
+indistinguíveis de "o arquivo não foi lido". Leia as duas antes de acreditar
+numa varredura.
+
+### Ensaio instrumentado
+
+`scripts/gait_trial.sh` dirige o ensaio e grava a evidência, substituindo o
+`for` de `ros2 topic pub` do §7.2:
+
+```bash
+./scripts/gait_trial.sh /tmp/run.csv --v-cmd 0.10 --cycles 5 --walk 8 --hold 8
+```
+
+O que ele faz que a versão manual não fazia:
+
+| | Por quê |
+|---|---|
+| aborta se `z <= --min-z` (0,30 m), antes do ensaio e antes de cada ciclo | uma varredura inteira já foi perdida medindo um robô tombado sendo arrastado, com números plausíveis |
+| paginação de fases pelo **tempo de simulação**, e as duas bases de tempo na mesma linha do CSV | 8 s de parede só são 8 s de simulação em RTF 1 |
+| para de publicar em vez de publicar zeros | o watchdog da ponte é o mecanismo de parada; publicar zero testa um caminho que o robô nunca percorre |
+| `--v-cmd`/`--w-cmd` em SI, com a conversão de stick aplicada e o excesso recusado | `v_cmd = 0,4 × linear.x`; pedir além do envelope seria clampado em silêncio |
+
+Resumo no stderr (comprimento de trajetória, deslocamento líquido, deriva de
+rumo, tilt de pico por fase, RTF); CSV no arquivo.
+
+### Contar `RECOVER` do ensaio, e não da sessão
+
+`grep -c mode=RECOVER` sobre o log inteiro conta tudo, inclusive o que aconteceu
+antes e depois do ensaio — e o que acontece **depois** é o Defeito 2: deixado em
+HOLD sem comando, o robô tomba entre 18 s e 46 s. Uma corrida da Fase A devolveu
+23 `RECOVER` com tilt de pico de 2,58° na janela do ensaio; os 23 eram de 31 s
+depois do último ciclo.
+
+Recorte pela janela de parede que o próprio CSV registra:
+
+```bash
+ini=$(awk -F, 'NR==2{print int($4)}' /tmp/run.csv)
+fim=$(awk -F, 'END{print int($4)+1}' /tmp/run.csv)
+docker logs aquila-go2 2>&1 | grep mode=RECOVER \
+  | awk -v a="$ini" -v b="$fim" -F'[][]' '{t=int($6)} t>=a && t<=b' | wc -l
+```
+
+Para exercitar o Defeito 2 de propósito, é o contrário: rode o ensaio e **deixe
+o HOLD correr** por 90 s depois do último ciclo, sem publicar nada.
+
+---
+
+## 12. Encerrar
 
 ```bash
 docker stop aquila-go2

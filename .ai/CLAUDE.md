@@ -126,6 +126,13 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   commitado) e **F3 (`db4e6f3`, `ae3d9a1`, 17/08/2026) concluídas. F4 está em
   andamento** — checkpoint e próximos passos em
   `docs/results/ml35-f4-parcial.md`; o portão ainda não foi batido.
+  Plano de movimentação vigente: `docs/ml35/plano-movimentacao.md` (19/08/2026),
+  que substitui `plano-proximos-passos.md`. Fase A concluída: a sintonia do trote
+  é parâmetro do controlador (`demo_simulation/config/gait_go2.yaml`, injetado
+  pelo spawner) e o ensaio é `scripts/gait_trial.sh`. Próxima: Fase B, o
+  Defeito 2 (eixo de guinada em HOLD longo), único defeito aberto.
+  **A árvore TF não fecha** — não existe frame `odom`, medido em 18/08 — e esse
+  é o bloqueador confirmado de F5.
   Base de locomoção: `legubiao/quadruped_ros2_control` — confirmado na árvore em
   F2, não pelo README. Robô-alvo é **Go2**, não A1: `a1_description` declara
   licença `TODO`. Atenção, a justificativa de F2 ("Go2 declara BSD") era

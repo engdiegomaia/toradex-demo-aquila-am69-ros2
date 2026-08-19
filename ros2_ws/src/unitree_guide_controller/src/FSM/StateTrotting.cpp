@@ -76,10 +76,11 @@ StateTrotting::StateTrotting(CtrlInterfaces &ctrl_interfaces,
                                                               robot_model_(ctrl_component.robot_model_),
                                                               balance_ctrl_(ctrl_component.balance_ctrl_),
                                                               wave_generator_(ctrl_component.wave_generator_),
-                                                              gait_generator_(ctrl_component) {
-    gait_height_ = 0.08;
-    Kpp = Vec3(70, 70, 70).asDiagonal();
-    Kdp = Vec3(10, 10, 10).asDiagonal();
+                                                              gait_generator_(ctrl_component),
+                                                              params_(ctrl_component.gait_params_) {
+    gait_height_ = params_.gait_height;
+    Kpp = params_.kp_p.asDiagonal();
+    Kdp = params_.kd_p.asDiagonal();
     // Upstream values.  Splitting these per axis was tried, on the measured
     // grounds that kp_w_ = 780 saturates the yaw clamp at 0.73 degrees of
     // heading error and hands that axis to bang-bang: with Kp_yaw = 100 and
@@ -90,14 +91,14 @@ StateTrotting::StateTrotting(CtrlInterfaces &ctrl_interfaces,
     // tops out near 5.3 N.m of yaw moment, so no attitude gain can regulate
     // heading here.  Heading is a foot-placement problem -- see k_yaw_ in
     // FeetEndCalc, which is where the fix belongs.
-    kp_w_ = 780;
-    Kd_w_ = Vec3(70, 70, 70).asDiagonal();
-    Kp_swing_ = Vec3(400, 400, 400).asDiagonal();
-    Kd_swing_ = Vec3(10, 10, 10).asDiagonal();
+    kp_w_ = params_.kp_w;
+    Kd_w_ = params_.kd_w.asDiagonal();
+    Kp_swing_ = params_.kp_swing.asDiagonal();
+    Kd_swing_ = params_.kd_swing.asDiagonal();
 
-    v_x_limit_ << -0.4, 0.4;
-    v_y_limit_ << -0.3, 0.3;
-    w_yaw_limit_ << -0.5, 0.5;
+    v_x_limit_ = params_.v_x_limit;
+    v_y_limit_ = params_.v_y_limit;
+    w_yaw_limit_ = params_.w_yaw_limit;
     dt_ = 1.0 / ctrl_interfaces_.frequency_;
 }
 
@@ -345,12 +346,16 @@ void StateTrotting::calcCmd() {
     // reference keeps integrating, pegs at the clamp, and the QP then pushes
     // flat out until the robot pitches over.  The clamp is the throttle on
     // that runaway, so it is sized to the command, not to the A1's tuning.
-    constexpr double REFERENCE_BAND = 0.01;
+    //
+    // It is a parameter because it is coupled to the foot-placement feedback
+    // gains: a trot that actually propels the body no longer needs a throttle
+    // this tight, and the two have to be swept together.
+    const double band = params_.reference_band;
 
     pcd_(0) = saturation(pcd_(0) + vel_target_(0) * dt_,
-                         Vec2(pos_body_(0) - REFERENCE_BAND, pos_body_(0) + REFERENCE_BAND));
+                         Vec2(pos_body_(0) - band, pos_body_(0) + band));
     pcd_(1) = saturation(pcd_(1) + vel_target_(1) * dt_,
-                         Vec2(pos_body_(1) - REFERENCE_BAND, pos_body_(1) + REFERENCE_BAND));
+                         Vec2(pos_body_(1) - band, pos_body_(1) + band));
 
     vel_target_(2) = 0;
 
@@ -379,16 +384,24 @@ void StateTrotting::calcTau() {
     d_wz_peak_ = std::max(d_wz_peak_, std::fabs(d_wbd(2)));
     d_wz_sum_ += std::fabs(d_wbd(2));
     ++yaw_win_ticks_;
-    if (std::fabs(d_wbd(2)) >= 10.0) {
+    // Threshold shared with the clamp below on purpose: "at the rail" has to
+    // keep meaning the rail that is actually in force, or the duty-cycle number
+    // silently stops matching the axis it describes.
+    if (std::fabs(d_wbd(2)) >= params_.ang_acc_limit_yaw) {
         ++yaw_sat_ticks_;
     }
 
-    dd_pcd(0) = saturation(dd_pcd(0), Vec2(-3, 3));
-    dd_pcd(1) = saturation(dd_pcd(1), Vec2(-3, 3));
-    dd_pcd(2) = saturation(dd_pcd(2), Vec2(-5, 5));
+    const double acc_xy = params_.acc_limit_xy;
+    const double acc_z = params_.acc_limit_z;
+    const double ang_rp = params_.ang_acc_limit_roll_pitch;
+    const double ang_yaw = params_.ang_acc_limit_yaw;
 
-    d_wbd(0) = saturation(d_wbd(0), Vec2(-40, 40));
-    d_wbd(1) = saturation(d_wbd(1), Vec2(-40, 40));
+    dd_pcd(0) = saturation(dd_pcd(0), Vec2(-acc_xy, acc_xy));
+    dd_pcd(1) = saturation(dd_pcd(1), Vec2(-acc_xy, acc_xy));
+    dd_pcd(2) = saturation(dd_pcd(2), Vec2(-acc_z, acc_z));
+
+    d_wbd(0) = saturation(d_wbd(0), Vec2(-ang_rp, ang_rp));
+    d_wbd(1) = saturation(d_wbd(1), Vec2(-ang_rp, ang_rp));
     // Upstream's yaw clamp, kept after measuring it.  A friction-cone estimate
     // suggests two diagonal feet could produce ~14 N.m of yaw moment, which
     // would allow 26 rad/s^2, but that assumes the whole tangential budget goes
@@ -399,7 +412,7 @@ void StateTrotting::calcTau() {
     // impossible moment wrecked the linear force distribution -- the robot
     // walked backwards and fell in 4 s instead of 7.  10 rad/s^2 is 5.3 N.m on
     // this robot, which the QP tracks to within 2%.
-    d_wbd(2) = saturation(d_wbd(2), Vec2(-10, 10));
+    d_wbd(2) = saturation(d_wbd(2), Vec2(-ang_yaw, ang_yaw));
 
     const Vec34 pos_feet_body_global = estimator_->getFeetPos2Body();
     Vec34 force_feet_global =

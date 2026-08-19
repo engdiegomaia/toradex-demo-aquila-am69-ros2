@@ -9,13 +9,13 @@
 
 #include "quadProgpp/QuadProg++.hh"
 
-BalanceCtrl::BalanceCtrl(const std::shared_ptr<QuadrupedRobot> &robot) {
+BalanceCtrl::BalanceCtrl(const std::shared_ptr<QuadrupedRobot> &robot, const GaitParams &params) {
     mass_ = robot->mass_;
 
     alpha_ = 0.001;
     beta_ = 0.1;
     g_ << 0, 0, -9.81;
-    friction_ratio_ = 0.4;
+    friction_ratio_ = params.friction_ratio;
     friction_mat_ << 1, 0, friction_ratio_, -1, 0, friction_ratio_, 0, 1, friction_ratio_, 0, -1,
             friction_ratio_, 0, 0, 1;
 
@@ -38,7 +38,13 @@ BalanceCtrl::BalanceCtrl(const std::shared_ptr<QuadrupedRobot> &robot) {
     Vec12 w, u;
     w << 10, 10, 4, 10, 10, 4, 10, 10, 4, 10, 10, 4;
     u << 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3;
-    s << 20, 20, 50, 450, 450, 450;
+    // Residual weights of the QP, force first then moment.  The ratio between
+    // the two halves is what makes an unreachable moment harmful instead of
+    // merely unmet: with 450 against 20/20/50 the solver spends the force
+    // budget chasing it.  Measured on the yaw axis -- see the clamp note in
+    // StateTrotting::calcTau and docs/results/ml35-f4-parcial.md.
+    s.head(3) = params.weight_force;
+    s.tail(3) = params.weight_moment;
 
     S_ = s.asDiagonal();
     W_ = w.asDiagonal();

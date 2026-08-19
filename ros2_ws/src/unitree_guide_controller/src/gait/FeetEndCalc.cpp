@@ -11,8 +11,12 @@ FeetEndCalc::FeetEndCalc(CtrlComponent &ctrl_component)
     : ctrl_component_(ctrl_component),
       robot_model_(ctrl_component.robot_model_),
       estimator_(ctrl_component.estimator_) {
-    k_x_ = 0.005;
-    k_y_ = 0.005;
+    // Raibert velocity-feedback gains.  Upstream ships 0.005 for all three,
+    // which is the A1's value and is 4% of what the neutral term it opposes
+    // carries; the yaw one was already raised on measured grounds (below).
+    // They are parameters so a sweep is a YAML edit, not a rebuild.
+    k_x_ = ctrl_component.gait_params_.k_x;
+    k_y_ = ctrl_component.gait_params_.k_y;
 
     // Heading correction gain, upstream 0.005.  calcFootPos places each foot at
     //   angle = yaw + feet_init_angle_(i) + next_yaw
@@ -31,7 +35,7 @@ FeetEndCalc::FeetEndCalc(CtrlComponent &ctrl_component)
     // following it.  This is the only actuator that can hold heading on this
     // robot: the balance QP tops out near 5.3 N.m of yaw moment, which is not
     // enough to regulate it (measured -- see StateTrotting's gain comment).
-    k_yaw_ = 0.15;
+    k_yaw_ = ctrl_component.gait_params_.k_yaw;
 }
 
 void FeetEndCalc::init() {

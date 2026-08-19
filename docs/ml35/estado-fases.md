@@ -39,6 +39,13 @@ launch do projeto, não mais com o spike. **F4 está em andamento**; checkpoint,
 evidências, falha de sintonia e próximos passos em
 `docs/results/ml35-f4-parcial.md`.
 
+Plano de movimentação vigente: **`docs/ml35/plano-movimentacao.md`** (19/08/2026).
+Substitui `plano-proximos-passos.md`, cujas Fases 1-3 já foram executadas, e
+corrige duas conclusões daquele documento — em particular: a árvore TF **não**
+fecha, não existe frame `odom`, e isso é bloqueador confirmado de F5. Fase A
+(parametrizar a marcha + banco de ensaio versionado) concluída em 19/08/2026;
+próxima é a Fase B, o Defeito 2.
+
 Note que F3 **não foi retarget de cinemática**. A troca A1→Go2 eliminou esse
 trabalho: o Go2 é o robô nativo da base upstream. F3 virou vendorização
 criteriosa + integração.
