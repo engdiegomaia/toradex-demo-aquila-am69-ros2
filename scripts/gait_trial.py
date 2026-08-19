@@ -84,6 +84,7 @@ class GaitTrial(Node):
         self.args = args
         self.pose = None
         self.rows: list[tuple] = []
+        self.collapse_s: float | None = None
 
         self.create_subscription(
             Odometry, '/demo/odom', self._on_odom,
@@ -174,6 +175,31 @@ class GaitTrial(Node):
                           round(self.wall_s(), 3), round(p.x, 4), round(p.y, 4),
                           round(p.z, 4), round(yaw, 2), round(tilt, 2)))
 
+    def final_hold(self) -> None:
+        """Stand with no command for --final-hold seconds, recording a collapse.
+
+        This is the defect-2 scenario, and it is the one phase where falling is
+        the measurement rather than an abort: HOLD after a walk collapses between
+        18 s and 46 s depending on the input residual left behind
+        (docs/results/ml35-f4-parcial.md). So no require_upright() here -- the
+        number wanted is when it went down, not whether.
+        """
+        if self.args.final_hold <= 0.0:
+            return
+
+        start = self.sim_s()
+        next_sample = start
+
+        while self.sim_s() - start < self.args.final_hold:
+            rclpy.spin_once(self, timeout_sec=0.01)
+            now = self.sim_s()
+            if now >= next_sample:
+                self._sample(0, 'final_hold')
+                next_sample = now + 1.0 / self.args.sample_rate
+                if self.collapse_s is None and self.pose is not None \
+                        and self.pose.position.z <= self.args.min_z:
+                    self.collapse_s = now - start
+
     def run(self) -> None:
         self.wait_for_stand()
         self.require_upright('before the trial')
@@ -194,6 +220,8 @@ class GaitTrial(Node):
             # No zero Twist here on purpose: silence is the stop command.
             self.phase(cycle, 'hold', self.args.hold, None)
 
+        self.final_hold()
+
         self._dump()
         self._summarize()
 
@@ -206,18 +234,24 @@ class GaitTrial(Node):
             print(','.join(str(v) for v in row), file=out)
 
     def _summarize(self) -> None:
-        if len(self.rows) < 2:
-            print('no samples: nothing to summarize', file=sys.stderr)
+        # Headline metrics cover the walk/hold cycles ONLY. The final hold is a
+        # different experiment -- the robot is allowed to fall there -- and a
+        # body sliding on its back adds metres of "path" and drags the mean
+        # speed with it. Mixing the two would make every gait number a function
+        # of how long the collapse scenario ran.
+        cycles = [r for r in self.rows if r[1] in ('walk', 'hold')]
+        if len(cycles) < 2:
+            print('no cycle samples: nothing to summarize', file=sys.stderr)
             return
 
         path = sum(
             math.hypot(b[4] - a[4], b[5] - a[5])
-            for a, b in zip(self.rows, self.rows[1:]))
-        first, last = self.rows[0], self.rows[-1]
+            for a, b in zip(cycles, cycles[1:]))
+        first, last = cycles[0], cycles[-1]
         net = math.hypot(last[4] - first[4], last[5] - first[5])
 
-        walk = [r for r in self.rows if r[1] == 'walk']
-        hold = [r for r in self.rows if r[1] == 'hold']
+        walk = [r for r in cycles if r[1] == 'walk']
+        hold = [r for r in cycles if r[1] == 'hold']
         sim_span = last[2] - first[2]
         wall_span = last[3] - first[3]
 
@@ -235,12 +269,22 @@ class GaitTrial(Node):
             'peak tilt        walk %.2f deg, hold %.2f deg'
             % (peak_tilt(walk), peak_tilt(hold)),
             'z                min %.3f m, max %.3f m'
-            % (min(r[6] for r in self.rows), max(r[6] for r in self.rows)),
+            % (min(r[6] for r in cycles), max(r[6] for r in cycles)),
             'sim %.1f s in %.1f s wall (RTF %.2f) -- gait numbers are only '
             'comparable between runs at the same RTF'
             % (sim_span, wall_span, sim_span / wall_span if wall_span else 0.0),
-            '%d samples' % len(self.rows),
+            '%d samples in the cycles, %d total'
+            % (len(cycles), len(self.rows)),
+            'the numbers above cover the walk/hold cycles only',
         ]), file=sys.stderr)
+
+        if self.args.final_hold > 0.0:
+            if self.collapse_s is None:
+                print('final hold     survived %.1f s standing'
+                      % self.args.final_hold, file=sys.stderr)
+            else:
+                print('final hold     COLLAPSED at %.1f s (z <= %.2f m)'
+                      % (self.collapse_s, self.args.min_z), file=sys.stderr)
 
 
 def _parse_args(argv) -> argparse.Namespace:
@@ -257,6 +301,10 @@ def _parse_args(argv) -> argparse.Namespace:
                    help='seconds of SIM time walking per cycle')
     p.add_argument('--hold', type=float, default=8.0,
                    help='seconds of SIM time standing per cycle')
+    p.add_argument('--final-hold', type=float, default=0.0,
+                   help='seconds of SIM time to stand with no command after the '
+                        'last cycle, to exercise the defect-2 collapse. A fall '
+                        'here is recorded, not treated as an abort.')
     p.add_argument('--min-z', type=float, default=0.30,
                    help='body height below which the robot counts as down')
     p.add_argument('--wait-stand', type=float, default=60.0,

@@ -994,3 +994,64 @@ Duas consequências, as duas úteis:
    Tem de ser recortado pela janela de parede do CSV. Corrigido no guia.
 2. O harness reproduz o Defeito 2 sem esforço extra: basta deixar o HOLD correr
    depois do último ciclo. É o cenário do portão da Fase B.
+
+---
+
+## Fase B do plano de movimentação — primeiro sinal, 19/08/2026
+
+### O gatilho teve de ser fixado antes de medir qualquer correção
+
+Primeira linha de base **não reproduziu o Defeito 2**: 3 ciclos a `v_cmd = 0,10`
+e depois 90 s de HOLD ficaram de pé, com tilt de pico de 0,23° e deriva de rumo
+de +0,8° na parada. Coerente com o mecanismo já registrado — o tempo até a queda
+escala com o resíduo deixado quando a marcha para — e fatal para a comparação:
+com n = 1 por condição e um defeito estocástico, qualquer "melhora" seria
+indistinguível de sorte.
+
+Gatilho retirado do pior caso já documentado, caminhada com giro:
+
+```bash
+./scripts/gait_trial.sh <csv> --v-cmd 0.10 --w-cmd 0.10 \
+  --cycles 1 --walk 15 --hold 0 --final-hold 90
+```
+
+Com ele a base cai aos **39,4 s**, dentro da faixa registrada de 18 a 46 s, com
+`yawSat = 100%` constante nas últimas linhas de HOLD.
+
+### B1a — peso de guinada do QP de 450 para 100
+
+Uma linha de YAML (`balance.weight_moment: [450, 450, 100]`), sem rebuild. É o
+experimento que a caracterização do defeito apontava e que nunca havia sido
+tentado: o dano medido não é o momento faltante, é o solver trocando distribuição
+de força para perseguir um `Mz` que a Fase 2 provou inalcançável acima de 5,3 N·m.
+
+| | B0 (450) | B1a (100) |
+|---|---|---|
+| **HOLD de 90 s** | **caiu aos 39,4 s**, tilt final 127° | **sobreviveu 89,9 s** |
+| `RECOVER` na janela | 203 | **0** |
+| `yawSat` em HOLD | 100% constante | 54–84%, variando |
+| tilt de pico em HOLD | — (caiu) | 0,67° |
+| deriva de rumo em 90 s de HOLD | — (caiu) | +13,5° |
+| trajetória em 15 s de giro | 1,661 m | 1,613 m |
+| deslocamento líquido | 1,458 m | 1,460 m |
+| tilt de pico andando | 1,32° | 1,31° |
+| `z` mínimo andando | 0,337 m | 0,337 m |
+| guinada realizada / comandada | 72,7° / 86° = 85% | 65,9° / 86° = 76% |
+
+O eixo **saiu do batente** — é essa a variável que a caracterização apontou como
+o dano, e é a que mudou. A caminhada ficou praticamente idêntica: trajetória,
+tilt e `z` dentro de 3%. O custo apareceu onde a previsão dizia que apareceria:
+9 pontos percentuais de rastreamento de guinada comandada, e +13,5° de deriva de
+rumo em 90 s parado (≈1,2° por 8 s, dentro do critério F4 de ≤5° em paradas de
+8 s — mas **medido em 90 s, não no roteiro de 8 s**).
+
+### O que este resultado NÃO estabelece
+
+- **n = 1 por condição.** O defeito é estocástico; o gatilho o torna repetível,
+  não determinístico. Cada condição precisa de repetição antes de virar default.
+- **O roteiro de 3 ciclos de andar/parar não foi rodado com B1a.** O critério F4
+  já verde (5 ciclos, zero quedas, tilt < 1° parado) está **não medido** sob esta
+  mudança, e é ele que os quatro experimentos anteriores quebraram.
+- **B1b (peso 50), B1c (`kd_w` por eixo) e B2/B3 não foram ensaiados.**
+
+Portanto B1a é **sinal, não conclusão**, e `gait_go2.yaml` continua em 450.
