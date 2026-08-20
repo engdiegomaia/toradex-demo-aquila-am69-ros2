@@ -1,6 +1,6 @@
 # Cenários de simulação
 
-Cinco mundos, cada um exercitando uma parte diferente da pilha. Um guia por
+Seis mundos, cada um exercitando uma parte diferente da pilha. Um guia por
 cenário, com o que ele mede, como rodar, e o que aceitar como resultado.
 
 **Todos rodam na estação x86.** Gazebo Harmonic é OGRE 2 e não roda no Aquila
@@ -30,6 +30,7 @@ marcha. O S2 é o cenário de referência para trabalhar o estimador.
 | S3 | Corredor | `quadruped_corridor.sdf` | `/demo/scan`, caminho do costmap (F5) | [s3-corredor.md](s3-corredor.md) |
 | S4 | Objetos | `quadruped_objects.sdf` | `/demo/camera/*`, contrato de percepção | [s4-objetos.md](s4-objetos.md) |
 | S5 | Nav2 desviando | `quadruped_objects.sdf` | malha fechada: nuvem → costmap → MPPI → marcha | [s5-nav2-desvio.md](s5-nav2-desvio.md) |
+| S6 | Labirinto interativo | `quadruped_maze.sdf` | metas por clique, TF, lidar e câmera no RViz | [s6-labirinto.md](s6-labirinto.md) |
 
 ## Como rodar qualquer um
 
