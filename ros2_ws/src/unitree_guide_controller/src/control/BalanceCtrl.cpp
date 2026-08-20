@@ -53,6 +53,13 @@ BalanceCtrl::BalanceCtrl(const std::shared_ptr<QuadrupedRobot> &robot, const Gai
     F_prev_.setZero();
 }
 
+void BalanceCtrl::setYawMomentWeight(const double weight) {
+    // S_ is otherwise built once, in the constructor, from params.weight_moment.
+    // Only the yaw entry moves: roll and pitch have authority this axis does
+    // not, so there is no measured reason to reweight them.
+    S_(5, 5) = weight;
+}
+
 Vec34 BalanceCtrl::calF(const Vec3 &ddPcd, const Vec3 &dWbd, const RotMat &rot_matrix,
                         const Vec34 &feet_pos_2_body, const VecInt4 &contact) {
     calMatrixA(feet_pos_2_body, rot_matrix);

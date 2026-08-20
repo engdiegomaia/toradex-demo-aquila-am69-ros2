@@ -84,6 +84,12 @@ private:
      */
     void captureBodyReference();
 
+    /** Schedule the QP yaw-moment weight by motion mode. */
+    void applyHoldYawWeight();
+
+    /** Walk the parked body reference toward the centroid of the stance feet. */
+    void settleHoldPosture();
+
     /**
      * One line per second: mode, command, tilt, tracking error and contacts.
      */
@@ -121,6 +127,8 @@ private:
     MotionMode mode_{MotionMode::HOLD};
     bool walking_{false};
     bool hold_captured_{false};
+    //!< Last yaw-moment weight pushed into the QP; negative means "not yet set".
+    double yaw_weight_applied_{-1.0};
     double tilt_{};
     double settled_s_{};
     double entry_s_{};

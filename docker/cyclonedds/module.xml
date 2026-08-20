@@ -50,26 +50,37 @@
         <Peer address="127.0.0.1"/>
 
         <!--
-          THE HOST ADDRESS IS MISSING AND MUST BE ADDED IN F5.
+          THE HOST ADDRESS IS INJECTED AT DEPLOY TIME. IT IS NOT IN THIS FILE.
 
-          The ${HOST_IP} placeholder that was here never expanded: Docker does
-          not substitute variables inside a bind-mounted file, so CycloneDDS got
-          the literal string "${HOST_IP}" as an address. The ML3.5 guide §5
-          shows it that way; it does not work.
+          Do not add a literal address here and do not restore a ${HOST_IP}
+          placeholder. The placeholder that used to sit in this spot never
+          expanded: Docker performs no variable substitution inside a
+          bind-mounted file, so CycloneDDS received the literal string
+          "${HOST_IP}" as an address. The ML3.5 guide §5 shows it that way and it
+          cannot work as written.
 
-          This file as committed therefore supports the module talking to
-          ITSELF only. That is correct for F1, which is host-only and never
-          starts these containers. Before the first hil run (F5), add the host's
-          real address:
+          `scripts/module.sh sync` renders this file: it appends a Peer element
+          carrying HOST_IP just before the closing Peers tag, pins the
+          NetworkInterface to the module link that actually carries MODULE_IP,
+          and writes the result to ~/demo/cyclonedds/module.xml on the module.
+          Both addresses come from the environment or from docker/.env, so no
+          address is committed to the repo (CLAUDE.md: no hard-coded IPs in
+          committed files).
 
-              <Peer address="192.168.x.y"/>
+          Do not write the literal closing Peers tag, or an opening Peer
+          element, anywhere in this comment. The renderer is line-oriented and
+          matched a mention of it here once, injecting the host peer INTO this
+          comment block and producing a file that is not well-formed XML. The
+          renderer now anchors on a whole line, and this note is the other half
+          of that fix.
 
-          verified with `ip -br addr` on the host, or generate this file from
-          .env at deploy time rather than bind-mounting it verbatim.
+          Consequence: this file AS COMMITTED supports the module talking to
+          ITSELF only. Bind-mounting it verbatim gives a module that discovers
+          its own containers and nothing on the host — an empty
+          `ros2 topic list` with no error anywhere. If that is the symptom,
+          check the rendered file on the module first:
 
-          Leaving it absent rather than leaving a broken placeholder is
-          deliberate: an unresolvable address looks configured and fails
-          silently, which is the exact trap this milestone keeps hitting.
+              ssh torizon@${MODULE_IP} 'grep Peer ~/demo/cyclonedds/module.xml'
         -->
       </Peers>
     </Discovery>

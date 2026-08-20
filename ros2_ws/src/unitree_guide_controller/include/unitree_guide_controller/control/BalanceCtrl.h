@@ -45,6 +45,15 @@ public:
     Vec34 calF(const Vec3 &ddPcd, const Vec3 &dWbd, const RotMat &rot_matrix,
                const Vec34 &feet_pos_2_body, const VecInt4 &contact);
 
+    /**
+     * Set the QP's weight on the yaw-moment residual, the (5,5) entry of S_.
+     *
+     * Exists so the weight can be scheduled by motion mode: the measurement
+     * says walking and standing want different numbers, and each value is
+     * harmful in the other regime.  See StateTrotting::applyHoldYawWeight.
+     */
+    void setYawMomentWeight(double weight);
+
 private:
     void calMatrixA(const Vec34 &feet_pos_2_body, const RotMat &rotM);
 

@@ -80,6 +80,17 @@ struct GaitParams {
     Vec3 weight_force{Vec3(20, 20, 50)};
     Vec3 weight_moment{Vec3(450, 450, 450)};
     double friction_ratio{0.4};
+
+    /* StateTrotting: posture settle while standing (MotionMode::HOLD).
+     *
+     * Both default to the current behaviour -- hold_weight_moment_yaw equal to
+     * weight_moment(2), and a settle rate of zero -- so a run with no YAML
+     * reproduces the recorded baseline, which is the invariant the rest of this
+     * struct is built on.  The measured justification is next to the code that
+     * consumes them, in StateTrotting::applyHoldYawWeight and
+     * StateTrotting::settleHoldPosture. */
+    double hold_weight_moment_yaw{450.0}; //!< QP yaw-moment weight while standing
+    double hold_settle_rate{0.0}; //!< m/s, rate the parked reference walks to the support centroid
 };
 
 #endif //GAITPARAMS_H

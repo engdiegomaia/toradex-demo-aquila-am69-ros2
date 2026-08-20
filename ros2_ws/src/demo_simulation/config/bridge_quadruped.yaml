@@ -22,6 +22,35 @@
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
+# O mesmo sensor, como nuvem de pontos, e este e o que serve para desviar de
+# obstaculo.
+#
+# O L1_lidar do Go2 (go2_description/xacro/gazebo.xacro) e um gpu_lidar 3D: 640
+# amostras horizontais em 200 graus por 16 aneis verticais em +-15 graus.
+# sensor_msgs/LaserScan e 2D e nao tem onde guardar os aneis, entao a travessia
+# acima entrega UM anel dos 16 -- os outros quinze sao descartados sem aviso.
+#
+# Medido em 20/08/2026: no mundo quadruped_objects.sdf, com quatro objetos de
+# 0,30 a 0,80 m de altura plantados a 1,5-4,5 m a frente, o /demo/scan devolve
+# 46 de 640 feixes validos com minimo de 4,82 m -- numericamente IDENTICO ao
+# mundo vazio.  O anel exposto ve parede rente ao corpo e chao a 5-10 m, e nao ve
+# objeto isolado a frente.  Um costmap alimentado por ele nao veria justamente o
+# que o robo precisa desviar.
+#
+# O gpu_lidar publica os 16 aneis em <topic>/points como gz.msgs.PointCloudPacked,
+# e a ros_gz_bridge tem conversao direta disso para sensor_msgs/PointCloud2.  Nao
+# ha conversao de gz.msgs.LaserScan para PointCloud2, e por isso a fonte aqui e
+# /scan/points e nao /scan.
+#
+# go2_description NAO pode ser editado para reapontar o sensor: o pacote e
+# vendorizado com garantia byte-a-byte que sustenta o argumento de licenca (ver o
+# README dele).  A bridge e o ponto de injecao que o projeto possui.
+- ros_topic_name: "/demo/scan_cloud"
+  gz_topic_name: "/scan/points"
+  ros_type_name: "sensor_msgs/msg/PointCloud2"
+  gz_type_name: "gz.msgs.PointCloudPacked"
+  direction: GZ_TO_ROS
+
 - ros_topic_name: "/demo/camera/image_raw"
   gz_topic_name: "/camera/image"
   ros_type_name: "sensor_msgs/msg/Image"

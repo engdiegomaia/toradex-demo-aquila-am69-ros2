@@ -30,3 +30,7 @@ frames.pdf
 .idea/
 *.swp
 .DS_Store
+
+# CycloneDDS configs rendered at deploy time by scripts/module.sh.
+# They carry real IPs; the templates next to them are what is committed.
+docker/cyclonedds/*.rendered.xml

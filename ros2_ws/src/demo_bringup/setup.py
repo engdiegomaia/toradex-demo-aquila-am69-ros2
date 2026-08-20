@@ -33,6 +33,21 @@ setup(
             # see the module docstring for why they do not survive a container
             # boundary.
             'wait_for_clock = demo_bringup.wait_for_clock:main',
+            # Exhibition loop. Stands in for Nav2 as the producer of
+            # /demo/cmd_vel, so it lives with the commanders and not in
+            # demo_simulation, which is part of the plant.
+            'demo_routine = demo_bringup.demo_routine:main',
+            # Fecha o topo da arvore TF. Ver o cabecalho do modulo para os
+            # dois publicadores que nao podem coexistir com ele.
+            'odom_tf = demo_bringup.odom_tf:main',
+            # Patrulha sob Nav2. Manda METAS, nao velocidades -- e por isso que
+            # ela desvia e demo_routine nao. Os dois nao podem rodar juntos;
+            # ver o cabecalho do modulo.
+            'patrol_commander = demo_bringup.patrol_commander:main',
+            # Fronteira de unidades entre o Nav2 (SI) e o contrato
+            # /demo/cmd_vel (manche). Ver o cabecalho do modulo: sem ele
+            # o robo anda a 40% do pedido e nada acusa.
+            'cmd_vel_si_to_stick = demo_bringup.cmd_vel_si_to_stick:main',
         ],
     },
 )

@@ -11,8 +11,10 @@
 # line 497, load_controller at 506) — a param file applied after load would be
 # accepted and never read.
 #
-# Every value below equals the compiled default in GaitParams.h, so this file
-# changing nothing is the correct state until an experiment changes one line.
+# Every value below equals the compiled default in GaitParams.h EXCEPT
+# foot_placement.k_yaw and hold.settle_rate, both measured on 20/08/2026
+# (reason next to each). Keep that the invariant: each deviation from the
+# compiled default carries a measured reason written beside it.
 # If the file is not found or not applied, the controller falls back to those
 # same defaults; the `gait params: ...` line it logs on init is what proves
 # which values are actually live. Read that line before trusting a sweep.
@@ -37,10 +39,32 @@ unitree_guide_controller:
     # walk. The capture-point coefficient for this body height, sqrt(h/g) with
     # h ~ 0.33 m, is about 0.18 s — the scale k_x/k_y would have if they were
     # doing the job their term is named for. Sweeping them is ML3.5 phase B.
+    #
+    # k_yaw = 0.25, raised from 0.15 on 20/08/2026. FeetEndCalc places the foot
+    # at an angle carrying `d_yaw*(1-phase)*t_swing + d_yaw*t_stance/2`, which
+    # FOLLOWS the measured body rotation, against `k_yaw*(d_yaw_goal - d_yaw)`,
+    # which opposes it. With t_swing = t_stance = 0.225 the following coefficient
+    # runs from 0.3375 (phase 0) down to 0.1125 (touchdown). 0.15 was sized
+    # against the touchdown value only -- correct there, but net positive
+    # feedback over the rest of the swing, and that loop is what made the robot
+    # curve instead of walking straight.
+    #
+    # Measured, straight walk, 3x12 s at v_cmd = 0.10, n = 3 against n = 2 of
+    # baseline (docs/results/ml35-caminhada-reta.md): worst lateral deviation
+    # 1.14-1.56 m -> 0.08-0.11 m; per-cycle yaw swing 25-28 deg -> 2-4 deg;
+    # heading drift 35-39 deg -> -3.3 to +0.1 deg; yaw axis off the clamp
+    # (yawSat 96-97% -> 59-81%, pre-clamp demand 430 -> 15-30 rad/s^2); zero
+    # RECOVER in every run; forward speed unchanged, inside the measured
+    # 97-111% band. Commanded-turn tracking IMPROVED 85% -> 99%, because the
+    # same term drives (d_yaw_goal - d_yaw).
+    #
+    # 0.35 was measured too and holds heading better still (drift 0.1 deg,
+    # yawSat 12%), but pushes net forward speed to 137% of commanded, outside
+    # the envelope nav2_params.yaml is sized against. Revisit under phase E.
     foot_placement:
       k_x: 0.005
       k_y: 0.005
-      k_yaw: 0.15
+      k_yaw: 0.25
 
     # Body pose control feeding the balance QP.
     #
@@ -80,9 +104,16 @@ unitree_guide_controller:
     #
     # weight_moment against weight_force is what makes an unreachable moment
     # harmful rather than merely unmet: the solver trades force distribution to
-    # chase it, which is the measured mechanism behind the long-stop collapse
-    # (defect 2). Lowering only the yaw entry of weight_moment is ML3.5 phase C
-    # and has not been tried.
+    # chase it, and the yaw entry saturates at 100% through every long stop that
+    # ended in the defect-2 collapse.
+    #
+    # Lowering only the yaw entry was tried on 20/08/2026 and REJECTED. It reads
+    # as the obvious fix and it is the wrong one: 450 -> 100 while standing
+    # brought the collapse forward from 161.7 s to 91.1 s and took RECOVER from
+    # 74 to 357 in the same window (conditions p0_hold_base / p1_syaw100, 180 s
+    # stop after 15 s of walking at 0.15 m/s, 0.10 rad/s). Softening the residual
+    # does not remove the moment demand, it removes the solver's reason to
+    # distribute force against it. Do not retry this alone.
     #
     # friction_ratio 0.4 is deliberately below the simulated foot friction
     # (mu = 0.6 in go2_description/xacro/leg.xacro): it is the number that has
@@ -92,3 +123,27 @@ unitree_guide_controller:
       weight_force: [20.0, 20.0, 50.0]
       weight_moment: [450.0, 450.0, 450.0]
       friction_ratio: 0.4
+
+    # Standing posture (MotionMode::HOLD). See StateTrotting::applyHoldYawWeight
+    # and ::settleHoldPosture.
+    #
+    # settle_rate is the one deviation here. captureBodyReference() freezes pcd_
+    # at the body position of the instant the stop began, and the feet keep
+    # creeping for a few hundred ms after that. The frozen reference therefore
+    # sits off the support centroid by whatever residual the stop carried, the QP
+    # is asked for a force distribution that no contact set can deliver, the yaw
+    # residual saturates, and the robot folds. Walking pcd_ back to the centroid
+    # at 0.02 m/s closes that gap without a force step: 180 s standing with 0
+    # RECOVER and yaw saturation down from 100% to 10-66%, against a collapse at
+    # 161.7 s with 74 RECOVER for the same trial without it (conditions
+    # p0_hold_base / p2_settle). Rate-limited on purpose — jumping pcd_ asks the
+    # QP for a step through Kpp = 70 against a 3 m/s^2 acceleration clamp.
+    #
+    # weight_moment_yaw stays at the compiled default, i.e. this entry is a
+    # no-op. It is written out so the knob is discoverable next to the measured
+    # reason NOT to touch it (see balance above). Combining both was measured
+    # too (p3_ambos): it also survives 180 s, but with yaw saturation back at
+    # 54-90%, so it is strictly worse on the mechanism and changes two things.
+    hold:
+      weight_moment_yaw: 450.0
+      settle_rate: 0.02

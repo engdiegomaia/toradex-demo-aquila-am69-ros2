@@ -28,7 +28,7 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | 🟡 **em andamento** | marcha ativa, trote dinâmico ainda cai |
-| **F5** | Nav2 sobre pernas + modo HIL | ⬜ | — |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 20/08/2026 | Nav2 planeja e desvia; ver abaixo |
 | **F6** | Fallback selecionável e testes | ⬜ | — |
 
 **Decisão tomada: alvo trocado de A1 para Go2** (ver "F2 — verificação
@@ -40,19 +40,23 @@ evidências, falha de sintonia e próximos passos em
 `docs/results/ml35-f4-parcial.md`.
 
 Plano de movimentação vigente: **`docs/ml35/plano-movimentacao.md`** (19/08/2026).
-Substitui `plano-proximos-passos.md`, cujas Fases 1-3 já foram executadas, e
-corrige duas conclusões daquele documento — em particular: a árvore TF **não**
-fecha, não existe frame `odom`, e isso é bloqueador confirmado de F5. Fase A
-(parametrizar a marcha + banco de ensaio versionado) concluída em 19/08/2026;
-próxima é a Fase B, o Defeito 2.
+Substitui `plano-proximos-passos.md`, cujas Fases 1-3 já foram executadas.
 
-Fase B (Defeito 2, queda em `HOLD` prolongado) **em andamento, portão aberto**.
-O que já está feito: gatilho repetível fixado (caminhada com giro, `--final-hold
-90`; a base cai aos 39,4 s) e a primeira condição ensaiada com **n = 1** — B1a,
-`balance.weight_moment: [450, 450, 100]`, sobreviveu os 90 s com zero `RECOVER`.
-Nada virou default: `gait_go2.yaml` continua em 450. Falta repetição por
-condição, B1b/B1c, e reexecutar o roteiro de 3 ciclos de andar/parar sob a
-condição vencedora — o gatilho de guinada não mede esse critério.
+**Atenção ao ler aquele plano:** o bloqueador que ele registra — "a árvore TF não
+fecha, não existe frame `odom`" — **foi resolvido em 20/08/2026**. A árvore agora
+tem 22 arestas, 9 estáticas, raiz `map`, e o Nav2 planeja e desvia sobre o
+quadrúpede. Ver a seção "F5 — Nav2 sobre pernas" abaixo.
+
+Fase A (parametrizar a marcha + banco de ensaio versionado) concluída em
+19/08/2026.
+
+Fase B (Defeito 2, queda em `HOLD` prolongado) **concluída em 20/08/2026** com
+`hold.settle_rate: 0.02`, que virou default em `gait_go2.yaml`. A correção que
+parecia óbvia — baixar só a entrada de guinada de `balance.weight_moment` de 450
+para 100 — foi ensaiada e **REJEITADA**: adiantou o colapso de 161,7 s para 91,1 s
+e levou `RECOVER` de 74 para 357 na mesma janela. O `gait_go2.yaml` registra isso
+ao lado do parâmetro para que ninguém retente. Evidência em
+`docs/results/ml35-postura-parada.md`.
 
 Note que F3 **não foi retarget de cinemática**. A troca A1→Go2 eliminou esse
 trabalho: o Go2 é o robô nativo da base upstream. F3 virou vendorização
@@ -606,6 +610,145 @@ nula do item 1 e precisam ser reescritos em termos de `v_cmd`.
 
 ---
 
+## Preparação do target — 20/08/2026
+
+**Não é uma fase.** É trabalho de infraestrutura para F5, feito em paralelo aos
+ensaios de F4 no host, porque o módulo ficou acessível. Evidência completa em
+`docs/results/ml35-target-preparacao.md`.
+
+O que mudou de estado no projeto:
+
+1. **A premissa "o módulo não está acessível" caiu.** Aquila AM69 inventariado:
+   Torizon OS 7.7.0+build.40, 8 × Cortex-A72, 31 GiB RAM, 108 G livres, Docker
+   25.0.9 arm64, Compose 2.26.0, `torizon` no grupo `docker`. `ethernet0` em
+   `192.168.15.122/24`; host x86 em `192.168.15.98` na mesma /24.
+2. **A rede DDS foi medida, não assumida.** UDP nas duas direções em três portas
+   do domínio 69. `ufw` está ativo no host e **não bloqueia**. Nenhuma mudança de
+   firewall é necessária.
+3. **A regra 1 estava sendo violada pela árvore atual, em silêncio.** A camada de
+   container é de F1 (diff-drive); F3 trouxe `gz_quadruped_hardware`, que declara
+   `gz_sim_vendor` e `gz_plugin_vendor` como `<depend>`. Um `colcon build` cego
+   do `src` colocaria OGRE 2 nas imagens arm64. Corrigido por dois build args
+   (`SKIP_KEYS_EXTRA`, `COLCON_IGNORE_PACKAGES`), ambos default vazio — o lado
+   amd64/host não muda.
+4. **`autodetermine` no `module.xml` era uma armadilha real**, não teórica: a
+   bridge Docker do easy-pairing da Toradex (`br-*`, 172.18.0.1) está UP junto
+   com `ethernet0`. A interface agora é fixada em tempo de renderização, e o peer
+   do host é injetado ali também, então nenhum endereço entra no git.
+5. **`scripts/module.sh`** passou a ser a interface para o módulo:
+   `inventory | sync | build | up | down | status | verify | shell`.
+6. **Quatro imagens `arm64` existem no módulo**, construídas nativamente lá:
+   `base` 1,24 GB, `perception` 1,28 GB, `tools` 1,32 GB, `nav` 2,44 GB. Regra 1
+   verificada nas quatro por inspeção das bibliotecas instaladas.
+7. **O contrato atravessa a fronteira de máquina nas duas direções, medido.**
+   Domínio 69, `/demo/system/heartbeat`: módulo→host `count=11` recebido no host;
+   host→módulo `count=14` recebido dentro do container `tools`, com
+   `/demo/heartbeat_publisher` visível em `ros2 node list` do módulo. **Isto é o
+   pré-requisito de infraestrutura de F4/F5, não o portão deles.**
+8. **Descoberto que configurar só um lado do DDS falha idêntico a firewall.**
+   O default do CycloneDDS anuncia por multicast (que o módulo ignora) e não fixa
+   porta determinística (então o unicast do módulo não tem alvo). Os dois lados
+   precisam de config casada. `scripts/module.sh` renderiza os dois:
+   `module.xml` para o módulo e `docker/cyclonedds/host.rendered.xml` no host,
+   ambos com endereço injetado e gitignored/gerado.
+9. **`ROS_NAMESPACE` não funciona no ROS 2 Jazzy.** Verificado: a variável está
+   no ambiente do processo (`printenv` confirma) e o ROS a ignora; só
+   `--ros-args -r __ns:=` funciona. `scripts/env.sh` exporta
+   `ROS_NAMESPACE=/demo` como se funcionasse — **não foi alterado**, o arquivo
+   está em uso pelos ensaios de F4. Fica como achado a resolver.
+
+O que **não** mudou, e precisa ficar claro:
+
+- **F5 continua bloqueada pelo mesmo motivo de antes.** O target estar pronto não
+  resolve a árvore de TF que não fecha nem a ausência do frame `odom`
+  (`plano-movimentacao.md`). Nav2 sobre pernas não passa o portão de F5 por falta
+  de `odom`, independentemente de o módulo estar de pé.
+- **Nada de desempenho foi medido** (regra 5 e 7). As imagens foram construídas
+  nativamente no módulo em vez de sob QEMU, o que não é uma medição de nada.
+- **O módulo não vê os tópicos da simulação do host.** Não é defeito do módulo:
+  `scripts/run_quadruped_sim.sh` sobe a sim sem `CYCLONEDDS_URI`, então ela
+  anuncia por multicast e o módulo (multicast off) não tem como descobri-la. O
+  mecanismo está provado nas duas direções com publishers de teste; falta passar
+  o config renderizado ao produtor do host. **Não alterado nesta sessão porque
+  esse script está em uso pelos ensaios de F4.**
+- **`compose.host.yml` continua montando `cyclonedds/host.xml`**, o template sem
+  o peer do módulo. Para o `hil` containerizado ele precisa apontar para
+  `host.rendered.xml`.
+- **`nav` não foi subido no módulo.** Nav2 publica `/demo/cmd_vel`, e a simulação
+  do host roda no mesmo domínio 69: dois publishers no tópico que comanda o robô
+  corromperiam o ensaio em curso sem nada em log explicando. `scripts/module.sh
+  up` detecta a simulação ativa e recusa por default.
+
+---
+
+## F5 — Nav2 sobre pernas: em andamento 20/08/2026
+
+Malha fechada e funcionando: nuvem 3D → costmap → planejador → MPPI → conversão de
+unidades → marcha → Gazebo → odometria → TF → costmap. Medido em
+`quadruped_objects.sdf`, o robô percorreu 8,36 m, deslocou 3,51 m líquidos, chegou
+a **3,8 cm** da meta e passou pelos quatro obstáculos com folga positiva, sem cair.
+
+Evidência completa em **`docs/results/ml35-nav2-quadrupede.md`**; como rodar, em
+**`docs/guides/cenarios/s5-nav2-desvio.md`**.
+
+### Os três bloqueadores de F5 estão fechados
+
+| bloqueador | como foi fechado | consequência a lembrar |
+| --- | --- | --- |
+| árvore TF não fecha | `demo_bringup/odom_tf` publica `odom → base` e `map → odom` | **não é estimativa de estado** — é ground truth do Gazebo virando TF; sai quando o estimador com perna existir |
+| nome do frame base | quem cedeu foi o Nav2: `nav2_params_go2.yaml` usa `base` | `go2_description` é vendorizado byte-a-byte e não pode ser editado |
+| lidar de um anel | a ponte expõe `/scan/points` como `PointCloud2` em `/demo/scan_cloud` | `/demo/scan` continua existindo e continua inútil para costmap |
+
+O número que fecha o terceiro: no mundo dos objetos, `/demo/scan` dá **zero**
+obstáculos — idêntico ao mundo vazio — e `/demo/scan_cloud` dá **249**.
+
+### Seis defeitos encontrados por medição, todos corrigidos
+
+Nenhum deles se anuncia em log. Estão listados porque cada um custaria horas de
+novo.
+
+1. **`use_composition` sem container.** `navigation_launch.py` com composição
+   carrega os servidores em `/nav2_container`, que só o `bringup_launch.py` cria.
+   Incluindo apenas o primeiro: nada sobe, nada dá erro.
+2. **Metas concorrentes.** Entre `send_goal_async` e a aceitação, o handle é
+   `None`; o supervisor de 1 s reentrava e mandava outra meta.
+3. **`progress_checker` do TB4.** 0,5 m em 10 s, contra 13 s de giro a 0,12 rad/s
+   sem avanço: 22 abortos com **zero quedas**. Quando o verificador reprova e o
+   robô não cai, o suspeito é o verificador.
+4. **Horizonte do MPPI medido em tempo.** 2,8 s cobrem 1,4 m no TB4 e 0,42 m no
+   Go2 — abaixo da referência de ~1 m do `PathAlignCritic`, que tem o maior peso.
+   Horizonte se mede em distância.
+5. **`/demo/cmd_vel` não está em SI.** Carrega manche; o controlador multiplica
+   `linear.x` por 0,4 e `angular.z` por 0,5 (`StateTrotting.cpp:192` com
+   `invNormalize`, e `twist_to_inputs.py:283` com ganho unitário). O Nav2 é o
+   primeiro consumidor que não pode viver com isso, porque o MPPI **integra** `vx`
+   como m/s. Corrigido com `demo_bringup/cmd_vel_si_to_stick`, um nó de fronteira
+   — a planta e os comandantes existentes ficaram intactos.
+6. **Yaw da meta como rumo de saída.** Exigia 110–139° de giro parado na chegada,
+   e girar parado não fica parado: o robô derivou 0,78 m em y e saiu da tolerância
+   de posição que já havia satisfeito. O yaw tem de ser o rumo de **chegada**.
+
+### Duas hipóteses refutadas por medição
+
+Registradas para que ninguém as retente:
+
+- **"O robô está dentro de região inflada."** Medido com o robô parado: custo
+  **0** na célula dele, **0** dentro de 0,6 m, 42 células letais nos obstáculos,
+  zero desconhecidas. O costmap está correto.
+- **"A dispersão de amostragem do MPPI limita a magnitude."** Só a correção de
+  unidades levou o comando de 0,006 para 0,119 m/s **com os mesmos desvios**.
+  `vx_std` e `wz_std` ficaram como estavam.
+
+### O que F5 ainda não tem
+
+- **Estimativa de estado com perna.** `odom_tf` republica ground truth. Enquanto
+  isso, nada aqui valida localização.
+- **Modo HIL.** A imagem `demo-sim:spike-go2` **não tem Nav2** dentro (medido:
+  zero pacotes `nav2` em `/opt/ros/jazzy/lib`). Hoje o Nav2 sobe nativo no host
+  x86 e conversa com o container por DDS. Para o modo HIL, a imagem do módulo
+  precisa da pilha dentro.
+- **Qualquer número de hardware.** Tudo medido na estação x86.
+
 ## Decisões tomadas
 
 ### Base de locomoção: `legubiao/quadruped_ros2_control`
@@ -709,11 +852,18 @@ certo em vez de aparecer como surpresa no bring-up de hardware.
 
 - A spec é `guia-ml35-docker.md`. Onde ela e o plano original divergirem, **o
   guia vence**.
-- O módulo não está acessível: nenhum comando com `MODULE_IP`, `scp` ou
-  `ssh torizon@` roda até F5, e nada de arm64 é declarado validado sem execução
-  real (regra 7 do projeto).
-- `eth0` nos XMLs de DDS é **placeholder**. Confirmar com `ip -br link` antes de
-  usar; não fixar nome de interface sem verificar.
+- ~~O módulo não está acessível~~ — **PREMISSA CAÍDA em 20/08/2026.** O Aquila
+  AM69 respondeu e foi inventariado; ver `docs/results/ml35-target-preparacao.md`
+  e a seção "Preparação do target" acima. `ssh torizon@` e `rsync` agora rodam
+  por `scripts/module.sh`. A regra 7 continua valendo integralmente: nada de
+  desempenho, latência, térmica ou FPS foi medido nem é reivindicado.
+- ~~`eth0` nos XMLs de DDS é placeholder~~ — **RESOLVIDO para o módulo.** A
+  interface verificada é `ethernet0`, e ela é **fixada em tempo de
+  renderização**, detectada a partir de `MODULE_IP`, não escrita à mão:
+  `autodetermine` pode escolher a bridge Docker do easy-pairing
+  (`br-*`, 172.18.0.1), que está UP ao mesmo tempo. `host.xml` segue em
+  `autodetermine` e ainda **não** lista o peer do módulo — é o que falta para o
+  modo `hil` completo.
 - `tools` aparece em `docker compose exec tools` no guia §9 mas não está
   declarado no compose §6. Será declarado com `profiles: ["tools"]` e um
   `command` que não encerra.

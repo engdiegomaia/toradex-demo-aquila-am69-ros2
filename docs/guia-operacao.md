@@ -6,8 +6,9 @@ Escrito para quem chega no projeto sem experiência prévia de ROS 2. Onde uma
 armadilha conhecida existe, ela está descrita no ponto em que você a
 encontraria — não numa seção de troubleshooting no fim.
 
-**Fase atual: L3 concluída.** Tudo aqui roda no host x86, nativo, sem
-containers. Containers entram na L4.
+**Fase atual: L3 concluída.** As seções 1 a 9 descrevem a demo rodando no host
+x86, nativo, sem containers. A [seção 10](#10-o-módulo-aquila-am69) é a exceção:
+cobre o módulo Aquila AM69, que é sempre container e sempre `arm64`.
 
 ---
 
@@ -22,6 +23,7 @@ containers. Containers entram na L4.
 7. [Editar a simulação](#7-editar-a-simulação)
 8. [Diagnóstico](#8-diagnóstico)
 9. [As armadilhas que já custaram tempo](#9-as-armadilhas-que-já-custaram-tempo)
+10. [O módulo Aquila AM69](#10-o-módulo-aquila-am69)
 
 ---
 
@@ -453,6 +455,176 @@ resto para em `inactive`. A demo não tem dock; está configurado o mínimo.
 ### 5. Lista YAML vazia quebra o launch
 
 `docks: []` → tupla Python → launch aborta. Omita a chave.
+
+### 6. `autodetermine` do CycloneDDS escolhe a bridge do Docker
+
+No Aquila, `ip -br addr` mostra `ethernet0` **e** `br-a00dfb945795`
+(172.18.0.1) UP ao mesmo tempo — a stack de easy-pairing da própria Toradex roda
+em compose. `autodetermine` ranqueia interfaces e pode escolher a bridge. O
+CycloneDDS então transmite num endereço que o host não roteia, e **nenhum log de
+nenhum dos lados menciona interface**.
+
+→ `scripts/module.sh sync` fixa a interface, detectada a partir de `MODULE_IP`.
+Não troque por `autodetermine` "para simplificar", e não fixe `ethernet0` à mão
+— placa diferente ou mudança para `wlan0` deixa o nome obsoleto e falhando
+calado.
+
+### 7. `--packages-skip` do colcon não é `--packages-ignore`
+
+O grafo de dependências do `colcon` não distingue `exec_depend` de
+`build_depend`. `--packages-skip gz_quadruped_hardware` mantém o pacote no grafo
+sem construí-lo, e `demo_simulation` (que o declara como `exec_depend`) falha
+pedindo `install/gz_quadruped_hardware/.../package.sh`. O dano real é o
+`demo_bringup` que vem depois virar "not processed" — e é lá que moram
+`nav.launch.py` e `perception.launch.py`, os entrypoints dos dois serviços do
+módulo.
+
+→ Use `--packages-ignore`. A mensagem de erro não menciona a diferença.
+
+### 8. Dois publishers em `/demo/cmd_vel` não geram erro nenhum
+
+`nav` no módulo é o Nav2, e o Nav2 publica `/demo/cmd_vel`. Se a simulação do
+host estiver rodando no mesmo `ROS_DOMAIN_ID`, o robô simulado passa a receber
+comandos de duas origens. O tópico é válido, os dois publishers estão saudáveis,
+o DDS faz exatamente o que foi mandado — e o robô se move sozinho. Um ensaio de
+marcha em curso é **corrompido, não interrompido**.
+
+→ `scripts/module.sh up` detecta simulação ativa no host e recusa. As saídas
+estão na mensagem de recusa.
+
+### 9. `docker compose exec` não roda o ENTRYPOINT da imagem
+
+```
+$ docker compose exec -T tools bash -lc 'which ros2'
+                      # (nada)
+```
+
+O `entrypoint.sh` é que faz `source` do underlay e do overlay `/ws/install`, e
+`exec` não o executa. `bash -lc` não salva: a imagem `ros` não coloca o setup no
+`.bashrc`.
+
+O que torna isso venenoso é a combinação usual:
+
+```bash
+ros2 topic list 2>/dev/null | grep /demo/ || echo "(nenhum topico visivel)"
+```
+
+O `2>/dev/null` engole `command not found`, e o `||` imprime a **mesma linha**
+que uma falha real de descoberta imprimiria. Isso já fez duas etapas de
+verificação relatarem um problema de DDS que não existia.
+
+→ Sempre `docker compose exec <svc> /usr/local/bin/entrypoint.sh <comando>`.
+E não use `2>/dev/null` em comando de diagnóstico. Com `exec -d`, confirme
+depois que o nó subiu — `-d` esconde todo erro.
+
+### 10. `ROS_NAMESPACE` não funciona no ROS 2
+
+```
+$ ... -e ROS_NAMESPACE=/demo ... printenv ROS_NAMESPACE
+/demo
+$ ros2 run demo_tutorials heartbeat_publisher              → /system/heartbeat
+$ ros2 run ... --ros-args -r __ns:=/demo                   → /demo/system/heartbeat
+```
+
+A variável **está** no ambiente do processo. O ROS 2 a ignora — é um resquício
+de ROS 1.
+
+→ Use `--ros-args -r __ns:=<ns>`. Note que `scripts/env.sh` exporta
+`ROS_NAMESPACE=/demo` como se funcionasse; aquela linha não tem efeito.
+
+### 11. Metade da configuração de DDS falha igual a firewall
+
+Com o módulo configurado certo (multicast off, peers) e um publisher
+**comprovadamente rodando** nele, o host não via nada. Duas causas ao mesmo
+tempo:
+
+| Direção | Por que falhava |
+| --- | --- |
+| host → módulo | O default do CycloneDDS anuncia por **multicast**; o módulo tem `AllowMulticast=false` e nunca escuta. |
+| módulo → host | O módulo manda SPDP unicast para as portas RTPS do host, mas um participante default **não fixa porta determinística** — usa efêmera e conta com multicast para ser achado. Não há porta para mirar. |
+
+Os dois lados precisam de config **casada**: multicast off,
+`ParticipantIndex=auto`, e o outro endereço como `<Peer>`. Configurar só um lado
+produz exatamente o sintoma de firewall bloqueando.
+
+→ `scripts/module.sh sync` renderiza os dois: `module.xml` (vai para o módulo) e
+`docker/cyclonedds/host.rendered.xml` (fica no host, gitignored). Quem publica no
+host precisa apontar `CYCLONEDDS_URI` para o arquivo renderizado —
+`scripts/run_quadruped_sim.sh` **ainda não faz isso**, então o módulo não vê a
+simulação.
+
+---
+
+## 10. O módulo Aquila AM69
+
+Tudo aqui é `arm64` sobre Torizon OS, e **nada gráfico** (regra 1: o AM69 expõe
+só OpenGL ES 3.2 e Vulkan 1.2, então Gazebo e RViz2 ficam no host x86).
+
+A interface é `scripts/module.sh`. Ele resolve os dois endereços em vez de
+adivinhar: `MODULE_IP` por resolução do nome, `HOST_IP` pela **rota até o
+módulo** — pegar o primeiro endereço da primeira interface UP escolheria
+`docker0` ou `tailscale0` no workstation e produziria um peer que ninguém
+alcança.
+
+```bash
+scripts/module.sh inventory   # OS, docker, disco, links — antes de qualquer coisa
+scripts/module.sh sync        # fontes + config renderizada para ~/demo no módulo
+scripts/module.sh build       # constrói as imagens arm64 NO módulo
+scripts/module.sh verify      # 3 etapas: UDP, módulo vê host, host recebe módulo
+scripts/module.sh up          # nav + perception (recusa se houver sim no host)
+scripts/module.sh shell       # shell no container tools
+```
+
+### Por que o build roda no módulo e não sob QEMU
+
+`CLAUDE.md` documenta `docker buildx --platform linux/arm64` a partir do host, e
+esse caminho é o certo quando houver registry e manifest multi-arch. Para
+bring-up não é:
+
+- QEMU arm64 pode nem estar habilitado no workstation (`binfmt_misc` sem handler
+  aarch64, `docker buildx ls` sem `linux/arm64` nas plataformas);
+- o módulo tem 8 × Cortex-A72 e 31 GiB ociosos, e compila `ros2_control` e
+  `unitree_guide_controller` em minutos, não horas;
+- **o workstation é onde os ensaios de marcha rodam.** Eles medem *quando* o robô
+  cai. Um build QEMU satura a CPU e corrompe a medição em vez de só atrasá-la.
+
+O que se perde: imagem local só-arm64, sem manifest multi-arch. E nenhum dos
+dois caminhos mede desempenho (regra 5).
+
+### O que vai para o módulo e o que não vai
+
+`sync` envia `ros2_ws/src`, `docker/entrypoint.sh`, `compose.module.yml` e
+apenas os Dockerfiles de `base`, `nav`, `perception` e `tools`. **`sim/` e
+`viz/` não são enviados** — são OGRE 2. A ausência deles no módulo é parte da
+guarda, junto com a verificação de regra 1 que o `build` roda nas imagens
+prontas (procurando `ogre|gz-rendering|gz-sim|gz-gui|rviz`, e não um `gz`
+genérico: `gz-cmake/math/tools/utils-vendor` entram via `sdformat`, são CPU puro
+e não violam nada).
+
+### Configuração de DDS, renderizada e não commitada
+
+Nenhum endereço entra no git. `sync` renderiza
+`docker/cyclonedds/module.xml` — fixa a interface, injeta
+`<Peer address="${HOST_IP}"/>` — e escreve em `~/demo/cyclonedds/module.xml`,
+validando o XML no fim. O peer `127.0.0.1` continua lá e é *load-bearing*: com
+`AllowMulticast=false`, `nav` e `perception` no módulo não se veem entre si sem
+ele.
+
+Se `ros2 topic list` vier vazio no módulo, confira nesta ordem:
+
+```bash
+ssh torizon@<módulo> 'grep -E "<Peer |<NetworkInterface " ~/demo/cyclonedds/module.xml'
+ssh torizon@<módulo> 'cat ~/demo/.env'          # ROS_DOMAIN_ID igual nos dois lados?
+scripts/module.sh verify                         # etapa 1 separa firewall de DDS
+```
+
+### O que ainda falta para o modo `hil` completo
+
+- **`docker/cyclonedds/host.xml` não lista o peer do módulo** e segue em
+  `autodetermine`. Sem isso o lado host não fecha o par.
+- **F5 continua bloqueada por TF**, não por infraestrutura: a árvore não fecha e
+  não existe frame `odom`. Nav2 sobre pernas não passa o portão de F5 mesmo com o
+  módulo pronto.
 
 ---
 

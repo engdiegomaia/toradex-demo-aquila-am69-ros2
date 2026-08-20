@@ -33,9 +33,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-vision-msgs \
     && rm -rf /var/lib/apt/lists/*
 
+# Must carry the same value as the base build that produced the parent image.
+# This RUN rebuilds the WHOLE workspace, so without it colcon reaches
+# gz_quadruped_hardware and fails against a Gazebo that the module image
+# deliberately does not have (see docker/base/Dockerfile). Empty default keeps
+# amd64/host builds unchanged.
+ARG COLCON_IGNORE_PACKAGES=""
+
 WORKDIR /ws
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && colcon build --symlink-install --event-handlers console_direct+ \
+        ${COLCON_IGNORE_PACKAGES:+--packages-ignore ${COLCON_IGNORE_PACKAGES}} \
     && rm -rf /ws/log \
     && chown -R ubuntu:ubuntu /ws
 

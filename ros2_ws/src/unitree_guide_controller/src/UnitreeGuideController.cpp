@@ -322,6 +322,10 @@ namespace unitree_guide_controller
         gait.weight_moment = declare_vec("balance.weight_moment", gait.weight_moment);
         gait.friction_ratio = auto_declare<double>("balance.friction_ratio", gait.friction_ratio);
 
+        gait.hold_weight_moment_yaw =
+            auto_declare<double>("hold.weight_moment_yaw", gait.hold_weight_moment_yaw);
+        gait.hold_settle_rate = auto_declare<double>("hold.settle_rate", gait.hold_settle_rate);
+
         // WaveGenerator answers a bad period or stance ratio with exit(-1),
         // which takes the whole controller_manager process down -- acceptable
         // for a compiled-in literal, not for a value someone can now type into
@@ -345,13 +349,17 @@ namespace unitree_guide_controller
 
         RCLCPP_INFO(get_node()->get_logger(),
                     "gait params: period=%.3f st_ratio=%.3f height=%.3f "
-                    "k=(%.4f %.4f %.4f) kp_w=%.1f yaw_clamp=%.1f band=%.4f "
-                    "S_moment=(%.0f %.0f %.0f) mu=%.2f",
+                    "k=(%.4f %.4f %.4f) kp_w=%.1f kd_w=(%.1f %.1f %.1f) "
+                    "yaw_clamp=%.1f band=%.4f "
+                    "S_moment=(%.0f %.0f %.0f) mu=%.2f "
+                    "hold=(Syaw %.0f, settle %.3f m/s)",
                     gait.gait_period, gait.gait_stance_ratio, gait.gait_height,
                     gait.k_x, gait.k_y, gait.k_yaw, gait.kp_w,
+                    gait.kd_w(0), gait.kd_w(1), gait.kd_w(2),
                     gait.ang_acc_limit_yaw, gait.reference_band,
                     gait.weight_moment(0), gait.weight_moment(1), gait.weight_moment(2),
-                    gait.friction_ratio);
+                    gait.friction_ratio,
+                    gait.hold_weight_moment_yaw, gait.hold_settle_rate);
     }
 
     std::shared_ptr<FSMState> UnitreeGuideController::getNextState(const FSMStateName stateName) const

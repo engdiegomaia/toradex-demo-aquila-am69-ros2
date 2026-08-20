@@ -1,0 +1,159 @@
+<?xml version="1.0"?>
+<!--
+  Cenario S3 -- corredor com obstaculos, para o lidar.
+
+  Exercita: /demo/scan, e o caminho que a F5 vai usar -- scan -> costmap do Nav2.
+  Nao exercita marcha: o chao e plano de proposito, para que qualquer coisa que
+  apareca nos numeros de marcha seja atribuivel ao mundo anterior e nao a este.
+
+  Paredes de 0,60 m de altura.  O lidar do Go2 fica no corpo, a ~0,33 m do chao,
+  entao 0,60 m garante retorno mesmo com o corpo balancando; uma parede de 0,30 m
+  entra e sai do plano de varredura conforme o tronco oscila e produz um scan
+  intermitente que parece defeito de bridge.
+
+  Corredor de 1,5 m de largura por 7 m de comprimento, com dois obstaculos
+  desalinhados dentro -- largura suficiente para o Nav2 planejar, estreita o
+  bastante para as duas paredes aparecerem no mesmo scan.
+-->
+<sdf version="1.9">
+  <world name="quadruped_corridor">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
+         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
+         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <scene>
+      <ambient>1 1 1 1</ambient>
+      <background>0.3 0.7 0.9 1</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="parede_esq">
+      <static>true</static>
+      <pose>4.0  0.75 0.30 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>7.0 0.1 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>7.0 0.1 0.6</size></box></geometry>
+          <material>
+            <ambient>0.7 0.7 0.75 1</ambient>
+            <diffuse>0.7 0.7 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="parede_dir">
+      <static>true</static>
+      <pose>4.0 -0.75 0.30 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>7.0 0.1 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>7.0 0.1 0.6</size></box></geometry>
+          <material>
+            <ambient>0.7 0.7 0.75 1</ambient>
+            <diffuse>0.7 0.7 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="parede_fundo">
+      <static>true</static>
+      <pose>7.5 0.0 0.30 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.1 1.6 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.1 1.6 0.6</size></box></geometry>
+          <material>
+            <ambient>0.7 0.7 0.75 1</ambient>
+            <diffuse>0.7 0.7 0.75 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="obstaculo_1">
+      <static>true</static>
+      <pose>2.5  0.25 0.30 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><cylinder><radius>0.15</radius><length>0.6</length></cylinder></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><cylinder><radius>0.15</radius><length>0.6</length></cylinder></geometry>
+          <material>
+            <ambient>0.8 0.3 0.2 1</ambient>
+            <diffuse>0.8 0.3 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="obstaculo_2">
+      <static>true</static>
+      <pose>5.0 -0.25 0.30 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><cylinder><radius>0.15</radius><length>0.6</length></cylinder></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><cylinder><radius>0.15</radius><length>0.6</length></cylinder></geometry>
+          <material>
+            <ambient>0.8 0.3 0.2 1</ambient>
+            <diffuse>0.8 0.3 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

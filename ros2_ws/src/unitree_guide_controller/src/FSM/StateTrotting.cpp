@@ -136,6 +136,7 @@ void StateTrotting::run(const rclcpp::Time &/*time*/, const rclcpp::Duration &/*
     getUserCmd();
     // Decide before integrating: a cancelled command must never reach pcd_.
     updateMotionMode();
+    applyHoldYawWeight();
     calcCmd();
 
     if (mode_ != MotionMode::WALK) {
@@ -145,6 +146,11 @@ void StateTrotting::run(const rclcpp::Time &/*time*/, const rclcpp::Duration &/*
         vel_target_.setZero();
         w_cmd_global_.setZero();
         captureBodyReference();
+        // HOLD only: RECOVER re-captures pcd_ every tick by design, and a
+        // settle walking the reference somewhere else would fight that.
+        if (mode_ == MotionMode::HOLD) {
+            settleHoldPosture();
+        }
     }
 
     gait_generator_.setGait(vel_target_.segment(0, 2), w_cmd_global_(2), gait_height_);
@@ -327,6 +333,58 @@ void StateTrotting::captureBodyReference() {
     Rd = rotz(yaw_cmd_);
 
     hold_captured_ = true;
+}
+
+void StateTrotting::applyHoldYawWeight() {
+    // Walking and standing want different weights on the yaw-moment residual,
+    // and each value is harmful in the other regime -- which is why this is
+    // scheduled rather than tuned to one compromise number.
+    //
+    // Walking wants the high weight: dropping it to 100 was measured on the
+    // walk and costs commanded-turn tracking, 85% -> 76%, plus heading drift.
+    // Standing wants the low weight: at 450 the axis sits at the rail on 100%
+    // of ticks chasing an Mz the QP cannot deliver, and the force distribution
+    // it trades away to chase it is the measured mechanism of the long-stop
+    // collapse (docs/results/ml35-f4-parcial.md).  At 100 a 90 s stop that
+    // otherwise fell at 39.4 s stayed up.
+    //
+    // Kept as one scalar on one axis: roll and pitch have authority the yaw
+    // axis does not, so there is no measured reason to reweight them.
+    const double want = mode_ == MotionMode::HOLD
+                            ? params_.hold_weight_moment_yaw
+                            : params_.weight_moment(2);
+    if (want != yaw_weight_applied_) {
+        balance_ctrl_->setYawMomentWeight(want);
+        yaw_weight_applied_ = want;
+    }
+}
+
+void StateTrotting::settleHoldPosture() {
+    if (params_.hold_settle_rate <= 0.0) {
+        return;
+    }
+
+    // Where the trot left the feet is not where the body is.  A stop lands
+    // mid-cycle, so the body parks off the centre of its own support polygon,
+    // and captureBodyReference() then pins the reference to that skewed pose --
+    // the QP holds it there with an asymmetric force distribution, which is the
+    // condition that makes an unreachable yaw moment damaging rather than
+    // merely unmet.  So the parked reference is walked to the centroid of the
+    // feet the robot is actually standing on.
+    //
+    // Rate-limited, and that is the point: pcd_ is what pos_error_ is measured
+    // against, so jumping it by the whole offset would ask the QP for a step in
+    // horizontal force -- Kpp = 70 against the 3 m/s^2 clamp -- instead of a
+    // settle.  This is also why it does not re-capture the body position the
+    // way RECOVER does: that would make the reference follow the body and the
+    // robot would creep, which is the failure captureBodyReference() exists to
+    // prevent.
+    const Vec34 feet = estimator_->getFeetPos();
+    const double step = params_.hold_settle_rate * dt_;
+    for (int axis = 0; axis < 2; ++axis) {
+        const double delta = feet.row(axis).mean() - pcd_(axis);
+        pcd_(axis) += std::clamp(delta, -step, step);
+    }
 }
 
 void StateTrotting::calcCmd() {

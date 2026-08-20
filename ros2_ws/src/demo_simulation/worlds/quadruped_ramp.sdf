@@ -1,0 +1,120 @@
+<?xml version="1.0"?>
+<!--
+  Cenario S1 -- rampa de 6 graus.
+
+  Exercita: equilibrio da QP em inclinacao, o limite de tilt do supervisor
+  (RECOVER acima de 12 graus) e a estimativa de altura do corpo.
+
+  Geometria: caixa de 4 m x 2 m x 0.2 m, inclinada 6 graus, com a
+  BORDA SUPERIOR PROXIMA exatamente em z = 0, x = 1.  Isso e o ponto todo do
+  calculo do pose abaixo: uma caixa simplesmente rotacionada em torno do proprio
+  centro deixa um degrau na entrada, e o robo tropeca nele em vez de subir a
+  rampa -- o teste passaria a medir a transposicao de um degrau, nao a
+  inclinacao.  A extremidade proxima da caixa afunda abaixo do plano do chao de
+  proposito, para nao haver labio nenhum.
+
+  Topo da rampa em x = 4.98 m, z = 0.42 m.
+  A 0,10 m/s o robo leva ~40 s para subir tudo.
+
+  6 graus e deliberadamente modesto: e a primeira inclinacao a medir, nao a
+  ultima.  Suba para 10 e 15 graus DEPOIS de esta passar, uma variavel por
+  corrida.
+
+  O PLATO no topo nao e decoracao.  A primeira versao deste mundo terminava a
+  rampa numa face vertical, e a corrida de 20/08/2026 mostrou o robo subindo os
+  3.98 m com tilt abaixo de 0,5 grau e entao CAINDO de um
+  penhasco de 0.42 m na borda de cima -- tilt 155 graus, 84 RECOVER.  O
+  resultado parecia "nao sobe rampa" e era "nao tem onde chegar".  O plato vai de
+  x = 4.98 ate x = 12, na altura do topo.
+-->
+<sdf version="1.9">
+  <world name="quadruped_ramp">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
+         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
+         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <scene>
+      <ambient>1 1 1 1</ambient>
+      <background>0.3 0.7 0.9 1</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="rampa">
+      <static>true</static>
+      <pose>2.9995 0 0.1096 0 -0.10472 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>4.0 2.0 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>4.0 2.0 0.2</size></box></geometry>
+          <material>
+            <ambient>0.55 0.55 0.6 1</ambient>
+            <diffuse>0.55 0.55 0.6 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="plato">
+      <static>true</static>
+      <pose>8.4890 0 0.3181 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>7.0219 2 0.2</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>7.0219 2 0.2</size></box></geometry>
+          <material>
+            <ambient>0.5 0.55 0.5 1</ambient>
+            <diffuse>0.5 0.55 0.5 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>
