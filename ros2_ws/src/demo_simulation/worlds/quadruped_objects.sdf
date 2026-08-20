@@ -1,0 +1,143 @@
+<?xml version="1.0"?>
+<!--
+  Cenario S4 -- objetos coloridos no campo de visao, para a camera.
+
+  Exercita: /demo/camera/image_raw e /demo/camera/camera_info, e o consumidor
+  desse contrato, demo_perception.
+
+  ATENCAO ao ler qualquer resultado deste cenario: demo_perception hoje e um
+  stub de deteccao SINTETICA e deterministica (CLAUDE.md, contrato de topicos).
+  Ele nao olha a imagem.  Portanto este mundo NAO valida deteccao -- valida que
+  a imagem chega, com a geometria e a taxa certas, e que o contrato
+  /demo/perception/detections continua sendo publicado e consumido.  Confundir
+  as duas coisas e como o stub viraria "visao funcionando" num relatorio.
+
+  Objetos a 1,5 / 3,0 / 4,5 m, em cores saturadas e distintas do chao cinza e do
+  fundo azul, para que a imagem seja inspecionavel a olho e para que uma futura
+  inferencia TIDL tenha alvos separaveis sem precisar de outro mundo.
+-->
+<sdf version="1.9">
+  <world name="quadruped_objects">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
+         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
+         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <scene>
+      <ambient>1 1 1 1</ambient>
+      <background>0.3 0.7 0.9 1</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="caixa_vermelha">
+      <static>true</static>
+      <pose>1.5  0.0  0.15 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.3 0.3 0.3</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.3 0.3 0.3</size></box></geometry>
+          <material>
+            <ambient>0.85 0.15 0.15 1</ambient>
+            <diffuse>0.85 0.15 0.15 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="cilindro_verde">
+      <static>true</static>
+      <pose>3.0  0.45 0.25 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><cylinder><radius>0.18</radius><length>0.5</length></cylinder></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><cylinder><radius>0.18</radius><length>0.5</length></cylinder></geometry>
+          <material>
+            <ambient>0.15 0.75 0.2 1</ambient>
+            <diffuse>0.15 0.75 0.2 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="caixa_azul">
+      <static>true</static>
+      <pose>3.0 -0.55 0.30 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><box><size>0.4 0.4 0.6</size></box></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><box><size>0.4 0.4 0.6</size></box></geometry>
+          <material>
+            <ambient>0.15 0.25 0.85 1</ambient>
+            <diffuse>0.15 0.25 0.85 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="cilindro_amarelo">
+      <static>true</static>
+      <pose>4.5  0.0  0.40 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry><cylinder><radius>0.12</radius><length>0.8</length></cylinder></geometry>
+        </collision>
+        <visual name="visual">
+          <geometry><cylinder><radius>0.12</radius><length>0.8</length></cylinder></geometry>
+          <material>
+            <ambient>0.9 0.8 0.1 1</ambient>
+            <diffuse>0.9 0.8 0.1 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

@@ -4,8 +4,36 @@ Roteiro de operação do spike do quadrúpede em simulação. Tudo aqui roda na
 **workstation x86**, nada no módulo Aquila — Gazebo é OGRE 2 e não pode subir no
 AM69 (ver `CLAUDE.md`, regra 1).
 
-Estado da aplicação em 18/08/2026: o robô caminha e para de forma repetível.
-Evidência em `docs/results/ml35-f4-parcial.md`; contexto de implementação em
+Estado da aplicação em 20/08/2026: o robô **caminha, para e se mantém parado
+de forma repetível**, e roda uma **rotina de exposição em loop** por tempo
+indefinido (§7.3) — 300 s de movimento contínuo sem uma queda. O que era o
+bloqueio de 19/08, a queda em `HOLD` entre ~18 s e ~46 s (Defeito 2, §7.5),
+está fechado.
+
+Em 20/08/2026 a **caminhada reta** foi corrigida: `foot_placement.k_yaw` 0,15 →
+0,25 derrubou o desvio lateral de 1,14–1,56 m para 0,08–0,11 m e a deriva de rumo
+de 35–39° para menos de 1°, com zero quedas e rastreamento de guinada comandada
+subindo de 85% para 99% (`../results/ml35-caminhada-reta.md`).
+
+Ainda em 20/08/2026 a **parada longa foi fechada**: `hold.settle_rate = 0.02`
+reancora a referência de corpo no centroide de apoio durante o `HOLD` e o robô
+passou de colapso em 161,7 s para 180 s de pé com zero `RECOVER`, mantendo os
+três critérios de F4 (`../results/ml35-postura-parada.md`). Baixar o peso de
+momento de guinada na parada foi medido e **rejeitado** — piora.
+
+Dois comportamentos visíveis seguem **abertos**, ambos medidos e nenhum causado
+pelas correções acima:
+
+- **Tremor parado**: ~2,6° de guinada pico a pico, picos de 14 °/s. É anterior;
+  o `k_yaw` já o cortou de 6,1° para 2,3°.
+- **Caranguejo andando**: o rumo fecha em 0,2°, mas o robô escorrega de lado a
+  ~2% da distância de avanço. A causa é o **Defeito 1**: o estimador acredita que
+  andou reto (`estPos` em y ≈ 0) enquanto o `/demo/odom` real mostra 0,10–0,17 m
+  de desvio. Nenhum ganho de marcha corrige — `k_y` foi varrido e refutado.
+  Fechar essa malha é trabalho da navegação por contrato.
+
+Evidência em `docs/results/ml35-f4-parcial.md`; plano e tabela de experimentos em
+`../ml35/plano-movimentacao.md`; contexto de implementação em
 `go2-proximos-passos.md`.
 
 ---
@@ -141,7 +169,11 @@ ros2 topic pub -r 20 /demo/cmd_vel geometry_msgs/msg/Twist "{linear: {y: 0.25}}"
 ros2 topic pub -r 20 /demo/cmd_vel geometry_msgs/msg/Twist "{angular: {z: 0.3}}"
 ```
 
-Guinada comandada **ainda não foi validada** — é item aberto de F4.
+Guinada comandada **funciona, com folga medida**: em 15 s a `w_cmd = 0,10`
+rad/s (`angular.z = 0.2`) o robô entrega 72,7° dos 86° comandados — 85%. Mas o
+eixo de guinada opera cravado no batente do clamp (`yawSat = 100%`, §6): é
+liga-desliga, não regulador. E caminhada **com giro** é o pior caso do Defeito 2
+— é justamente o gatilho usado para reproduzi-lo (§11).
 
 ---
 
@@ -158,7 +190,12 @@ trot supervisor: mode=WALK cmd=(0.1000,0.0000,0.0000) tilt=0.4deg
   posErrXY=0.0071 velErrXY=0.0564 contact=[1 0 0 1]
   estPos=(0.041,0.072,0.334) estVel=(0.071,-0.029) estYaw=-0.0deg
   Mz=5.3/5.2Nm Fz=142/142N footErr=[0.010 0.008 0.008 0.010]
+  yawErr=.../pk...deg dWzPk=... dWzMed=... yawSat=...%
 ```
+
+A última linha é a instrumentação do eixo de guinada, elidida aqui porque não há
+leitura medida dela em caminhada reta — a assinatura que existe é de `HOLD` e
+está mais abaixo.
 
 | campo | o que significa | valor saudável |
 |---|---|---|
@@ -171,13 +208,32 @@ trot supervisor: mode=WALK cmd=(0.1000,0.0000,0.0000) tilt=0.4deg
 | `Mz` | momento de guinada **pedido/realizado** | os dois próximos |
 | `Fz` | força vertical **pedida/realizada** | ~142/142 N |
 | `footErr` | distância de cada pé ao alvo | < 0,02 m e **simétrico** |
+| `yawErr` | erro de guinada **atual/pico da janela** | oscilando em torno de zero |
+| `dWzPk` / `dWzMed` | demanda de aceleração de guinada **antes do clamp**, pico e média da janela | ≪ `yaw_clamp` (10 rad/s²) |
+| `yawSat` | % dos ticks da janela com o eixo no batente | 0 em regime |
+
+Nos campos de guinada, pico e média são **acumulados na janela e zerados a cada
+impressão**. Isso não é detalhe: amostrar um relé de 500 Hz a 4 Hz sem acumular
+é aliasing, e foi o que manteve o defeito invisível. Assinatura medida em
+`HOLD`, momentos antes de uma queda:
+
+```
+yawErr=4.86/pk5.31deg  dWzPk=366.2  dWzMed=287.6  yawSat=100%
+```
+
+Leia isso como três fatos: o erro fica **cravado de um lado** (3,5–5,3°, sem
+cruzar zero) porque `kp_w = 780` contra clamp de 10 rad/s² dá banda proporcional
+de 0,73°; a demanda é 33× o clamp; e o eixo está no batente em 100% dos ticks.
+Não é uma leitura saudável — é o Defeito 2 se formando.
 
 Notas de leitura que custaram caro para descobrir:
 
 - `estPos(2)` fica ~24 mm **abaixo** do real. É viés conhecido e constante
   (`foot_radius = 0.02` contra `feet_h_ = 0` no estimador), não deriva.
-- `Mz` travado em ±5,3 com sinal alternando é o **batente**, não controle. É o
-  teto de guinada do QP neste robô — esperado, não é falha.
+- `Mz` travado em ±5,3 com sinal alternando é o **batente**, não controle. O
+  teto de 5,3 N·m é o do QP neste robô e não é falha em si — mas ficar nele
+  **continuamente**, sem alternar, é: veja `yawSat` acima e §7.5. Levantar o
+  clamp foi medido e é pior (13,2 pedidos, 5,8 entregues, queda em 4 s).
 - `footErr` **assimétrico e constante** é a assinatura do bug de alvo obsoleto
   já corrigido. Se voltar, é regressão.
 
@@ -210,11 +266,52 @@ docker exec aquila-go2 bash -lc '
 Aceitação medida em 18/08/2026: **zero quedas**, `tilt` máximo 1,0° andando e
 0,9° parado, `footErr` de 0,4 a 1,3 cm e simétrico, 3,85 m em 5 ciclos.
 
-O rumo **não** é critério: sem comando de guinada o trote faz passeio aleatório
-por projeto (rumo final de 12° a 43° entre execuções). Fechar essa malha é papel
-do Nav2.
+O rumo **passou a ser critério** em 20/08/2026. Com `k_yaw = 0,25` a deriva
+medida em 5 ciclos é **−0,3°**; a redação anterior desta seção ("passeio aleatório
+por projeto, 12° a 43°") descrevia `k_yaw = 0,15` e não vale mais — o passeio era
+um laço de realimentação positiva na colocação de pé, não uma escolha de projeto
+(`../results/ml35-caminhada-reta.md`). Aceitação: deriva < 5° em 5 ciclos.
 
-### 7.3 Watchdog de comando
+O que continua sendo papel do Nav2 é o rumo **absoluto** entre movimentos:
+`captureBodyReference()` reancora a referência em cada parada, então um desvio já
+acumulado não é recuperado.
+
+### 7.3 Rotina de exposição contínua
+
+O nó `demo_routine` conduz a simulação sozinho, em loop, com ajuste de postura
+entre cada movimento. Roda no host ou no módulo — fala só o contrato público
+`/demo/cmd_vel` e lê `/demo/odom` apenas para saber se o robô está de pé.
+
+```bash
+ros2 launch demo_bringup routine.launch.py
+```
+
+**Nunca rode junto com `nav.launch.py`**: os dois publicam em `/demo/cmd_vel` e
+os comandos se intercalam.
+
+A passada dura 233 s e é fechada por geometria: caixa de quatro lados de 0,8 m
+com giro de 90° no lugar, círculo de raio 1,0 m em quatro arcos de 90°, e o par
+lateral esquerda/direita. Medido: 0,183 m de erro de fechamento por passada,
++23,2° de precessão, raio máximo de 2,18 m em torno do início, zero quedas em
+300 s (`../results/ml35-postura-parada.md`).
+
+O ajuste de postura entre movimentos é **silêncio**, não `Twist` de zeros:
+publicar zeros mantém o comando fresco e o robô nunca chega a `HOLD`. O watchdog
+de 0,3 s (§7.4 abaixo) é o que converte silêncio em parada.
+
+Parâmetros úteis:
+
+```bash
+ros2 launch demo_bringup routine.launch.py settle_s:=8.0 move_s:=6.0 loop:=false
+```
+
+Se a figura transladar em vez de precessar, alguém trocou a coreografia por
+pares de arco com sinal de `wz` invertido — isso não fecha, e o custo medido foi
+1,59 m de deriva por passada.
+
+---
+
+### 7.4 Watchdog de comando
 
 ```bash
 timeout 5s ros2 topic pub -r 20 /demo/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.25}}"
@@ -223,16 +320,57 @@ timeout 5s ros2 topic pub -r 20 /demo/cmd_vel geometry_msgs/msg/Twist "{linear: 
 Aceitação: em até 0,3 s após o `timeout`, o supervisor mostra `mode=HOLD` com
 `cmd=(0.0000,0.0000,0.0000)`. O robô **não** pode continuar andando.
 
-### 7.4 Postura parada prolongada
+### 7.5 Postura parada prolongada — falha conhecida (Defeito 2)
 
-Com o robô já de pé e sem comando, deixe 60 s e verifique:
+**Corrigido em 20/08/2026 por `hold.settle_rate = 0.02`.** O texto abaixo
+descreve a falha porque ela volta assim que esse valor sai do YAML, e porque a
+correção óbvia é a errada.
+
+`captureBodyReference()` congela `pcd_` na posição do corpo do instante da
+parada; os pés seguem escorregando depois disso. A referência congelada fica
+deslocada do centroide de apoio pelo resíduo que a parada carregava, a QP recebe
+um pedido de distribuição de força impossível, o resíduo de momento de guinada
+satura em 100% e o robô dobra. `settleHoldPosture()` caminha `pcd_` de volta ao
+centroide a 0,02 m/s, com limite de taxa para não pedir degrau de força.
+
+| condição | `Syaw` no `HOLD` | `settle_rate` | parada de 180 s | `RECOVER` | `yawSat` |
+|---|---|---|---|---|---|
+| default antigo | 450 | 0 | colapso em 161,7 s | 74 | 100% |
+| só baixar o peso | 100 | 0 | **colapso em 91,1 s** | **357** | 100% |
+| **promovido** | 450 | 0,02 | **180 s de pé** | **0** | 10–66% |
+| ambos | 100 | 0,02 | 180 s de pé | 0 | 54–90% |
+
+Baixar `balance.weight_moment[2]` na parada parece a correção e **não é**:
+antecipou o colapso em 70 s e multiplicou o `RECOVER` por cinco. Amolecer o
+resíduo não remove o pedido de momento, remove o motivo de a QP distribuir força
+contra ele. Não repita isso sozinho.
+
+Sem `settle_rate`, o tempo até a queda escala com o resíduo com que a marcha
+entrou na parada — leia `velErrXY` na primeira linha de `HOLD`:
+
+| `velErrXY` ao entrar em `HOLD` | como se chegou lá | tempo até cair |
+|---|---|---|
+| 0,010 | reto, partida limpa | não caiu em 90 s |
+| 0,020 | reto, após 5 ciclos | 46,1 s |
+| 0,034 | após giro | 17,8 s |
+
+Repetível, não determinístico — por isso uma condição só conta com o gatilho
+fixo de §11, e nunca com n = 1.
+
+Isso também explica por que o critério F4 verde usa paradas de **8 s**: em 8 s só
+se vê o começo do transitório. Inspeção de uma parada curta, que é o critério de
+hoje:
 
 ```bash
 docker logs aquila-go2 2>&1 | grep "mode=HOLD" \
   | sed -E 's/.*tilt=([0-9.]+)deg.*footErr=\[(.*)\]/tilt=\1 err=[\2]/' | tail -20
 ```
 
-Aceitação: `tilt` < 1°, `footErr` simétrico e < 2 cm, nenhum `RECOVER`.
+Aceitação em parada de 8 s: `tilt` < 1°, `footErr` simétrico e < 2 cm, nenhum
+`RECOVER`.
+
+Para exercitar a parada longa de propósito, use `--final-hold` (§11): o harness
+registra a queda em vez de abortar o ensaio.
 
 ---
 
@@ -304,6 +442,15 @@ Cada linha abaixo foi observada e diagnosticada nesta aplicação.
 | anda para trás com comando positivo | QP perseguindo momento que não consegue entregar | `Mz` pedido ≫ realizado |
 | cai no primeiro passo, `footErr` > 30 cm | PD de junta dominando o controlador de força | `calcGain`, deve ser 3,0/2,0 |
 | `tilt` > 12° | supervisor entra em `RECOVER` e cancela o comando | esperado; investigue o que veio antes |
+| tomba parado, 18–46 s depois de a marcha parar | **Defeito 2**: eixo de guinada no batente bombeando resíduo, e o QP trocando distribuição de força para perseguir um `Mz` inalcançável | `yawSat` e `velErrXY` na entrada do `HOLD`; §7.5 |
+| `yawErr` cravado de um lado, sem cruzar zero | banda proporcional de 0,73° — o eixo é relé, não regulador | `trot.kp_w` e `ang_acc_limit_yaw` em `gait_go2.yaml` |
+| `dWzMed` ≈ `dWzPk`, na casa das centenas | termo derivativo lendo vibração de tronco, ~50× a rotação real do corpo | `trot.kd_w`; é o experimento B1c |
+| **anda curvando**, `yawErr` cresce monotonicamente e `Mz` fica cravado no teto | realimentação positiva na colocação de pé: o termo neutro segue a rotação medida e `k_yaw` não a cancela fora do toque do pé | `foot_placement.k_yaw` (≥ 0,25); `../results/ml35-caminhada-reta.md` |
+| tombou com `kd_w` de guinada reduzido | o termo derivativo em 70 é amortecimento necessário na caminhada, não só ruído | resultado negativo já medido; não repetir B1c isolado |
+| tomba parado depois de ~90–160 s, `yawSat` = 100% em toda a janela | referência de corpo congelada fora do centroide de apoio pelo resíduo da parada | `hold.settle_rate`; §7.5 |
+| tomba parado **mais cedo** após baixar o peso de momento de guinada | amolecer o resíduo remove o motivo de a QP distribuir força, não o pedido de momento | resultado negativo já medido; não repetir isolado |
+| **treme parado**, ~2,6° de guinada pico a pico | resíduo do eixo de guinada; anterior ao settle, já reduzido 2,7× pelo `k_yaw` | aberto; amplitude por parada em `../results/ml35-postura-parada.md` |
+| **sai da linha andando com o rumo estável** (caranguejo, ~2% da distância) | **Defeito 1**: o robô rastreia fielmente um estimador que deriva; `k_y` foi varrido e refutado | compare `estPos` do supervisor com o `/demo/odom` real; §8 |
 
 ---
 
@@ -317,6 +464,11 @@ A sintonia do trote não está mais compilada em literais. Ela vive em
 ros2 launch demo_simulation quadruped.launch.py \
   gait_params:=/test/src/demo_simulation/config/minha_varredura.yaml
 ```
+
+O caminho é o de **dentro** do container, e o arquivo tem de existir em
+`ros2_ws/src/demo_simulation/config/` antes de a sim subir — `/proj/src` é
+montado read-only e copiado na partida. Como fazer isso na prática está no fim
+desta seção.
 
 O arquivo **não** vai em `go2_description/config/gazebo.yaml`: aquele pacote é
 vendorizado e o README dele garante que os configs estão intactos byte a byte —
@@ -364,9 +516,21 @@ O que ele faz que a versão manual não fazia:
 | paginação de fases pelo **tempo de simulação**, e as duas bases de tempo na mesma linha do CSV | 8 s de parede só são 8 s de simulação em RTF 1 |
 | para de publicar em vez de publicar zeros | o watchdog da ponte é o mecanismo de parada; publicar zero testa um caminho que o robô nunca percorre |
 | `--v-cmd`/`--w-cmd` em SI, com a conversão de stick aplicada e o excesso recusado | `v_cmd = 0,4 × linear.x`; pedir além do envelope seria clampado em silêncio |
+| `--final-hold N` fica parado N s depois do último ciclo e **registra** a queda em vez de abortar | nesse trecho cair é a medição, não violação de precondição |
 
 Resumo no stderr (comprimento de trajetória, deslocamento líquido, deriva de
 rumo, tilt de pico por fase, RTF); CSV no arquivo.
+
+As linhas de cabeçalho do resumo cobrem **só os ciclos de andar/parar**. O
+`--final-hold` é outro experimento — lá o robô pode cair — e um corpo
+escorregando de costas soma metros de "trajetória" e arrasta a velocidade média:
+com as duas janelas somadas, uma corrida reportou 0,0222 m/s onde o valor correto
+era 0,0629. A parada final aparece em linha própria, numa das duas formas:
+
+```
+final hold     survived 89.9 s standing
+final hold     COLLAPSED at 39.4 s (z <= 0.30 m)
+```
 
 ### Contar `RECOVER` do ensaio, e não da sessão
 
@@ -385,8 +549,54 @@ docker logs aquila-go2 2>&1 | grep mode=RECOVER \
   | awk -v a="$ini" -v b="$fim" -F'[][]' '{t=int($6)} t>=a && t<=b' | wc -l
 ```
 
-Para exercitar o Defeito 2 de propósito, é o contrário: rode o ensaio e **deixe
-o HOLD correr** por 90 s depois do último ciclo, sem publicar nada.
+### Gatilho do Defeito 2 — fixe-o antes de comparar qualquer condição
+
+A primeira linha de base **não reproduziu o defeito**: 3 ciclos a
+`v_cmd = 0,10` seguidos de 90 s de `HOLD` ficaram de pé, com tilt de pico de
+0,23°. Coerente com o mecanismo (o tempo até a queda escala com o resíduo) e
+fatal para a comparação — com n = 1 por condição e um defeito estocástico,
+qualquer "melhora" contra essa base seria indistinguível de sorte.
+
+O gatilho saiu do pior caso documentado, caminhada **com giro**:
+
+```bash
+./scripts/gait_trial.sh /tmp/b0.csv --v-cmd 0.10 --w-cmd 0.10 \
+  --cycles 1 --walk 15 --hold 0 --final-hold 90
+```
+
+Com ele a base cai aos **39,4 s**, dentro da faixa registrada, com
+`yawSat = 100%` constante nas últimas linhas de `HOLD`. Mexer em `--walk`,
+`--w-cmd` ou `--final-hold` muda a probabilidade de queda e invalida a
+comparação: use exatamente este gatilho entre condições.
+
+E ele **não** substitui §7.2. O gatilho mede a parada longa; o critério F4 que os
+quatro experimentos rejeitados quebraram é o roteiro de andar/parar. Uma condição
+só vira default depois de passar nos dois.
+
+### Varredura de uma linha de YAML
+
+O caminho mais curto, que funciona com `run_quadruped_sim.sh` sem alteração:
+edite o valor em `ros2_ws/src/demo_simulation/config/gait_go2.yaml` **no host,
+antes de subir a sim** — o script copia `ros2_ws/src` para dentro do container na
+partida. Confirme com as duas linhas de log acima, rode o gatilho, e desfaça com
+`git checkout` no fim.
+
+> `run_quadruped_sim.sh` aceita **só um caminho de mundo** como `$1`; ele não
+> repassa `gait_params`. `./scripts/run_quadruped_sim.sh gait_params:=/tmp/x.yaml`
+> vira `world:=gait_params:=/tmp/x.yaml` e o Gazebo falha ao carregar o mundo.
+> Para usar um arquivo alternativo por nome, é o `ros2 launch ... gait_params:=`
+> acima, executado dentro do container.
+
+Exemplo com o experimento B1a, baixar só a entrada de guinada do peso de momento
+do QP (`balance.weight_moment: [450, 450, 100]`) — uma linha, sem rebuild.
+Resultado medido, **n = 1**: sobreviveu 89,9 s onde a base caiu aos 39,4 s, zero
+`RECOVER`, `yawSat` de 54–84% em vez de 100% cravado, e caminhada dentro de 3%
+em trajetória, tilt e `z`. O custo caiu na guinada, como previsto: rastreamento
+de 76% contra 85%, e +13,5° de deriva de rumo em 90 s parado.
+
+É **sinal, não conclusão** — n = 1, e o roteiro de §7.2 não foi rodado sob B1a.
+Por isso `gait_go2.yaml` continua em 450. A tabela de experimentos da Fase B
+(B1a, B1b, B1c, B2, B3) está em `../ml35/plano-movimentacao.md`.
 
 ---
 
