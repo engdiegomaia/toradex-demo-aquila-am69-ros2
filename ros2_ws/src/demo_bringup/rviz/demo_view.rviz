@@ -1,27 +1,13 @@
 # RViz2 view for the learn/target demo — x86 host ONLY (never on the module).
 #
-# This is nav2_bringup/rviz/nav2_default_view.rviz with exactly two changes:
+# This is the project RViz view for the quadruped maze on the x86 host:
 #
-#   RobotModel  Enabled: false -> true
-#   TF          Enabled: true  -> false   (+ Show Names/Arrows off)
+#   * Nav2 GoalTool sends a NavigateToPose goal from a click-and-drag.
+#   * TF, the 2D lidar, the full lidar point cloud and the Go2 camera are on.
 #
 # WHY THIS FILE EXISTS
-# Nav2's stock config ships with the RobotModel display DISABLED and the TF
-# display ENABLED with Show Axes + Show Names. On this robot that means RViz
-# draws NO robot body and 33 labelled axis triads (four tower standoffs, four
-# weight blocks, six bumper zones, six OAK-D frames, IMU, wheels, caster)
-# floating around where the robot should be.
-#
-# The result looks exactly like a robot whose parts are separated. It is not:
-# it is a cloud of TF markers with the body switched off. This symptom survives
-# swapping the robot model, re-measuring mesh offsets and welding fixed joints,
-# because none of those touch the RViz config — which is what made it so
-# persistent. Diagnosed by reading the display flags, not the URDF.
-#
-# Tick TF in the sidebar when debugging frames, then untick it.
-#
-# Regenerate from upstream (do not hand-merge a Nav2 bump):
-#   see docs/analise-sensores-navegacao.md
+# The fixed frame is map, supplied by odom_tf as an identity transform for
+# simulation.  This is ground-truth visualization, not a localization result.
 Panels:
   - Class: rviz_common/Displays
     Help Height: 0
@@ -99,49 +85,35 @@ Visualization Manager:
       Value: true
       Visual Enabled: true
     - Class: rviz_default_plugins/TF
-      Enabled: false
+      Enabled: true
       Filter (blacklist): ""
       Filter (whitelist): ""
       Frame Timeout: 15
       Frames:
         All Enabled: false
-        base_footprint:
+        base:
           Value: true
-        base_link:
+        trunk:
           Value: true
-        base_scan:
+        lidar:
           Value: true
-        camera_depth_frame:
-          Value: true
-        camera_depth_optical_frame:
-          Value: true
-        camera_link:
-          Value: true
-        camera_rgb_frame:
-          Value: true
-        camera_rgb_optical_frame:
-          Value: true
-        caster_back_left_link:
-          Value: true
-        caster_back_right_link:
+        front_camera:
           Value: true
         imu_link:
           Value: true
         odom:
           Value: true
-        wheel_left_link:
-          Value: true
-        wheel_right_link:
+        map:
           Value: true
       Marker Scale: 1
       Name: TF
-      Show Arrows: false
+      Show Arrows: true
       Show Axes: true
       Show Names: false
       Tree:
         {}
       Update Interval: 0
-      Value: false
+      Value: true
     - Alpha: 1
       Autocompute Intensity Bounds: true
       Autocompute Value Bounds:
@@ -172,7 +144,7 @@ Visualization Manager:
         Filter size: 10
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /scan
+        Value: /demo/scan
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -194,7 +166,7 @@ Visualization Manager:
       Max Intensity: 4096
       Min Color: 0; 0; 0
       Min Intensity: 0
-      Name: Bumper Hit
+      Name: Lidar PointCloud
       Position Transformer: ""
       Selectable: true
       Size (Pixels): 3
@@ -205,7 +177,7 @@ Visualization Manager:
         Durability Policy: Volatile
         History Policy: Keep Last
         Reliability Policy: Best Effort
-        Value: /mobile_base/sensors/bumper_pointcloud
+        Value: /demo/scan_cloud
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -256,7 +228,7 @@ Visualization Manager:
           Class: rviz_default_plugins/Map
           Color Scheme: costmap
           Draw Behind: false
-          Enabled: true
+          Enabled: false
           Name: Global Costmap
           Topic:
             Depth: 1
@@ -492,14 +464,14 @@ Visualization Manager:
           Max Value: 1
           Median window: 5
           Min Value: 0
-          Name: RealsenseCamera
+          Name: Go2Camera
           Normalize Range: true
           Topic:
             Depth: 5
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /intel_realsense_r200_depth/image_raw
+            Value: /demo/camera/image_raw
           Value: true
         - Alpha: 1
           Autocompute Intensity Bounds: true
@@ -530,12 +502,12 @@ Visualization Manager:
             Durability Policy: Volatile
             History Policy: Keep Last
             Reliability Policy: Reliable
-            Value: /intel_realsense_r200_depth/points
+            Value: /demo/camera/points
           Use Fixed Frame: true
           Use rainbow: true
-          Value: true
-      Enabled: false
-      Name: Realsense
+          Value: false
+      Enabled: true
+      Name: Camera and depth sensors
     - Class: rviz_default_plugins/MarkerArray
       Enabled: true
       Name: MarkerArray
