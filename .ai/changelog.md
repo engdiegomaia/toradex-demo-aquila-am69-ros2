@@ -5,6 +5,258 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-21 — A aplicação roda no Aquila AM69; o gargalo é a câmera no Wi-Fi
+
+Nav2 arm64 ativo no módulo, **composto num processo único**, com o simulador no
+host. O módulo deixou de ser o gargalo. O que sobrou é um stream de câmera de
+**74,2 Mbit/s** atravessando o Wi-Fi. Evidência, protocolo e limites em
+`docs/results/ml35-hil-aquila.md`.
+
+### O número que decide, isolado em três passos
+
+| Condição | Módulo | Câmera no fio | Vel. média |
+| --- | --- | --- | --- |
+| host-only, DDS multicast default | parado | não | 0,0720 m/s |
+| host-only, DDS de HIL | parado | não | **0,0725 m/s** |
+| HIL, Nav2 + perception no módulo | ativo | sim | 0,0197 m/s |
+| HIL, só Nav2 no módulo | ativo | não | **0,0427 m/s** |
+
+A configuração de CycloneDDS com `AllowMulticast=false` e peers explícitos **não
+custa nada** (0,0720 vs 0,0725) — hipótese levantada e refutada. Pôr o Nav2 no
+módulo custa 1,7×. Ligar a câmera custa outros **2,2×**, e é o maior fator
+isolado do conjunto. Medido no fio: 640×480 rgb8, 921600 B/quadro, 10,1 Hz.
+
+Não corrigido: trocar o Wi-Fi por Ethernet é mudança de bancada, e reduzir taxa
+ou resolução da câmera muda o que a demo mostra — decisão de produto.
+
+### Composição do Nav2: o container que faltava
+
+`nav_quadruped.launch.py` passou a criar o `nav2_container`
+(`component_container_isolated`) e ligar `use_composition`. Memória do container
+`nav` no módulo **6,89 GiB → 307 MiB**, load average **21,9 → 9,5**, ativação em
+**~10 s**. CPU total **não mudou** (470% → 493%): o custo é de processamento, não
+de multiplicação de processos.
+
+A armadilha fica registrada no próprio launch: ligar `use_composition` sem criar
+o container é falha silenciosa — os nós vão para um container que ninguém criou,
+nada sobe e nada imprime erro.
+
+### Estrangular o `/clock` foi tentado, medido e revertido
+
+O `/clock` sai a ~880 Hz e cada nó com `use_sim_time` o assina. Estrangulado a
+100 Hz, a CPU do container caiu de 470% para **324%** — e a navegação **morreu**:
+0,0039 contra 0,0251 m/s, `cmd_vx` de pico caindo de 0,138 para 0,003, com 180 s
+girando no lugar. Economia de CPU que faz o robô parar de andar não é
+otimização. `clock_throttle.py` fica no pacote com o A/B no cabeçalho, fora do
+caminho default.
+
+### O que trava a navegação, localizado e não corrigido
+
+Em todas as corridas ruins o padrão é `cmd_vx` de **pico normal** (0,10–0,14) e
+**médio quase zero** (0,006–0,008): rajadas curtas, não lentidão. Sondando o
+caminho global com o robô parado nos mesmos 18 s, a largada exige giro parado de
+**~85°** e o MPPI comanda `wz = 0,035` rad/s — **17% do teto de 0,20**, o que
+levaria 42 s para o giro. Impasse estável: o robô não sai, o caminho não muda, o
+comando não cresce.
+
+Descartados por medição: loop de controle atrasado (1 linha `Control loop missed`
+em todos os logs), TF/costmap quebrados (zero extrapolações, costmap com 67%
+livre e custo 0 na célula do robô), `collision_monitor` zerando o comando (nunca
+registrou ação), abortos de `follow_path` (é o `RateController` de 1 Hz da árvore
+preemptando — normal).
+
+### Correções de rumo
+
+- **Uma medida anterior desta sessão está errada** e foi substituída: concluía
+  que parar a perception *piorava* a velocidade (0,0131 vs 0,0202). Foi tomada
+  com treze processos e o módulo saturado. Composto, o efeito inverte e cresce.
+- **O hop do `clock_throttle` não custava velocidade** (0,0202 com, 0,0232 sem —
+  dentro do ruído). Foi retirado por ser intermediário sem função.
+- **`default_server_timeout: 20` ms era curto** para o A72 com peers explícitos:
+  metas falhavam em t=4 s com `Timed out while waiting for action server`. Em
+  200 ms mais `wait_for_service_timeout: 5000`, resolvido.
+
+---
+
+## 2026-08-21 — O robô não estava lento, estava indo de ré: três defeitos de decisão no Nav2
+
+Velocidade média no maze11 **0,0399 → 0,0650 m/s (+63%)**, ré **11–62% → 0%** das
+amostras, eficiência de trajeto **13% → 57%**, e a **primeira meta cumprida** de
+todo o esforço (8 m em 96 s). Zero quedas, zero `RECOVER`, folga de carcaça
+inalterada. Evidência, protocolo e limites em
+`docs/results/ml35-navegacao-maze11.md`.
+
+### O plano previa subir `vx_max`. A medição matou isso antes de gastar corrida
+
+`cmd_vx` pico ficava entre 0,070 e 0,108 contra um teto de **0,15 que nunca era
+alcançado**, e o `cmd_vx` **médio** era ≈ 0 (−0,008 a +0,017) com até 62% das
+amostras negativas: o comando era ruído em torno de zero. Multiplicar o teto de
+uma distribuição centrada em zero não move a média, e a média é o que decide o
+tempo de travessia. `vx_max` ficou em 0,15 nas quatro condições, e o pico subiu
+para 0,130–0,143 sozinho — o teto sempre esteve lá, o controlador é que não usava.
+
+### Defeito 1 — deadlock por ré
+
+`sensor_check.py`, janela de 20 s: `/demo/cmd_vel_si` com `vx < 0` em **100%** das
+amostras e o robô andou **0,00 m em 25 s**. Num corredor de 1,20 m o
+`PathAlignCritic` (peso 14) acha ótimo recuar para realinhar; o robô recua;
+encosta na parede de trás; e ré continua ótima, porque a geometria que a tornou
+ótima não mudou. `PreferForwardCritic` já estava ligado com peso 5,0 e não
+segurou — peso não compete com uma opção que não devia estar no espaço de
+amostragem.
+
+Correção: `vx_min: 0.0` no MPPI e `min_velocity[0]: 0.0` no `velocity_smoother`
+(os dois, senão o smoother corta o teto novo **sem log**). Para corrigir rumo o
+MPPI passa a ter de girar; `wz_max` subiu 0,12 → 0,20, o que só é seguro porque
+`k_yaw` 0,35 tirou o eixo de guinada do batente (`yawSat` pico 90–94% → 64–76%).
+Recuo real continua possível: o `backup` do `behavior_server` publica `cmd_vel`
+direto e não passa por esses limites.
+
+### Defeito 2 — `smoother_server` configurado e nunca invocado
+
+**Nenhum behavior tree que acompanha o Nav2 Jazzy chama `SmoothPath`**
+(`grep -l` em `nav2_bt_navigator/behavior_trees/*.xml`: zero arquivos). O
+`simple_smoother` subia, ficava `active`, e nada nunca lhe mandava trabalho — sem
+erro, sem aviso. Mesma classe do `perception_layer` sem produtor.
+
+Consequência: o NavFn é Dijkstra sobre grade de 0,05 m 8-conexa, o caminho global
+sai em **escada**, e o `PathAlignCritic` cola o robô nessa escada. O robô
+perseguia cada degrau, o que aparece como giro contínuo num corredor reto.
+
+Correção: `demo_navigation/behavior_trees/nav_to_pose_smoothed.xml`. O caminho
+absoluto é injetado por `RewrittenYaml` em `nav_quadruped.launch.py` — a chave
+existe no YAML como placeholder porque o `RewrittenYaml` substitui chave que
+encontra e não acrescenta chave nova, e a reescrita fica no **nosso** launch para
+não tocar o `navigation_launch.py` vendorizado.
+
+### Defeito 3 — NavFn escolhia rota por comprimento, não por folga
+
+Com `inflation_radius: 0.55` num corredor de 1,20 m, a faixa de custo **zero** no
+meio tem 0,10 m; fora dela o custo é plano e o Dijkstra decide pelo comprimento.
+Correção **só no costmap global**: `inflation_radius: 0.85` (> 0,60, a
+meia-largura do corredor) e `cost_scaling_factor: 2.0`, o que dá gradiente
+monotônico até o centro e faz rota apertada custar mais que rota aberta.
+
+Isso **divergiu de propósito** do costmap local (0,55 / 5,0), contra o comentário
+que existia ali pedindo inflação casada. O comentário vale numa direção só:
+global mais conservador que o local é seguro, porque o caminho global cai sempre
+em terreno que o local aceita; o inverso é que produz "plano global que o local
+recusa". O local ficou em 0,55 porque subir a inflação local aproximaria o MPPI
+do campo de custo saturado que trava o otimizador. E a faixa *inscrita*, que o
+planejador trata como obstáculo, vem de `robot_radius` (0,38) e não de
+`inflation_radius`: subir a inflação não fecha corredor nenhum.
+
+### Lidar e odometria: verificados a pedido, e estão sãos
+
+`/demo/odom` vs TF `odom -> base`: erro **0,0000 m**. Taxas: odom 49,8 Hz,
+`scan_cloud` 9,9 Hz com 10240 pontos, `cmd_vel_si` 20,0 Hz. TF fecha nas duas
+arestas. Deriva de odometria está descartada **por construção**, não por medida:
+`/demo/odom` é ground truth do Gazebo. Odometria de perna é F5, e é lá que deriva
+volta a ser risco.
+
+Auto-colisão de lidar foi **investigada e descartada**, depois de um diagnóstico
+errado no caminho: 3086 pontos a menos de 0,383 m com rumo +82,7° ± 2,2° pareciam
+peça do robô, mas o agrupamento mudou de lugar na janela seguinte e os raios
+ajustam `d/cos(θ−θ₀)` de uma parede reta a 0,372 m. O robô estava encostado na
+parede pelo defeito 1, e parede vista de perto por robô parado dá exatamente a
+assinatura de rumo fixo. `scripts/selfhit.py` agora **avisa** quando o robô andou
+menos de 0,15 m na janela, porque nesse caso o teste não separa os dois casos.
+
+### Duas armadilhas de instrumentação, ambas de leitura errada
+
+- **`/local_costmap/costmap` é reescala, não custo bruto.** O `Costmap2DPublisher`
+  mapeia 254 → 100, 253 → **99**, 255 → −1. Comparar com 253 ali nunca casa, e o
+  resultado sai como "nenhuma célula de colisão" num corredor cercado de parede —
+  foi o que minha primeira sonda relatou. Use `costmap_raw` (`nav2_msgs/Costmap`).
+  Com a leitura certa: 63,6% livre, 23,3% colisão, custo 0 na célula do robô, o
+  que **refuta** a hipótese de que o corredor de 1,20 m saturava o costmap.
+- **`spin_once` trata UM item por chamada.** Criar um `TransformListener` junto da
+  inscrição do costmap faz os callbacks de `/tf`, que é de alta taxa, consumirem
+  todas as iterações, e a mensagem latched do costmap nunca é selecionada. O
+  sintoma é "tópico não publica" com o tópico publicando.
+
+### Armadilha de operação: matar o `ros2 launch` deixa os nós vivos
+
+`ros2 launch` é só o pai. `kill` nele órfã os filhos, que seguem segurando índice
+de participante do CycloneDDS, e a subida seguinte do Nav2 morre com
+`rmw_create_node: failed to create domain` em **todos** os nós — mensagem que
+acusa o DDS quando o culpado é a execução anterior. Medido: 31 órfãos de 5
+gerações, 14 falhas de domínio. Um nó isolado ainda criava domínio sem erro, o
+que faz parecer que o DDS está bem; e está. Documentado em
+`docs/guia-operacao.md` §9.12, junto com `pkill -f` casando a própria linha de
+comando de quem chama (matou meu shell duas vezes) e com o truncamento de `comm`
+em 15 caracteres.
+
+### Novas ferramentas
+
+`scripts/sensor_check.py` (taxas, TF vs odom, e a fração de ré no comando),
+`scripts/costmap_probe.py` (perfil de custo transversal, no `costmap_raw`) e
+`scripts/selfhit.py` (auto-colisão por constância de raio). Todas somente
+leitura, todas limpas em `ament_flake8` e `ament_pep257`.
+
+### Não estabelecido
+
+Nada sobre o Aquila AM69. E a folga de carcaça segue em **+6,5 cm**, que não
+folgou com a V3 e é o portão de qualquer aumento futuro de velocidade — ela vem
+de `robot_radius: 0.38` modelar o tronco de 0,70 × 0,31 m como círculo, quando
+lateralmente o robô precisa de 0,155 m. A correção estrutural é footprint
+poligonal com `consider_footprint: true`, fora do escopo desta fase.
+
+---
+
+## 2026-08-21 — S6 passa para o `maze11`, e a geometria de mundo vira medição
+
+Cenário S6 trocado de `maze10` para **`maze11`**, com a partida no **canto
+inferior direito** para que a demonstração comece numa ponta e atravesse o
+labirinto inteiro. Evidência em `docs/results/ml35-labirinto.md`.
+
+**O achado que tornou a troca barata:** `maze11` é geometricamente gêmeo do
+`maze10`. Mesmo passo de célula (600 unidades brutas de STL), então na escala
+0,002 os dois têm **corredor de 1,20 m e parede de 0,60 m** — os dois números
+que dimensionaram a escala do `maze10`. A área navegável quase dobra, de 18,4
+para **35,4 m²**, num único componente conectado. Nada de escala,
+`robot_radius`, `inflation_radius` ou costmap precisou ser reajustado.
+
+`scripts/maze_fit.py` — a medição virou script, como a Fase A fez com o ensaio
+de marcha. Rasteriza as faces horizontais do STL (que são o topo e a base das
+caixas de parede, logo a pegada), roda transformada de distância contra o raio
+circunscrito do tronco, e devolve veredito, `<pose>`, `yaw:=` e metas em centro
+de corredor. Reproduz os números do `maze10` já commitados.
+
+**A pose sozinha não bastava.** No canto inferior direito a pista livre em `+x`
+é de **16 cm**, e o robô nasce olhando para `+x`. Nascer de cara na parede
+obriga a girar parado, que é o que este robô faz pior (teto de guinada de
+~0,13 rad/s, eixo no batente). Então o mundo passou a **declarar o próprio yaw
+de nascimento**, numa linha `go2_spawn_yaw`, e `run_quadruped_sim.sh` a lê e
+passa como `yaw:=`. O número fica ao lado da geometria que o justifica, e não
+há nada a lembrar na linha de comando.
+
+`scripts/nav_trial.py` — ensaio de navegação por metas que **nunca publica
+`/demo/cmd_vel`**, então pode medir com o Nav2 no comando. Mede velocidade
+**média** (o pico já era conhecido e não é o que se sente), folga mínima pelo
+lidar, e dobra as estatísticas do supervisor de marcha lidas do log do
+container, casando pela posição no arquivo e não por timestamp.
+
+Portão de F1 batido e medido: mundo carrega, malha resolve (0 falhas), robô de
+pé, yaw **90,0°**, folga prevista 0,55 m contra `min` do lidar **0,55 m**,
+**2581 pontos de obstáculo** na nuvem, `scenario_check` `PASSOU: 0 problema(s)`,
+**RTF 1,000** — os 284 triângulos de colisão contra os 156 do `maze10` não
+custaram tempo real, então comparações de marcha feitas aqui seguem válidas.
+
+Três correções de passagem: o guard de `MAZE_MODELS` estava preso ao nome
+literal `quadruped_maze.sdf` e deixaria cada labirinto novo reintroduzir a mesma
+falha silenciosa (agora casa `quadruped_maze*.sdf`); `maze_nav_rviz.launch.py`
+deixava `colcon test` de `demo_bringup` vermelho num `D213`; e o cabeçalho do
+`quadruped_maze.sdf` apontava para `docs/results/ml35-labirinto.md` e para uma
+tabela de poses no guia S6, **nenhuma das duas existindo** até aqui.
+
+Registrado e não corrigido: `quadruped_maze.sdf` não é XML bem-formado —
+comentário XML não aceita hífen duplo, e o cabeçalho dele usa. O TinyXML2 do
+Gazebo tolera, e toda a evidência de S6 saiu dele. O arquivo novo é
+bem-formado.
+
+---
+
 ## 2026-08-19 — ML3.5 F4: sintonia da marcha vira parâmetro, ensaio vira script
 
 Fase A do `docs/ml35/plano-movimentacao.md`. **Portão batido** — evidência em

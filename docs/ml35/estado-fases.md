@@ -28,7 +28,7 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | 🟡 **em andamento** | marcha ativa, trote dinâmico ainda cai |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 20/08/2026 | Nav2 planeja e desvia; ver abaixo |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 21/08/2026 | HIL de pé no Aquila AM69, Nav2 composto; gargalo = câmera no Wi-Fi |
 | **F6** | Fallback selecionável e testes | ⬜ | — |
 
 **Decisão tomada: alvo trocado de A1 para Go2** (ver "F2 — verificação
@@ -41,6 +41,71 @@ evidências, falha de sintonia e próximos passos em
 
 Plano de movimentação vigente: **`docs/ml35/plano-movimentacao.md`** (19/08/2026).
 Substitui `plano-proximos-passos.md`, cujas Fases 1-3 já foram executadas.
+
+### 21/08/2026 — qualidade de navegação no maze11 (dentro de F5)
+
+Cenário S6 passou para o **`maze11`**, com partida no canto inferior direito
+(`docs/results/ml35-labirinto.md`). Em seguida, a qualidade de decisão do Nav2
+foi medida e corrigida: **0,0399 → 0,0650 m/s (+63%)**, ré **11–62% → 0%**,
+eficiência de trajeto **13% → 57%**, e a **primeira meta cumprida** (8 m em 96 s).
+Evidência e limites em **`docs/results/ml35-navegacao-maze11.md`**.
+
+Três defeitos, todos de decisão e nenhum de sensor:
+
+1. `vx_min: -0.10` produzia **deadlock**: o robô recuava, encostava na parede e ré
+   continuava ótima. Medido em 100% das amostras com o robô parado em 0,00 m.
+   Agora `vx_min: 0.0`, com `wz_max` 0,12 → 0,20 para o giro ser alternativa real.
+2. **Nenhum behavior tree do Nav2 Jazzy chama `SmoothPath`**, então o
+   `smoother_server` estava ativo e ocioso e o MPPI perseguia a escada crua do
+   NavFn. Agora há `demo_navigation/behavior_trees/nav_to_pose_smoothed.xml`.
+3. NavFn escolhia rota por comprimento. Inflação do costmap **global** foi para
+   0,85 / 2,0 — divergindo do local de propósito, no sentido seguro.
+
+Lidar e odometria foram verificados a pedido e **estão sãos** (odom vs TF com erro
+0,0000 m; sem auto-colisão de lidar). Ferramentas novas: `scripts/sensor_check.py`,
+`scripts/costmap_probe.py`, `scripts/selfhit.py`.
+
+**Não fechado:** folga de carcaça segue em **+6,5 cm** e é o portão de qualquer
+aumento futuro de velocidade. Vem de `robot_radius: 0.38` modelar o tronco como
+círculo; a correção é footprint poligonal com `consider_footprint: true`.
+
+### 21/08/2026 — HIL de pé no Aquila AM69 (dentro de F5)
+
+**A aplicação roda no módulo.** Nav2 arm64 ativo no Aquila AM69, composto num
+processo único, simulador no host, enlace DDS bidirecional verificado. Build
+arm64 **nativo no módulo**, regra 1 verificada nas quatro imagens.
+Evidência e limites em **`docs/results/ml35-hil-aquila.md`**.
+
+**O módulo não é o gargalo.** O gargalo é o stream de câmera de **74,2 Mbit/s**
+(640×480 rgb8 a 10,1 Hz, medido no fio) atravessando o Wi-Fi:
+
+| Condição | Módulo | Câmera no fio | Vel. média |
+|---|---|---|---|
+| host-only, DDS multicast default | parado | não | 0,0720 m/s |
+| host-only, DDS de HIL | parado | não | **0,0725 m/s** |
+| HIL, Nav2 + perception | ativo | sim | 0,0197 m/s |
+| HIL, só Nav2 | ativo | não | **0,0427 m/s** |
+
+A configuração de CycloneDDS com peers explícitos **não custa nada** — hipótese
+levantada e refutada. Nav2 no módulo custa 1,7×; a câmera custa outros 2,2×.
+
+**Composição do Nav2**: `nav_quadruped.launch.py` passou a criar o
+`nav2_container`. Memória do container `nav` **6,89 GiB → 307 MiB**, load **21,9
+→ 9,5**, ativação em **~10 s**. CPU total não mudou.
+
+**Estrangular o `/clock` foi tentado, medido e revertido**: a 100 Hz a CPU caiu
+de 470% para 324% e a navegação morreu (0,0039 vs 0,0251 m/s). O nó fica no
+pacote com o A/B no cabeçalho, fora do caminho default.
+
+**Não fechado, localizado:** a razão de trabalho do `cmd_vx` é baixa nas duas
+máquinas — pico normal (0,10–0,14), médio 0,006–0,008. A largada do maze11 exige
+giro parado de ~85° e o MPPI comanda `wz = 0,035` rad/s, 17% do teto. Loop de
+controle, TF, costmap e `collision_monitor` foram descartados por medição.
+Hipótese sem medida: `PathAlignCritic` em 14,0 contra `PathAngleCritic` em 2,0.
+
+**Decisões pendentes do operador:** trocar Wi-Fi por Ethernet (bancada) ou
+reduzir taxa/resolução da câmera em `demo_simulation/urdf/go2_sim.urdf.xacro`
+(muda o que a demo mostra).
 
 **Atenção ao ler aquele plano:** o bloqueador que ele registra — "a árvore TF não
 fecha, não existe frame `odom`" — **foi resolvido em 20/08/2026**. A árvore agora

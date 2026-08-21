@@ -30,7 +30,14 @@ marcha. O S2 é o cenário de referência para trabalhar o estimador.
 | S3 | Corredor | `quadruped_corridor.sdf` | `/demo/scan`, caminho do costmap (F5) | [s3-corredor.md](s3-corredor.md) |
 | S4 | Objetos | `quadruped_objects.sdf` | `/demo/camera/*`, contrato de percepção | [s4-objetos.md](s4-objetos.md) |
 | S5 | Nav2 desviando | `quadruped_objects.sdf` | malha fechada: nuvem → costmap → MPPI → marcha | [s5-nav2-desvio.md](s5-nav2-desvio.md) |
-| S6 | Labirinto interativo | `quadruped_maze.sdf` | metas por clique, TF, lidar e câmera no RViz | [s6-labirinto.md](s6-labirinto.md) |
+| S6 | Labirinto interativo | `quadruped_maze11.sdf` | metas por clique, TF, lidar e câmera no RViz | [s6-labirinto.md](s6-labirinto.md) |
+
+O S6 passou de `maze10` para **`maze11`** em 21/08/2026: mesma largura de
+corredor (1,20 m) e mesma altura de parede (0,60 m), com **35,4 m² navegáveis
+contra 18,4 m²**, num único componente conectado. `quadruped_maze.sdf` (maze10)
+continua na árvore como a referência que produziu a evidência anterior.
+Geometria medida por `scripts/maze_fit.py`, números em
+[`../../results/ml35-labirinto.md`](../../results/ml35-labirinto.md).
 
 ## Como rodar qualquer um
 

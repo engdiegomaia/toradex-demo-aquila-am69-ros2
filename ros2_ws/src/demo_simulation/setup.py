@@ -32,6 +32,9 @@ setup(
             # TROTTING. Lives here, next to Gazebo, because it is part of the
             # plant — nothing outside the sim container knows it exists.
             'twist_to_inputs = demo_simulation.twist_to_inputs:main',
+            # Republica /clock a taxa fixa. Sem ele o clock de 1 kHz do passo
+            # de fisica satura o Aquila AM69 no modo hil.
+            'clock_throttle = demo_simulation.clock_throttle:main',
         ],
     },
 )

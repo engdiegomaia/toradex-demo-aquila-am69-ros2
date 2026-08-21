@@ -1,6 +1,18 @@
 # ROS <-> Gazebo boundary for the Go2 plant (ML3.5 F4).
 # Runs on the x86 host only, in the sim container.
 
+# O bridge publica /clock DIRETO, sem intermediario. Ja foi tentado o contrario
+# -- mandar o clock cru para /demo/clock_raw e republicar por um no Python
+# (`clock_throttle`) para reduzir a carga do Aquila -- e foi revertido em
+# 21/08/2026: estrangular o clock derruba a navegacao (o A/B esta no cabecalho de
+# demo_simulation/clock_throttle.py). Com o hop em passagem direta o custo dele
+# ficou DENTRO do ruido de corrida (0.0202 com hop, 0.0232 sem, na mesma
+# configuracao); foi removido por ser intermediario sem funcao, nao por medida de
+# custo. O no continua no pacote, fora do caminho default.
+#
+# Se voce voltar a apontar isto para /demo/clock_raw sem tambem subir o
+# clock_throttle, nada publica /clock: a simulacao sobe, o robo fica de pe e
+# nenhum no com use_sim_time sai do tempo zero. Nada em log nomeia o relogio.
 - ros_topic_name: "/clock"
   gz_topic_name: "/clock"
   ros_type_name: "rosgraph_msgs/msg/Clock"

@@ -1,0 +1,180 @@
+<?xml version="1.0"?>
+<!--
+  Cenario S6 - labirinto maze11, para a navegacao reativa continua.
+
+  O RACIONAL COMPLETO ESTA EM quadruped_maze.sdf (maze10), e nao e repetido
+  aqui: por que a malha nao e versionada, por que <scale>0.002</scale> e nao
+  0.001, por que este arquivo referencia a malha DIRETO em vez de usar
+  <include>, e por que MAZE_MODELS ausente e uma falha silenciosa.  Leia
+  aquele cabecalho antes de editar este arquivo.
+
+  Como executar:
+
+      export MAZE_MODELS=/caminho/para/ros_maze_worlds/models
+      ./scripts/run_quadruped_sim.sh quadruped_maze11.sdf
+
+  ==================== por que 0.002 vale igual no maze11 ====================
+
+  Medido em 21/08/2026 rasterizando as faces horizontais dos dois STL (que sao
+  o topo e a base das caixas de parede, logo a pegada) e rodando transformada
+  de distancia contra o raio circunscrito do tronco do Go2, 0.383 m.  Numeros e
+  metodo reproduzivel em docs/results/ml35-labirinto.md.
+
+                                maze10 @0.002   maze11 @0.002
+    pegada                      8.40 x 8.40 m   11.60 x 11.60 m
+    corredor (mediana)          1.20 m          1.20 m
+    altura da parede            0.60 m          0.60 m
+    margem por lado             21.7 cm         21.7 cm
+    area navegavel (R=0.383)    18.4 m2         35.4 m2
+    componentes conectados      1               1
+
+  O maze11 tem o MESMO passo de celula do maze10 (600 unidades brutas de STL);
+  o que muda e o tamanho da grade, 5800 contra 4200.  Por isso os dois
+  criterios que dimensionaram a escala do maze10 valem verbatim:
+
+  1. corredor de 1.20 m contra os 0.77 m que o tronco precisa para passar;
+  2. parede de 0.60 m contra o lidar L1 assentado a ~0.306 m do chao - parede
+     na altura do plano de varredura entra e sai do scan conforme o tronco
+     oscila, e isso parece defeito de bridge.
+
+  NAO reajuste escala, robot_radius, inflation_radius nem o costmap ao trocar
+  de maze10 para maze11.  A geometria que esses parametros enxergam e a mesma.
+
+  ==================== a pose, medida e nao herdada ====================
+
+  A pose do maze10 (-2.670 3.061) NAO serve aqui: reaproveitar pose entre
+  labirintos coloca o robo dentro de uma parede.  Esta foi medida por
+  scripts/maze_fit.py, no modo de partida "se", com quatro metas pedidas.  A
+  linha de comando exata esta em docs/guides/cenarios/s6-labirinto.md (nao cabe
+  aqui: comentario XML nao aceita hifen duplo, que e o prefixo dos flags).
+
+  A partida e o CANTO INFERIOR DIREITO do labirinto, para que a demonstracao
+  comece numa ponta e atravesse tudo, em vez de nascer no meio.  A celula sai
+  do conjunto com folga >= 0.55 m, ou seja centro de corredor.
+
+    robo nasce em (0,0)  ->  folga lateral 0.55 m
+    componente navegavel, em coordenadas do ROBO:
+        x[-9.87 ... +0.16]   y[-0.94 ... +9.87]
+
+  ==================== POR QUE ESTE MUNDO EXIGE yaw:=1.5708 ==================
+
+  O robo nasce olhando para +x, e a primeira coisa que ele faz e andar para
+  frente.  No canto inferior direito a pista livre medida e:
+
+      +y = 3.47 m     -x = 3.47 m     +x = 0.16 m     -y = 0.16 m
+
+  Ou seja +x e parede a 16 cm.  Nascer com yaw 0 aqui poe o robo de cara na
+  parede, e sair dessa situacao exige girar parado - exatamente o que este
+  robo faz pior, com teto de guinada de ~0.13 rad/s e o eixo no batente.
+
+  Portanto este mundo declara o proprio yaw, na linha `go2_spawn_yaw` logo
+  abaixo deste comentario.  `run_quadruped_sim.sh` le essa linha e passa o valor
+  como `yaw:=` para o launch - nao ha nada a lembrar na linha de comando, e o
+  numero fica ao lado da geometria que o justifica.  `GO2_SPAWN_YAW=<rad>`
+  sobrepoe, para experimentar outro rumo sem editar o mundo.
+
+  O `map` continua alinhado com o mundo do Gazebo (odom_tf publica
+  map -> odom identidade), logo as metas em coordenadas do robo abaixo seguem
+  valendo com qualquer yaw de nascimento.
+
+  Metas de patrulha medidas junto com a pose, em coordenadas do robo:
+
+      (0.00, 8.00)  (-8.00, 0.00)  (-1.60, 1.60)  (-5.83, 4.91)
+
+  Todas dentro de MAX_GOAL_RADIUS_M = 8.0, que e o raio que patrol_commander
+  aceita - meta alem disso e REJEITADA na entrada, e a extensao acima passa
+  desse raio nas duas pontas.
+
+  rpy do labirinto fica 0 0 0.  Os STL dos labirintos 8 a 11 ja estao com Z
+  para cima (os de 1 a 7 precisam de roll 1.5708), e maze11 esta nessa faixa.
+-->
+<!-- go2_spawn_yaw: 1.5708 -->
+<sdf version="1.9">
+  <world name="quadruped_maze11">
+    <physics name="1ms" type="ignored">
+      <max_step_size>0.001</max_step_size>
+      <real_time_factor>1.0</real_time_factor>
+    </physics>
+
+    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
+         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
+         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics"/>
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands"/>
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster"/>
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
+    <plugin filename="gz-sim-contact-system"
+            name="gz::sim::systems::Contact"/>
+
+    <scene>
+      <ambient>1 1 1 1</ambient>
+      <background>0.3 0.7 0.9 1</background>
+      <shadows>false</shadows>
+    </scene>
+
+    <light type="directional" name="sun">
+      <pose>0 0 10 0 0 0</pose>
+      <diffuse>0.8 0.8 0.8 1</diffuse>
+      <specular>0.2 0.2 0.2 1</specular>
+      <direction>-0.5 0.1 -0.9</direction>
+    </light>
+
+    <model name="ground_plane">
+      <static>true</static>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <plane><normal>0 0 1</normal><size>100 100</size></plane>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- maze11 a 2x.  Pegada 11.60 x 11.60 m, corredor 1.20 m, parede 0.40 m
+         de espessura por 0.60 m de altura.  35.4 m2 navegaveis num unico
+         componente conectado.  A translacao poe o robo no canto inferior
+         direito; ver "a pose" no cabecalho, e o yaw obrigatorio. -->
+    <model name="labirinto">
+      <static>true</static>
+      <pose>-11.672 11.649 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <mesh>
+              <scale>0.002 0.002 0.002</scale>
+              <uri>model://maze11/meshes/maze11.stl</uri>
+            </mesh>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <mesh>
+              <scale>0.002 0.002 0.002</scale>
+              <uri>model://maze11/meshes/maze11.stl</uri>
+            </mesh>
+          </geometry>
+          <material>
+            <ambient>0.72 0.70 0.66 1</ambient>
+            <diffuse>0.72 0.70 0.66 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+  </world>
+</sdf>

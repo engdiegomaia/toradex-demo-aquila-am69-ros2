@@ -24,6 +24,11 @@ setup(
             glob('launch/nav2_vendored/*_launch.py')
             + glob('launch/nav2_vendored/README.md')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
+        # O behavior tree tem de ser INSTALADO, nao so versionado: o
+        # bt_navigator recebe um caminho absoluto de share/ e, se o arquivo nao
+        # estiver la, ele falha ao carregar a arvore e nenhuma meta e aceita.
+        (os.path.join('share', package_name, 'behavior_trees'),
+            glob('behavior_trees/*.xml')),
         # Both halves of the map must ship: the .yaml references the .pgm.
         (os.path.join('share', package_name, 'maps'),
             glob('maps/*.yaml') + glob('maps/*.pgm')),

@@ -48,7 +48,22 @@ services:
     # /clock over DDS, because Gazebo owns time. A module on wall time while the
     # host runs sim time gives TF extrapolation errors and Nav2 refusing goals,
     # with nothing in the logs pointing at the clock (guia §6).
-    command: ros2 launch demo_bringup nav.launch.py use_sim_time:=true
+    #
+    # `nav_quadruped.launch.py`, NAO `nav.launch.py`. Os dois sobem Nav2 e a
+    # troca e silenciosa: o robo fica de pe e nenhuma meta anda.
+    #
+    #   nav.launch.py           mapa estatico + AMCL, parametros nav2_params.yaml
+    #                           (que sao do TurtleBot 4), robot_base_frame
+    #                           `base_link` -- frame que o URDF do Go2 NAO tem.
+    #   nav_quadruped.launch.py sem mapa e sem AMCL, nav2_params_go2.yaml,
+    #                           robot_base_frame `base`, mais os dois nos que o
+    #                           quadrupede exige: `odom_tf`, que fecha a TF, e
+    #                           `cmd_vel_si_to_stick`, que converte SI para
+    #                           manche -- sem ele o robo anda a 40% do pedido.
+    #
+    # Este launch e tambem quem carrega a arvore de comportamento com SmoothPath
+    # (ver docs/results/ml35-navegacao-maze11.md).
+    command: ros2 launch demo_bringup nav_quadruped.launch.py use_sim_time:=true
 
   perception:
     <<: *common

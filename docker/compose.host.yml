@@ -33,8 +33,17 @@ x-common: &common
     HOST_IP: ${HOST_IP:-}
     MODULE_IP: ${MODULE_IP:-}
   network_mode: host
+  # host.rendered.xml, NAO host.xml. O arquivo commitado lista apenas
+  # 127.0.0.1 como peer, e com AllowMulticast=false isso da descoberta dentro
+  # do host e NENHUMA descoberta do modulo. O renderizado e gerado por
+  # `scripts/module.sh sync` com o endereco do modulo e a interface deste host,
+  # e nao e versionado -- endereco nao entra em git (convencoes do CLAUDE.md).
+  #
+  # Se o arquivo nao existir, o Compose cria um DIRETORIO com esse nome no lugar
+  # do bind mount e o CycloneDDS falha ao ler a config. Rode `module.sh sync`
+  # antes do primeiro `up`.
   volumes:
-    - ./cyclonedds/host.xml:/cfg/cyclonedds.xml:ro
+    - ./cyclonedds/host.rendered.xml:/cfg/cyclonedds.xml:ro
 
 services:
   # --- Plant: Gazebo + robot + bridge --------------------------------------
@@ -60,7 +69,7 @@ services:
       # as a blank Gazebo window rather than an error.
       QT_X11_NO_MITSHM: 1
     volumes:
-      - ./cyclonedds/host.xml:/cfg/cyclonedds.xml:ro
+      - ./cyclonedds/host.rendered.xml:/cfg/cyclonedds.xml:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
     # Intel/AMD: /dev/dri is enough. For NVIDIA, remove this and use
     # `gpus: all` with the nvidia-container-toolkit installed (guia §6).
@@ -147,7 +156,7 @@ services:
       DISPLAY: ${DISPLAY:-:0}
       QT_X11_NO_MITSHM: 1
     volumes:
-      - ./cyclonedds/host.xml:/cfg/cyclonedds.xml:ro
+      - ./cyclonedds/host.rendered.xml:/cfg/cyclonedds.xml:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
     devices:
       - /dev/dri:/dev/dri

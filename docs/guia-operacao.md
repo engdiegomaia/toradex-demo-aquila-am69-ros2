@@ -553,6 +553,150 @@ host precisa apontar `CYCLONEDDS_URI` para o arquivo renderizado —
 `scripts/run_quadruped_sim.sh` **ainda não faz isso**, então o módulo não vê a
 simulação.
 
+### 12. Matar o `ros2 launch` deixa os nós vivos, e o próximo Nav2 morre acusando o DDS
+
+Sintoma: você reinicia o Nav2 e **todos** os nós morrem na subida, cada um com
+
+```
+[rmw_cyclonedds_cpp]: rmw_create_node: failed to create domain, error Error
+terminate called after throwing an instance of 'rclcpp::exceptions::RCLError'
+  what():  failed to initialize rcl node: error not set, at ./src/rcl/node.c:252
+```
+
+e o `lifecycle_manager` fica para sempre em `Waiting for service
+controller_server/get_state...`.
+
+A mensagem acusa o CycloneDDS. O culpado é a execução **anterior**.
+`ros2 launch` é só o pai: um `kill` nele **órfã os nós filhos**, que seguem
+vivos segurando índice de participante do domínio. Medido em 21/08/2026:
+31 órfãos acumulados de 5 gerações de launch, 14 falhas de domínio na subida
+seguinte. Um nó isolado ainda criava domínio sem erro, o que faz parecer que o
+DDS está bem — e está; o que acabou foi o espaço de índice.
+
+Como confirmar, antes de mexer em configuração de DDS:
+
+```bash
+ps -eo pid,etimes,comm --no-headers | grep -E \
+  'odom_tf|controller_serv|bt_navigator|behavior_server|route_server'
+```
+
+Se aparecerem PIDs com `etimes` maior que a sua sessão atual, são órfãos.
+
+Como limpar. Use `pkill -x`, que casa o **nome** do processo, e não `pkill -f`:
+
+```bash
+for n in odom_tf cmd_vel_si_to_s velocity_smooth waypoint_follow \
+         behavior_server smoother_server route_server opennav_docking \
+         controller_serv planner_server bt_navigator collision_monit \
+         lifecycle_manag; do pkill -9 -x "$n"; done
+```
+
+Dois detalhes que custam tempo sozinhos:
+
+- **`pkill -f` casa a própria linha de comando de quem chama.** `pkill -f nav2`
+  digitado num shell cujo comando contém `nav2` mata o shell. Aconteceu duas
+  vezes aqui, e o sintoma é o comando "falhar" sem imprimir nada. `-x` não tem
+  esse problema. Se precisar de `-f`, escreva o padrão com classe de caractere:
+  `pkill -f '[n]av2'`.
+- **Os nomes em `-x` são truncados em 15 caracteres**, que é o limite de `comm`
+  no Linux: é `collision_monit`, não `collision_monitor`.
+
+### 13. No modo HIL o robô fica lento e a culpa não é do Aquila
+
+O sintoma: em `hil` o robô navega muito mais devagar que em `learn`, e a
+tentação é dizer que o AM69 é fraco. Medido em 21/08/2026, **não é**.
+
+O que atravessa o Wi-Fi é que pesa. O maior item, medido no fio:
+
+```
+/demo/camera/image_raw: 640x480 rgb8, 921600 bytes/quadro, 10,1 Hz
+                        -> 74,2 Mbit/s
+```
+
+É `sensor_msgs/Image` **cru**, sem compressão, com QoS confiável — cada perda
+vira retransmissão, e retransmissão vira contrapressão no publicador **dentro do
+simulador**. Por isso o efeito aparece na velocidade do robô e não num erro de
+rede. Nada em log nomeia a câmera.
+
+Subindo só `nav` no módulo, sem `perception`, ninguém assina a câmera, o
+CycloneDDS não a transmite, e a velocidade média sobe 2,2× (0,0197 → 0,0427
+m/s). Com o módulo inteiro parado, 0,0725 m/s.
+
+Como conferir antes de culpar o hardware:
+
+```bash
+# banda real do tópico, do lado do host
+python3 - <<'EOF'
+import time, rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+rclpy.init(); n = Node('cam'); got = []
+n.create_subscription(Image, '/demo/camera/image_raw',
+                      lambda m: got.append(len(m.data)), 10)
+t = time.monotonic()
+while time.monotonic() - t < 10: rclpy.spin_once(n, timeout_sec=0.1)
+print('%.1f Mbit/s' % (sum(got) * 8 / 1e6 / (time.monotonic() - t)))
+EOF
+```
+
+E **não** use `ros2 topic hz` para isso: nesta configuração de DDS ele volta sem
+imprimir nada, em qualquer tópico, o que parece tópico morto.
+
+Medido em 21/08/2026 com o host em Wi-Fi: a câmera **não chegava ao módulo**.
+Uma sonda dentro do `demo-tools-1` ficou 30 s sem receber um único quadro, e o
+`detection_stub` — que está inscrito e vivo — publicava **zero** detecções. O
+enlace não carrega o stream; o que custa os 2,2× é a *tentativa*, com o
+publicador do simulador insistindo em entregar 74 Mbit/s confiáveis a um leitor
+remoto que não acompanha.
+
+### Trocar o host para Ethernet
+
+O módulo **já está em Ethernet**: `ethernet0` UP, 1000 Mbit/s full duplex, rota
+default por ela, `wlan0` DOWN. Quem fica em Wi-Fi é o host.
+
+1. Ligue um cabo na `enp0s31f6` do host, no **mesmo switch/roteador** do módulo
+   (rede `192.168.15.0/24`). Cabo direto host↔módulo não serve: o módulo pega
+   endereço por DHCP de `192.168.15.1` e perderia a rede.
+2. Confirme que a rota mudou:
+
+   ```bash
+   ip -br addr show enp0s31f6          # tem de sair de NO-CARRIER
+   ip route get 192.168.15.122         # tem de dizer "dev enp0s31f6"
+   ```
+
+3. **Re-renderize a configuração de DDS.** Este é o passo que se esquece:
+
+   ```bash
+   ./scripts/module.sh sync
+   ```
+
+   O `sync` deriva a interface de `ip route get`, então ele passa a fixar a
+   Ethernet nos dois lados. Sem isso o `host.rendered.xml` continua fixando o
+   Wi-Fi, o CycloneDDS transmite num endereço que o módulo não responde, e o
+   sintoma é idêntico a firewall. O `run_quadruped_sim.sh` avisa quando os dois
+   divergem — leia a linha `DDS:` na subida.
+
+4. Reinicie simulador e containers do módulo e repita o ensaio.
+
+Se a Ethernet não for possível, os outros caminhos são reduzir taxa ou resolução
+em `demo_simulation/urdf/go2_sim.urdf.xacro` (muda o que a demo mostra) ou
+`image_transport` comprimido. Detalhe em `docs/results/ml35-hil-aquila.md`.
+
+### 14. `use_composition` sem container é falha 100% silenciosa
+
+`navigation_launch.py` com composição usa `LoadComposableNodes` para carregar os
+servidores dentro de `/nav2_container`, mas **não cria** esse container — quem o
+cria upstream é `bringup_launch.py`, que este projeto não inclui.
+
+Ligar `use_composition: 'True'` sem criar o container carrega os nós num
+container que ninguém criou: **nada sobe e nada imprime erro**. O log do launch
+termina em `wait_for_clock` e `odom_tf` e para ali. O sintoma legível é "o Nav2
+não ativou", que não aponta para este parâmetro.
+
+O container está criado em `nav_quadruped.launch.py`, no bloco `nav2_container`,
+com o nome casando o default do argumento `container_name` do launch vendorizado.
+Se um dos dois nomes mudar, volta a falhar assim.
+
 ---
 
 ## 10. O módulo Aquila AM69
