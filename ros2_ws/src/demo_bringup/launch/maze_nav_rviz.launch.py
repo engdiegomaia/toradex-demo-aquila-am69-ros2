@@ -1,4 +1,5 @@
-"""Interactive quadruped navigation: Nav2 plus RViz click-to-goal view.
+"""
+Interactive quadruped navigation: Nav2 plus RViz click-to-goal view.
 
 The Gazebo plant runs separately in ``run_quadruped_sim.sh``.  This launch is
 host-side and starts the TF/odometry bridge, Nav2 and RViz with the Go2 sensor

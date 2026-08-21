@@ -209,8 +209,45 @@ bt_navigator:
     robot_base_frame: base
     odom_topic: /demo/odom
     bt_loop_duration: 10
-    default_server_timeout: 20
+    # ============ MEDIDO NO AQUILA AM69, NAO NO HOST (21/08/2026) ============
+    #
+    # 20 ms e o default do Nav2 e funciona no host x86. No modulo NAO funciona, e
+    # a falha nao se parece com timeout: toda meta e ACEITA e falha em 4-9 s, e o
+    # robo nao sai do lugar. O que o log do modulo diz e:
+    #
+    #   Timed out while waiting for action server to acknowledge goal request
+    #     for compute_path_to_pose
+    #   Timed out while waiting for action server to acknowledge goal request
+    #     for smooth_path
+    #   Failed to cancel action server for follow_path
+    #
+    # O `bt_navigator` nao alcanca os PROPRIOS servidores irmaos, todos no mesmo
+    # container, na mesma maquina. Nao e rede entre host e modulo: e o custo de
+    # ida e volta de uma action do rclcpp num Cortex-A72 com CycloneDDS em
+    # AllowMulticast=false e peers explicitos, que passa dos 20 ms.
+    #
+    # Isto e observacao de LATENCIA em hardware real, o que a regra 5 permite --
+    # ela proibe concluir desempenho a partir de EMULACAO. Nao extrapole daqui
+    # para outro modulo nem para outra configuracao de DDS.
+    #
+    # 200 ms da uma ordem de grandeza de margem e nao atrasa nada em regime: e
+    # prazo de espera, nao periodo. O `bt_loop_duration` de 10 ms nao muda.
+    default_server_timeout: 200
+    # Descoberta inicial de servico. O default de 1000 ms conta com todos os
+    # servidores ja no ar; no modulo os 13 processos do Nav2 sobem juntos e
+    # concorrem por 8 nucleos, e quem tenta primeiro pode nao achar o vizinho.
+    wait_for_service_timeout: 5000
     navigators: ["navigate_to_pose", "navigate_through_poses"]
+    # Arvore com SmoothPath. O valor aqui e PLACEHOLDER: `nav_quadruped.launch.py`
+    # reescreve esta chave com o caminho absoluto em share/, via RewrittenYaml.
+    # A chave precisa EXISTIR neste arquivo para ser reescrita -- o RewrittenYaml
+    # do nav2_common substitui chave que encontra, e nao acrescenta chave nova.
+    #
+    # Nenhuma arvore que acompanha o Nav2 Jazzy chama SmoothPath, entao sem esta
+    # troca o `smoother_server` abaixo fica ativo e ocioso, e o MPPI persegue a
+    # escada crua do NavFn. Ver o cabecalho de behavior_trees/
+    # nav_to_pose_smoothed.xml.
+    default_nav_to_pose_bt_xml: "SUBSTITUIDO_PELO_LAUNCH"
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
     navigate_through_poses:
@@ -322,14 +359,47 @@ controller_server:
       # but not so wide that most samples are immediately rejected as invalid.
       vx_std: 0.06
       vy_std: 0.0
-      wz_std: 0.05
+      # 0.08, subido de 0.05 junto com wz_max abaixo. Rotacao so e alternativa
+      # real a re se o amostrador de fato a explorar: com wz_std 0.05 contra um
+      # wz_max de 0.20, a nuvem de amostras quase nao alcanca o teto novo.
+      wz_std: 0.08
       # HARD CEILING: upstream's DiffDrive plugin clamps to 0.5 m/s and
       # 2.0 rad/s. Raising these makes MPPI plan trajectories the simulator
       # silently refuses to execute, which looks like a tracking bug.
       vx_max: 0.15
-      vx_min: -0.10
+      #
+      # ======================= POR QUE vx_min E ZERO =======================
+      #
+      # Era -0.10, e isso produzia DEADLOCK, medido no maze11 em 21/08/2026.
+      #
+      # A cadeia: num corredor de 1.20 m o PathAlignCritic (peso 14, o maior)
+      # acha otimo recuar para realinhar; o robo recua; encosta na parede de
+      # tras; e re CONTINUA otima, porque a geometria que a tornou otima nao
+      # mudou. O robo fica comandando re contra a parede indefinidamente.
+      #
+      # Medido com sensor_check.py, janela de 20 s: `/demo/cmd_vel_si` com
+      # vx < 0 em 100% das amostras, e o robo andou 0.00 m em 25 s. Nas
+      # corridas de 180 s antes disso, 11% a 62% das amostras eram negativas e
+      # a MEDIA do comando era ~zero (-0.011 a +0.017 m/s).
+      #
+      # Nao foi sensor. Na mesma janela: odom identico a TF (erro 0.0000 m),
+      # scan_cloud a 9.9 Hz, odom a 49.8 Hz, e os retornos proximos ajustam
+      # d/cos(theta-theta0) de uma parede reta a 0.372 m -- sem auto-colisao do
+      # lidar. O defeito era de DECISAO, e a decisao errada so existia porque
+      # havia re para amostrar.
+      #
+      # Com 0.0 o MPPI nao consegue amostrar re: para corrigir rumo ele precisa
+      # GIRAR, que e o que este robo deve fazer. Recuo de verdade continua
+      # possivel -- o `backup` do behavior_server publica cmd_vel direto e nao
+      # passa por estes limites -- entao beco sem saida ainda tem saida.
+      vx_min: 0.0
       vy_max: 0.0
-      wz_max: 0.12
+      # 0.20, subido de 0.12. O 0.12 foi dimensionado com k_yaw = 0.25, quando o
+      # eixo de guinada vivia no batente (yawSat de pico 90-94%). Com k_yaw 0.35
+      # o pico medido caiu para 70%, ou seja apareceu folga -- e proibir re sem
+      # dar autoridade de giro troca um travamento por outro. Continua muito
+      # abaixo do clamp de 2.0 rad/s do plugin.
+      wz_max: 0.20
       ax_max: 0.5
       ax_min: -0.5
       az_max: 0.8
@@ -620,12 +690,37 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Must match the local costmap. Divergent inflation between the two is a
-        # classic source of "the global plan goes somewhere the local planner
-        # refuses to follow": the global planner routes through a corridor the
-        # local costmap considers blocked, and the robot stalls mid-aisle.
-        cost_scaling_factor: 5.0
-        inflation_radius: 0.55
+        # Divergent inflation between the two costmaps e um classico de "o plano
+        # global vai onde o local se recusa a seguir": o planejador roteia por um
+        # corredor que o costmap local considera bloqueado, e o robo empaca no
+        # meio do vao.
+        #
+        # ISSO VALE NUMA DIRECAO SO, e e por isso que estes valores agora
+        # DIVERGEM de proposito do local (0.55 / 5.0):
+        #
+        #   global MAIS conservador que o local  -> seguro. O caminho global cai
+        #     sempre em terreno que o local aceita. E o caso aqui.
+        #   global MENOS conservador que o local -> o defeito descrito acima.
+        #
+        # POR QUE DIVERGIR: e assim que "priorize a rota com mais espaco livre"
+        # se expressa com NavFn, que e Dijkstra puro sobre o custo do costmap e
+        # nao tem termo proprio de folga. Com inflation_radius 0.55 num corredor
+        # de 1.20 m, a faixa de custo ZERO no meio tem 0.10 m (1.20 - 2*0.55):
+        # fora dessa fita o custo e plano, e o Dijkstra escolhe pelo COMPRIMENTO,
+        # ignorando folga. Com 0.85 > 0.60 (meia-largura do corredor) nao existe
+        # mais celula de custo zero no corredor, o gradiente e monotonico ate o
+        # centro, e rota apertada passa a custar mais que rota aberta.
+        #
+        # cost_scaling_factor cai de 5.0 para 2.0 para o gradiente ser suave ao
+        # longo dos 0.85 m; com 5.0 ele decai rapido e volta a ficar quase plano
+        # na metade externa, que e o problema que se esta corrigindo.
+        #
+        # O que NAO muda: a faixa INSCRITA, que e o que o planejador trata como
+        # obstaculo, vem de `robot_radius` (0.38) e nao de inflation_radius.
+        # Subir a inflacao portanto NAO fecha corredor nenhum -- so reordena
+        # preferencia entre rotas que continuam todas viaveis.
+        cost_scaling_factor: 2.0
+        inflation_radius: 0.85
 
       always_send_full_costmap: true
 
@@ -744,8 +839,16 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    max_velocity: [0.15, 0.0, 0.12]
-    min_velocity: [-0.10, 0.0, -0.12]
+    # ESTES TRES TEM DE CASAR COM O MPPI (vx_max/vx_min/wz_max acima). O
+    # smoother e o ULTIMO no caminho antes do collision_monitor: se ele cortar
+    # mais baixo que o MPPI, o corte nao aparece em log nenhum -- o controlador
+    # planeja com um teto e o robo executa outro, e o sintoma e "mudei o
+    # parametro e nada aconteceu".
+    #
+    # min_velocity[0] = 0.0 pelo mesmo motivo que vx_min: sem isto o smoother
+    # ainda deixaria passar re vinda de qualquer outra fonte.
+    max_velocity: [0.15, 0.0, 0.20]
+    min_velocity: [0.0, 0.0, -0.20]
     max_accel: [0.5, 0.0, 0.8]
     max_decel: [-0.5, 0.0, -0.8]
     odom_topic: "/demo/odom"

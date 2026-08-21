@@ -60,11 +60,30 @@ unitree_guide_controller:
     #
     # 0.35 was measured too and holds heading better still (drift 0.1 deg,
     # yawSat 12%), but pushes net forward speed to 137% of commanded, outside
-    # the envelope nav2_params.yaml is sized against. Revisit under phase E.
+    # the envelope nav2_params.yaml is sized against.
+    #
+    # EM ENSAIO SOB F2 (21/08/2026), condicao V1. NAO e resultado fechado.
+    #
+    # A revisita prometida acima e esta. O motivo de subir agora nao e o pico:
+    # medido no maze11 com k_yaw 0.25 (n=3, 180 s, nav_trial.py), o `cmd_vx`
+    # pico ficou em 0.070-0.108 contra um vx_max de 0.15 que NUNCA foi
+    # alcancado, e a media do comando saiu ~0 (-0.008 a +0.017) com 11-54% das
+    # amostras NEGATIVAS. Subir vx_max nao mexe numa media que e zero: o robo
+    # gasta o tempo corrigindo rumo, com yawSat de pico 90-94%.
+    #
+    # O que se espera de 0.35 aqui e menos oscilacao, nao mais pico -- e a
+    # media, que e o numero que decide, sobe por isso. O risco conhecido e o
+    # descasamento de modelo: o MPPI planeja como se `cmd_vx` fosse executado
+    # 1:1, e a 137% ele subestima o robo em 37% ao longo de 9.6 s de horizonte.
+    # Se esse efeito dominar, aparece como mais oscilacao, nao menos, e a
+    # condicao e revertida.
+    #
+    # Linha de base a bater (V0, maze11, media de n=3): 0.0399 m/s, com folga
+    # de carcaca minima de +0.065 m -- esta folga e o portao, nao a velocidade.
     foot_placement:
       k_x: 0.005
       k_y: 0.005
-      k_yaw: 0.25
+      k_yaw: 0.35
 
     # Body pose control feeding the balance QP.
     #

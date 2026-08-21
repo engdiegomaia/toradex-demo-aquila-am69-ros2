@@ -374,20 +374,45 @@ EOS
 cmd_up() {
   resolve_addresses
 
-  local host_sim
-  host_sim="$(docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null \
-    | grep -iE 'aquila-go2|demo-aquila-sim|demo-sim' || true)"
+  # A GUARDA CERTA E "quem PUBLICA /demo/cmd_vel neste host", nao "a simulacao
+  # esta rodando".
+  #
+  # A versao anterior recusava quando havia container de simulacao no host, e
+  # isso torna o modo hil impossivel de subir sem --force: em hil o simulador
+  # TEM de estar no host. O simulador nao e publicador de /demo/cmd_vel -- ele
+  # ASSINA. Quem publica no lado do host e:
+  #
+  #   cmd_vel_si_to_stick  do nav_quadruped.launch.py NATIVO (o conflito real,
+  #                        porque e o mesmo no que sobe no modulo)
+  #   demo_routine         a coreografia de malha aberta
+  #
+  # `pgrep -x` casa o NOME do processo, entao nao casa com a linha de comando
+  # deste script. Os nomes vem truncados em 15 caracteres, limite de `comm` no
+  # Linux -- dai `cmd_vel_si_to_s`.
+  local host_pubs=''
+  local proc
+  for proc in cmd_vel_si_to_s demo_routine; do
+    if pgrep -x "${proc}" >/dev/null 2>&1; then
+      host_pubs+="  ${proc} (pid $(pgrep -x "${proc}" | tr '\n' ' '))"$'\n'
+    fi
+  done
 
-  if [[ -n "${host_sim}" && "${2:-}" != "--force" ]]; then
-    printf '\n[module.sh] RECUSADO: simulacao ativa neste host:\n%s\n' "${host_sim}" >&2
+  if [[ -n "${host_pubs}" && "${2:-}" != "--force" ]]; then
+    printf '\n[module.sh] RECUSADO: publicador de /demo/cmd_vel ativo neste host:\n%s' "${host_pubs}" >&2
     cat >&2 <<EOF
-
-Subir 'nav' no modulo agora coloca um segundo publisher em /demo/cmd_vel no
-dominio ${ROS_DOMAIN_ID}, e o robo simulado no host passa a receber comandos de duas
-origens. Silencioso: nenhum log identifica a causa.
+Subir 'nav' no modulo agora coloca um SEGUNDO publisher em /demo/cmd_vel no
+dominio ${ROS_DOMAIN_ID}. Dois publicadores no mesmo topico nao geram erro: o
+twist_to_inputs obedece a ultima mensagem que chegou e o robo anda em espasmos,
+alternando entre as duas origens a 20 Hz. Nenhum log identifica a causa.
 
 Escolha uma saida:
-  1. Espere a simulacao do host terminar e repita.
+  1. Derrube o Nav2 nativo do host e repita. Matar o 'ros2 launch' nao basta --
+     ele orfana os filhos (guia-operacao.md secao 9.12):
+       pkill -9 -x cmd_vel_si_to_s; pkill -9 -x odom_tf
+       for n in controller_serv bt_navigator planner_server behavior_server \\
+                route_server smoother_server waypoint_follow opennav_docking \\
+                collision_monit velocity_smooth lifecycle_manag; do
+         pkill -9 -x "\$n"; done
   2. Suba somente perception, que nao publica cmd_vel:
        ssh ${ssh_target} 'cd ${remote_dir} && docker compose -f compose.module.yml up -d perception'
   3. Use um dominio separado para o modulo:
@@ -397,6 +422,15 @@ Escolha uma saida:
        scripts/module.sh up --force
 EOF
     exit 1
+  fi
+
+  # Em hil a simulacao no host e ESPERADA, e sem ela o Nav2 do modulo nao tem
+  # /clock nem sensores: sobe, fica em espera, e parece travado. Avisar e util;
+  # recusar seria errado.
+  if ! docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null \
+      | grep -qiE 'aquila-go2|demo-aquila-sim|demo-sim'; then
+    say "AVISO: nenhuma simulacao neste host. Em hil o modulo depende do /clock"
+    say "e dos sensores que o Gazebo publica; sem isso o Nav2 fica esperando."
   fi
 
   remote "cd ${remote_dir} && docker compose -f compose.module.yml up -d"

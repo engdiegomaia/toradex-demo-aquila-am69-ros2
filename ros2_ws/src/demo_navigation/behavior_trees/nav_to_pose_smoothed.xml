@@ -1,0 +1,85 @@
+<!--
+  navigate_to_pose COM SUAVIZACAO DO CAMINHO GLOBAL.
+
+  POR QUE ESTE ARQUIVO EXISTE
+  ===========================
+
+  NENHUM behavior tree que acompanha o Nav2 Jazzy chama `SmoothPath`.
+  Verificado em 21/08/2026 com `grep -l SmoothPath` em
+  /opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/*.xml: zero arquivos.
+
+  Consequencia: o `smoother_server` deste projeto esta configurado
+  (`simple_smoother`, em nav2_params_go2.yaml) e NUNCA e invocado. Nao ha erro,
+  nao ha aviso: o servidor sobe, fica ativo, e nada nunca lhe manda trabalho.
+  Mesma classe de defeito do `perception_layer` sem produtor.
+
+  Por que isso importa para ESTE robo. O NavFn e Dijkstra sobre uma grade de
+  0.05 m 8-conexa, entao o caminho global sai em ESCADA. O `PathAlignCritic` do
+  MPPI tem peso 14, o maior de todos, e a funcao dele e justamente colar o robo
+  nesse caminho. O robo passa a perseguir cada degrau da escada, o que aparece
+  como giro continuo sem motivo visivel no mundo, num corredor reto de 1.20 m.
+
+  Com o caminho suavizado, trecho reto fica reto e curva fica curva, que e o
+  comportamento pedido: andar para frente onde da, girar so onde precisa.
+
+  O QUE MUDA EM RELACAO AO DEFAULT
+  ================================
+
+  Copia de navigate_to_pose_w_replanning_and_recovery.xml do Nav2 Jazzy, com uma
+  unica diferenca: o `ComputePathToPose` virou uma `Sequence` que encadeia
+  `SmoothPath` depois dele, dentro do mesmo `RateController` de 1 Hz.
+
+  `SmoothPath` escreve em `{path}`, a mesma porta que o `FollowPath` le, entao o
+  controlador recebe o caminho suavizado. Se a suavizacao falhar, a Sequence
+  falha e o `RecoveryNode` limpa o costmap global e replaneja, que e o
+  tratamento que o default da a uma falha de planejamento.
+
+  `max_its` e `tolerance` do suavizador ficam no YAML, nao aqui.
+-->
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <RecoveryNode number_of_retries="6" name="NavigateRecovery">
+      <PipelineSequence name="NavigateWithReplanning">
+        <ControllerSelector selected_controller="{selected_controller}" default_controller="FollowPath" topic_name="controller_selector"/>
+        <PlannerSelector selected_planner="{selected_planner}" default_planner="GridBased" topic_name="planner_selector"/>
+        <RateController hz="1.0">
+          <RecoveryNode number_of_retries="1" name="ComputePathToPose">
+            <Sequence name="PlanThenSmooth">
+              <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
+              <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}" smoother_id="simple_smoother" max_smoothing_duration="0.3" error_code_id="{smoother_error_code}"/>
+            </Sequence>
+            <Sequence>
+              <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Context" service_name="global_costmap/clear_entirely_global_costmap"/>
+            </Sequence>
+          </RecoveryNode>
+        </RateController>
+        <RecoveryNode number_of_retries="1" name="FollowPath">
+          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+          <Sequence>
+            <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+            <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
+          </Sequence>
+        </RecoveryNode>
+      </PipelineSequence>
+      <Sequence>
+        <Fallback>
+          <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
+          <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
+        </Fallback>
+        <ReactiveFallback name="RecoveryFallback">
+          <GoalUpdated/>
+          <RoundRobin name="RecoveryActions">
+            <Sequence name="ClearingActions">
+              <ClearEntireCostmap name="ClearLocalCostmap-Subtree" service_name="local_costmap/clear_entirely_local_costmap"/>
+              <ClearEntireCostmap name="ClearGlobalCostmap-Subtree" service_name="global_costmap/clear_entirely_global_costmap"/>
+            </Sequence>
+            <Spin spin_dist="1.57" error_code_id="{spin_error_code}"/>
+            <Wait wait_duration="5.0"/>
+            <BackUp backup_dist="0.30" backup_speed="0.15" error_code_id="{backup_code_id}"/>
+          </RoundRobin>
+        </ReactiveFallback>
+      </Sequence>
+    </RecoveryNode>
+  </BehaviorTree>
+</root>
