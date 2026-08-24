@@ -114,7 +114,13 @@ cat /etc/os-release && ostree admin status && tdx-info
 
 ## Current phase
 
-L1 — ROS 2 fundamentals on the x86 host. Phases L1–L3 are done with ROS 2 **installed natively on the host, without containers**, on purpose: containerizing over an unfamiliar system makes it impossible to separate ROS failures from Docker failures. Containerization enters at L4. Order: L1 → L2 (URDF/TF2/RViz2) → L3 (Gazebo + Nav2) → L4 (containers + arm64 emulation) → hardware phases 0–5.
+ML3.5 — quadruped + containerization. F1–F4 and F6 are complete; F6 couples the
+simulated plant and matching navigation stack through
+`ROBOT_TYPE=quadruped|diffdrive`, with a successful goal on both paths. Final
+F5 remains open after the 24/08 Ethernet HIL: the link, full perception stream
+and a short goal passed on the AM69, but both 8 m goals timed out in the
+420/200 s protocol. See `docs/ml35/estado-fases.md` for the authoritative
+status and evidence; do not infer completion from this summary.
 
 When finishing a phase, update `.ai/CLAUDE.md` "Onde estamos" and `.ai/changelog.md`.
 

@@ -94,7 +94,8 @@ services:
     ipc: host
     command: >
       ros2 launch demo_bringup sim.launch.py
-      robot_type:=${ROBOT_TYPE:-diffdrive}
+      robot_type:=${ROBOT_TYPE:-quadruped}
+      gui:=${SIM_GUI:-true}
 
   # --- Navigation ----------------------------------------------------------
   # learn profile only. In hil mode this runs on the module instead.
@@ -116,7 +117,13 @@ services:
     # the container to start, not for the warehouse world to finish loading, so
     # it would give false confidence. nav.launch.py gates on /clock actually
     # advancing instead — see demo_bringup/wait_for_clock.py.
-    command: ros2 launch demo_bringup nav.launch.py use_sim_time:=true
+    # The same ROBOT_TYPE selects both the plant above and its matching Nav2
+    # stack. Selecting only the plant is a silent mixed-stack failure: both
+    # launches are valid, but their frames, maps and velocity units differ.
+    command: >
+      ros2 launch demo_bringup nav_select.launch.py
+      robot_type:=${ROBOT_TYPE:-quadruped}
+      use_sim_time:=true
 
   # --- Perception ----------------------------------------------------------
   perception:
@@ -158,6 +165,10 @@ services:
     volumes:
       - ./cyclonedds/host.rendered.xml:/cfg/cyclonedds.xml:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Host-only cockpit control bridge. Mounted read-only so the UI can run a
+      # persistent rclpy publisher without baking workstation orchestration
+      # into the visualization image.
+      - ../scripts:/cockpit:ro
     devices:
       - /dev/dri:/dev/dri
     # Same reason as sim: without the host's render gid, RViz2 falls back to

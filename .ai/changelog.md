@@ -5,6 +5,75 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-24 — cockpit standalone: checkpoint parcial, não aceito
+
+A primeira implementação interpretou "cockpit" como uma barra que organizava
+três janelas independentes. Esse não era o requisito: o cockpit deveria ser uma
+única janela Qt incorporando Gazebo, RViz e `rqt_image_view`. Em runtime,
+somente o Gazebo foi reparentado; RViz e câmera ficaram externos e seus painéis
+internos vazios. Portanto o cockpit **não está concluído**.
+
+A faixa de controle publica comandos manuais de manche em `/demo/cmd_vel` por
+uma ponte `rclpy` persistente dentro do container `viz`. Botão/tecla precisa
+ficar pressionado; release, perda de foco, timeout de 400 ms, EOF e fechamento
+publicam zero. Os valores ficam dentro do envelope de manche validado. Controle
+manual e meta Nav2 não devem ser usados simultaneamente, pois compartilham o
+mesmo tópico.
+
+O launcher exige uma sessão X11/EWMH já disponível e não tenta substituir,
+reparar ou reconfigurar o desktop. Reiniciar o GNOME Shell durante a tentativa
+anterior interrompeu processos não relacionados e não faz parte do procedimento.
+Os testes são estáticos e não substituem o teste visual/X11 que falhou. A última
+tentativa, com `XReparentWindow` direto, foi implementada mas não executada.
+Metodologia, IDs, limitações e continuidade estão em
+`docs/results/cockpit-standalone-parcial.md`.
+
+## 2026-08-24 — HIL Ethernet executado; entrega fragmentada corrigida, F5 ainda aberta
+
+O HIL rodou com `enp0s31f6` no host e `ethernet1` no Aquila AM69, Nav2 e
+percepção arm64 no módulo, e Gazebo, RViz, LiDAR e câmera no host. Como as duas
+portas do Aquila estavam na mesma sub-rede e anunciavam o mesmo hostname mDNS,
+o endereço alternava entre elas; o bench passou a fixar `MODULE_IP` no `.env`
+local antes de renderizar os peers CycloneDDS.
+
+Dois falsos positivos de “DDS conectado” foram encontrados. A câmera RAW
+`RELIABLE` era lida como `BEST_EFFORT` e perdia todos os frames fragmentados de
+921600 bytes; `detection_stub` agora pede `RELIABLE`. A nuvem LiDAR fazia o
+inverso do que Nav2 espera: bridge `RELIABLE` para leitores sensor-data
+`BEST_EFFORT`; o bridge agora publica somente `/demo/scan_cloud` com
+`qos_profile: SENSOR_DATA`. Câmera, detecções e nuvem de detecções passaram a
+~10 Hz, e o `collision_monitor` deixou de tratar o sensor como antigo.
+
+Uma meta curta fechou `SUCCEEDED` em 28 s. O portão longo não: em 419,9 s o
+robô percorreu 8,31 m a 0,0198 m/s, sem queda e sem `RECOVER`, mas duas metas de
+8 m expiraram aos 200 s. A velocidade é praticamente a mesma do HIL por Wi-Fi
+com percepção (0,0197 m/s), refutando a hipótese de que o meio físico, sozinho,
+era o gargalo. F5 continua aberta. Evidência e limites em
+`docs/results/ml35-hil-ethernet.md`.
+
+## 2026-08-24 — F4 e F6 fechadas: contrato revalidado e fallback executado
+
+`ROBOT_TYPE=quadruped|diffdrive` passou a selecionar em conjunto a planta e o
+launch Nav2 correspondente no host e no módulo. `quadruped` é o padrão; valores
+desconhecidos falham antes de iniciar a pilha. Testes unitários cobrem o
+pareamento e a rejeição.
+
+O portão F6 foi executado em duas subidas limpas do perfil `learn`. O Go2 saiu
+de x≈−1,59 e concluiu a meta x=−0,8; o diff-drive saiu de x=0 e concluiu x=1,0.
+Ambos terminaram `SUCCEEDED`, `error_code: 0`. O segundo ensaio também validou
+o novo caminho headless `SIM_GUI=false`.
+
+Na revalidação F4, os cinco tópicos do contrato apareceram com os tipos
+esperados e houve mensagem real de odometria, scan, imagem 640 px e detecção no
+container de percepção. A base e todas as imagens de função reconstruíram; o
+plugin `gz_quadruped_hardware` ficou restrito à imagem `sim`. Um
+`COLCON_IGNORE` presente somente nas imagens headless mantém essa fronteira em
+builds e testes incrementais; a imagem `sim` remove o marcador antes de compilar
+o backend Gazebo.
+
+Isto não fecha F5: o HIL completo ainda precisa ser repetido no Aquila AM69 por
+Ethernet, com a câmera preservada em 640×480 a 10 Hz.
+
 ## 2026-08-21 — A aplicação roda no Aquila AM69; o gargalo é a câmera no Wi-Fi
 
 Nav2 arm64 ativo no módulo, **composto num processo único**, com o simulador no

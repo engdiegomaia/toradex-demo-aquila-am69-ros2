@@ -123,16 +123,18 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   **Estado por fase e próximo passo: `docs/ml35/estado-fases.md`** (leia primeiro
   numa sessão nova). Spec: `docs/ml35/guia-ml35-docker.md`. Fases F0 a F6, com
   portão em cada uma; F0 (`3885f2e`), F1 (`5d95934`), F2 (14/08/2026, spike não
-  commitado) e **F3 (`db4e6f3`, `ae3d9a1`, 17/08/2026) concluídas. F4 está em
-  andamento** — checkpoint e próximos passos em
-  `docs/results/ml35-f4-parcial.md`; o portão ainda não foi batido.
-  Plano de movimentação vigente: `docs/ml35/plano-movimentacao.md` (19/08/2026),
-  que substitui `plano-proximos-passos.md`. Fase A concluída: a sintonia do trote
-  é parâmetro do controlador (`demo_simulation/config/gait_go2.yaml`, injetado
-  pelo spawner) e o ensaio é `scripts/gait_trial.sh`. Próxima: Fase B, o
-  Defeito 2 (eixo de guinada em HOLD longo), único defeito aberto.
-  **A árvore TF não fecha** — não existe frame `odom`, medido em 18/08 — e esse
-  é o bloqueador confirmado de F5.
+  commitado) e **F3 (`db4e6f3`, `ae3d9a1`, 17/08/2026) concluídas**. A marcha,
+  HOLD longo e navegação no host estão corrigidos e medidos. A árvore TF fecha
+  por `odom_tf`, mas usa **ground truth do Gazebo**, não estimativa por pernas.
+  Em 21/08 o Nav2 arm64 composto rodou no Aquila AM69; o gargalo medido foi a
+  câmera de 74,2 Mbit/s no Wi-Fi. F4 e F6 fecharam em 24/08: contrato completo
+  revalidado e cold start + goal `SUCCEEDED` tanto no Go2 quanto no diff-drive,
+  pelo seletor acoplado `ROBOT_TYPE=quadruped|diffdrive`. O HIL Ethernet foi
+  executado em 24/08 com Nav2 + perception no AM69: câmera e LiDAR exigiram
+  correções de QoS para amostras fragmentadas, e uma meta curta fechou em 28 s.
+  O portão de 8 m segue aberto: 0 metas no protocolo 420/200 s, apesar de 8,31 m
+  percorridos sem queda. Evidência em `docs/results/ml35-hil-ethernet.md` e
+  estado exato em `docs/ml35/estado-fases.md`.
   Base de locomoção: `legubiao/quadruped_ros2_control` — confirmado na árvore em
   F2, não pelo README. Robô-alvo é **Go2**, não A1: `a1_description` declara
   licença `TODO`. Atenção, a justificativa de F2 ("Go2 declara BSD") era
@@ -147,7 +149,10 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   de Docker/DDS de risco de marcha.
 - **L4 (ML4)** — depois: absorvida em grande parte pelo F1 do ML3.5.
 
-**Robô:** diff-drive hoje, quadrúpede A1 em curso no ML3.5. Continua verdade (verificado em 14/08/2026) que **ninguém entrega quadrúpede + Jazzy + Harmonic + Nav2 funcionando**: CHAMP upstream é ROS 1, e os dois forks Go2 em Jazzy listam Nav2 como "coming soon" **e não declaram licença** — bloqueador para demo comercial, mesmo critério que eliminou o Tugbot no ML3.1. A base escolhida é `legubiao/quadruped_ros2_control` (Apache-2.0, `ros2_control` nativo, branch default Jazzy); a integração com Nav2 é **nossa**, ninguém entrega pronta. O diff-drive validado permanece selecionável por launch arg. Justificativa completa em `changelog.md`.
+**Robô:** quadrúpede Go2 é o padrão da ML3.5; o diff-drive validado permanece
+como fallback por `ROBOT_TYPE`. Continua verdade (verificado em 14/08/2026) que
+ninguém entrega quadrúpede + Jazzy + Harmonic + Nav2 pronto: a integração é do
+projeto. Base: `legubiao/quadruped_ros2_control` (Apache-2.0).
 
 **Cenário:** `warehouse.sdf` de `nav2_minimal_tb4_sim` (mantido pela org do Nav2, SDF nativo Harmonic). O world do AWS RoboMaker foi arquivado em jul/2026 e é Gazebo Classic — não usar.
 

@@ -6,6 +6,12 @@
 **Mundo:** `quadruped_maze11.sdf`, metas `MAZE11_GOALS`, protocolo
 `nav_trial.py --seconds 180` (prazo de meta 90 s)
 
+> **Atualização de 24/08/2026:** este documento preserva a medição histórica por
+> Wi-Fi. O HIL Ethernet posterior mostrou que a troca do meio físico não elevou
+> a velocidade com percepção (0,0197 → 0,0198 m/s) e localizou uma
+> incompatibilidade de QoS na câmera. As conclusões “Wi-Fi é o gargalo” e
+> “câmera não chega” foram refutadas. Ver `ml35-hil-ethernet.md`.
+
 Executado no hardware real. Nada aqui vem de emulação (regra 5 do CLAUDE.md).
 
 ## Resultado

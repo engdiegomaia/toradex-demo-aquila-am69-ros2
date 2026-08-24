@@ -1,11 +1,10 @@
 """
 Nav2 para o quadrupede: desvio reativo, sem mapa e sem AMCL.
 
-Roda na estacao x86 (amd64). O Nav2 em si nao tem dependencia grafica e no modo
-hil vai para o Aquila AM69, mas a imagem `demo-sim:spike-go2` usada hoje NAO tem
-Nav2 dentro (verificado: zero pacotes nav2 em /opt/ros/jazzy/lib). Enquanto essa
-imagem for a do spike, este launch sobe nativo no host e conversa com o
-simulador pelo DDS -- dominio 69, mesma rede.
+Roda na estacao x86 (amd64) em learn e no Aquila AM69 (arm64) em HIL. O Nav2 nao
+tem dependencia grafica; Gazebo e RViz continuam exclusivamente no host. A
+execucao arm64 composta no modulo foi medida em 21/08/2026; ver
+docs/results/ml35-hil-aquila.md.
 
     ros2 launch demo_bringup nav_quadruped.launch.py
 

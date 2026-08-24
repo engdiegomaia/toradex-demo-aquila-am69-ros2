@@ -62,6 +62,17 @@
   ros_type_name: "sensor_msgs/msg/PointCloud2"
   gz_type_name: "gz.msgs.PointCloudPacked"
   direction: GZ_TO_ROS
+  # Nav2's PointCloud2 consumers (costmaps and collision_monitor) use the
+  # standard sensor-data QoS: best-effort, volatile.  The bridge default is
+  # reliable.  Both endpoints are formally compatible in that combination,
+  # but on the Ethernet HIL the fragmented cloud stopped reaching those
+  # best-effort readers after discovery; collision_monitor then rejected every
+  # command because its source was stale.  Publish sensor data with the sensor
+  # QoS expected by those consumers.  This is deliberately NOT applied to the
+  # much larger camera image below: detection_stub uses reliable QoS for that
+  # stream because 640x480 RGB samples were completely lost as best-effort
+  # fragments on the same link.
+  qos_profile: SENSOR_DATA
 
 - ros_topic_name: "/demo/camera/image_raw"
   gz_topic_name: "/camera/image"

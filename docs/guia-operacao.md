@@ -117,6 +117,44 @@ Numa máquina mais lenta, aumente **todos juntos**.
 Para mandar o robô a um destino: no RViz2, botão **2D Goal Pose**, clique e
 arraste no mapa.
 
+### Cockpit de demonstração no host
+
+> **EXPERIMENTAL / NÃO ACEITO (24/08/2026):** no último ensaio, RViz e câmera
+> permaneceram externos e seus painéis internos ficaram vazios. Não use este
+> caminho como procedimento de demonstração. Checkpoint e metodologia em
+> [`results/cockpit-standalone-parcial.md`](results/cockpit-standalone-parcial.md).
+
+Para abrir Gazebo, RViz e câmera já organizados no monitor principal, mantendo
+Nav2 e percepção no Aquila:
+
+```bash
+./scripts/run_cockpit.sh start --mode hil --screen DP-1
+```
+
+O objetivo é uma única janela standalone que incorpore, em três painéis, os
+clientes X11 do Gazebo, RViz e `rqt_image_view`; os processos de renderização
+continuam isolados nos containers x86. A faixa inferior de controle manual foi
+implementada, mas o movimento pelos botões ainda não foi validado. O comando só
+permanece ativo enquanto a tecla ou botão está pressionado; soltar, perder o
+foco, fechar a aplicação ou perder a ponte envia velocidade zero. Controle
+manual e Nav2 ainda não têm mux e não devem ser usados simultaneamente.
+
+**Não desabilite nem reinicie o GNOME Shell:** isso não é pré-requisito e
+interrompe outros processos da sessão. Se o gerenciador não estiver disponível,
+o launcher encerra com erro antes de subir a aplicação; ele nunca tenta reparar,
+substituir ou reconfigurar o desktop.
+
+O launcher usa o `DISPLAY` da sessão corrente, mesmo que `docker/.env` ainda
+contenha o display de um login anterior. Para conferir antes de iniciar:
+
+```bash
+echo "$DISPLAY"
+xrandr --listmonitors
+```
+
+Ao fechar a janela do cockpit, os serviços são encerrados. Use
+`--keep-running` somente quando quiser preservar os containers para depuração.
+
 ### Opções úteis
 
 ```bash
@@ -549,9 +587,9 @@ produz exatamente o sintoma de firewall bloqueando.
 
 → `scripts/module.sh sync` renderiza os dois: `module.xml` (vai para o módulo) e
 `docker/cyclonedds/host.rendered.xml` (fica no host, gitignored). Quem publica no
-host precisa apontar `CYCLONEDDS_URI` para o arquivo renderizado —
-`scripts/run_quadruped_sim.sh` **ainda não faz isso**, então o módulo não vê a
-simulação.
+host precisa apontar `CYCLONEDDS_URI` para o arquivo renderizado.
+`scripts/run_quadruped_sim.sh` monta e seleciona esse arquivo quando ele existe
+e imprime a interface e o peer usados.
 
 ### 12. Matar o `ros2 launch` deixa os nós vivos, e o próximo Nav2 morre acusando o DDS
 
@@ -642,29 +680,39 @@ EOF
 E **não** use `ros2 topic hz` para isso: nesta configuração de DDS ele volta sem
 imprimir nada, em qualquer tópico, o que parece tópico morto.
 
-Medido em 21/08/2026 com o host em Wi-Fi: a câmera **não chegava ao módulo**.
-Uma sonda dentro do `demo-tools-1` ficou 30 s sem receber um único quadro, e o
-`detection_stub` — que está inscrito e vivo — publicava **zero** detecções. O
-enlace não carrega o stream; o que custa os 2,2× é a *tentativa*, com o
-publicador do simulador insistindo em entregar 74 Mbit/s confiáveis a um leitor
-remoto que não acompanha.
+Em 21/08/2026, uma sonda e o `detection_stub` não receberam quadros e isso foi
+atribuído ao Wi-Fi. O HIL Ethernet de 24/08 localizou a causa: o bridge publica
+o frame de 921600 bytes como `RELIABLE`, mas o stub pedia `BEST_EFFORT`; a
+descoberta ocorria e todos os frames fragmentados eram perdidos. O stub agora
+pede `RELIABLE` e recebe ~10 Hz. Portanto o ensaio antigo não prova que o Wi-Fi
+era incapaz de carregar a câmera.
 
 ### Trocar o host para Ethernet
 
-O módulo **já está em Ethernet**: `ethernet0` UP, 1000 Mbit/s full duplex, rota
-default por ela, `wlan0` DOWN. Quem fica em Wi-Fi é o host.
+O módulo tem duas portas Ethernet. Escolha uma delas explicitamente; não presuma
+que o hostname mDNS identifica uma porta.
 
-1. Ligue um cabo na `enp0s31f6` do host, no **mesmo switch/roteador** do módulo
-   (rede `192.0.2.12/24`). Cabo direto host↔módulo não serve: o módulo pega
-   endereço por DHCP de `192.0.2.13` e perderia a rede.
+1. Ligue host e a porta escolhida do módulo no mesmo switch/roteador.
 2. Confirme que a rota mudou:
 
    ```bash
    ip -br addr show enp0s31f6          # tem de sair de NO-CARRIER
-   ip route get 192.0.2.16         # tem de dizer "dev enp0s31f6"
+   ip route get <IP_DA_PORTA_DO_AQUILA> # tem de dizer "dev enp0s31f6"
    ```
 
-3. **Re-renderize a configuração de DDS.** Este é o passo que se esquece:
+3. Se as duas portas do Aquila estiverem na mesma sub-rede, fixe uma no arquivo
+   local e ignorado `docker/.env`. As duas anunciam o mesmo `.local`; em
+   24/08/2026 a resolução alternou entre elas e causou ARP flux:
+
+   ```dotenv
+   HOST_IP=<IP_ETHERNET_DO_HOST>
+   MODULE_IP=<IP_DA_PORTA_ESCOLHIDA_DO_AQUILA>
+   ```
+
+   Preferencialmente, use apenas uma porta nessa sub-rede ou separe as portas em
+   sub-redes distintas.
+
+4. **Re-renderize a configuração de DDS.** Este é o passo que se esquece:
 
    ```bash
    ./scripts/module.sh sync
@@ -676,7 +724,7 @@ default por ela, `wlan0` DOWN. Quem fica em Wi-Fi é o host.
    sintoma é idêntico a firewall. O `run_quadruped_sim.sh` avisa quando os dois
    divergem — leia a linha `DDS:` na subida.
 
-4. Reinicie simulador e containers do módulo e repita o ensaio.
+5. Reinicie simulador e containers do módulo e repita o ensaio.
 
 Se a Ethernet não for possível, os outros caminhos são reduzir taxa ou resolução
 em `demo_simulation/urdf/go2_sim.urdf.xacro` (muda o que a demo mostra) ou

@@ -61,8 +61,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Rebuild the overlay now that the simulation dependencies resolve. The base
 # image skipped them (--skip-keys), so demo_simulation built without them
 # present; this makes the installed overlay consistent with the packages here.
+# Remove the headless-only marker copied from the base before the full rebuild.
 WORKDIR /ws
-RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+RUN rm -f /ws/src/gz_quadruped_hardware/COLCON_IGNORE \
+    && . /opt/ros/${ROS_DISTRO}/setup.sh \
     && colcon build --symlink-install --event-handlers console_direct+ \
     && rm -rf /ws/log
 
