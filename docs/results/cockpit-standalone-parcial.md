@@ -6,6 +6,12 @@
 **Modo:** HIL; Gazebo/RViz/câmera no host, Nav2 e percepção no Aquila AM69
 **Estado:** **NÃO ACEITO — as três visualizações ainda não foram integradas**
 
+> **SUPERADO EM 24/08/2026.** Este documento continua válido como registro
+> histórico da falha, mas a metodologia recomendada no fim dele **foi
+> descartada**. O plano vigente é `docs/ml35/plano-cockpit-web.md`, que troca o
+> eixo de "capturar janelas X11" para "renderizar a partir de tópicos ROS 2".
+> Não retome nem o caminho Xlib nem o caminho `rviz_common` a partir daqui.
+
 ## Objetivo correto
 
 Uma única aplicação standalone deve conter Gazebo, RViz, a imagem de
@@ -133,7 +139,15 @@ ROS. Dentro do viz, o helper montou e iniciou.
 - O controle possui deadman/watchdog, mas não moveu o robô em teste.
 - O milestone permanece aberto.
 
-## Próxima metodologia recomendada
+## Próxima metodologia recomendada — DESCARTADA em 24/08/2026
+
+> Mantida abaixo apenas como registro do que foi considerado. A opção
+> "UI Qt/ROS nativa" foi rejeitada por exigir C++ obrigatório (não existe
+> binding Python de `rviz_common`), resolver só um dos cinco painéis e não
+> servir ao alvo arm64, onde RViz2 não pode rodar (CLAUDE.md regra 1).
+> A opção "se continuar com X11" foi rejeitada junto com o eixo inteiro.
+> Ver `docs/ml35/plano-cockpit-web.md`, Decisões 1 a 3.
+
 
 ### Preferido: UI Qt/ROS nativa, sem capturar janelas externas
 

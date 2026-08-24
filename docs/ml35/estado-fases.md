@@ -42,6 +42,14 @@ de marcha em `docs/results/ml35-postura-parada.md` e do fechamento abaixo.
 Plano de movimentação vigente: **`docs/ml35/plano-movimentacao.md`** (19/08/2026).
 Substitui `plano-proximos-passos.md`, cujas Fases 1-3 já foram executadas.
 
+Trabalho paralelo em aberto — **cockpit unificado**: plano aprovado em
+24/08/2026, **nenhum código escrito**. Eixo trocado de "capturar janelas X11"
+(quatro tentativas falhas) para "renderizar a partir de tópicos ROS 2", num
+cockpit web que depois vira o HMI do M3. Decisões, evidências e fases em
+**`docs/ml35/plano-cockpit-web.md`**. O checkpoint anterior
+(`docs/results/cockpit-standalone-parcial.md`) está marcado como superado; não
+retomar a recomendação dele.
+
 ### 21/08/2026 — qualidade de navegação no maze11 (dentro de F5)
 
 Cenário S6 passou para o **`maze11`**, com partida no canto inferior direito
