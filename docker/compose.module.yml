@@ -5,6 +5,9 @@
 #   hil     — nav + perception here, sim + viz on the x86 host. The ML3.5 deliverable.
 #   deploy  — nav + perception + hw, no host. Out of ML3.5 scope.
 #
+# ROBOT_TYPE selects the same navigation stack used by the host plant. HIL
+# normally uses quadruped (the default); diffdrive remains the F6 fallback.
+#
 # NOTHING GRAPHICAL IS HERE, BY CONSTRUCTION.
 # No sim, no viz, no X11 socket, no /dev/dri. The AM69 exposes only OpenGL ES 3.2
 # and Vulkan 1.2, so Gazebo and RViz2 (both OGRE 2) cannot run on it — CLAUDE.md
@@ -17,10 +20,9 @@
 #   ssh torizon@${MODULE_IP}
 #   cd ~/demo && docker compose -f compose.module.yml up -d
 #
-# NOT VALIDATED ON HARDWARE. The module was not accessible in the session that
-# wrote this file. Nothing here is a claim about arm64 behaviour, performance or
-# thermals (CLAUDE.md rules 5 and 7). Treat the first run as bring-up, not as a
-# regression check.
+# Validated on the Aquila AM69 on 21/08/2026 with the quadruped Nav2 stack. See
+# docs/results/ml35-hil-aquila.md. Thermals and the Ethernet camera path remain
+# unmeasured and must not be inferred from that result.
 ---
 x-common: &common
   environment: &common-env
@@ -49,8 +51,9 @@ services:
     # host runs sim time gives TF extrapolation errors and Nav2 refusing goals,
     # with nothing in the logs pointing at the clock (guia §6).
     #
-    # `nav_quadruped.launch.py`, NAO `nav.launch.py`. Os dois sobem Nav2 e a
-    # troca e silenciosa: o robo fica de pe e nenhuma meta anda.
+    # `nav_select.launch.py` couples ROBOT_TYPE to the matching Nav2 launch.
+    # Selecting only one side is silent: both launches start, but the robot does
+    # not navigate because frames, maps and command units do not match.
     #
     #   nav.launch.py           mapa estatico + AMCL, parametros nav2_params.yaml
     #                           (que sao do TurtleBot 4), robot_base_frame
@@ -63,7 +66,10 @@ services:
     #
     # Este launch e tambem quem carrega a arvore de comportamento com SmoothPath
     # (ver docs/results/ml35-navegacao-maze11.md).
-    command: ros2 launch demo_bringup nav_quadruped.launch.py use_sim_time:=true
+    command: >
+      ros2 launch demo_bringup nav_select.launch.py
+      robot_type:=${ROBOT_TYPE:-quadruped}
+      use_sim_time:=true
 
   perception:
     <<: *common

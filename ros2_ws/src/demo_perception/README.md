@@ -38,9 +38,11 @@ reproducible while the real model does not exist.
 Parameters: `class_id`, `score`, `box_width_px`, `box_height_px`,
 `period_frames`.
 
-Subscribes with **best-effort** sensor QoS. A reliable subscription would never
-match Gazebo's best-effort camera publisher, producing the classic failure where
-`ros2 topic list` shows the topic and the callback never fires.
+Subscribes with **reliable** QoS, matching the `ros_gz_bridge` camera publisher.
+This is load-bearing for the 921600-byte raw images used by HIL: with a
+best-effort reader, discovery succeeded but every fragmented sample was lost;
+with a reliable reader, the module received the measured 10 Hz stream and can
+request retransmission of a missing fragment.
 
 ### `detections_to_cloud`
 

@@ -79,8 +79,7 @@ RUN mkdir -p /cfg /ws \
 WORKDIR /ws
 COPY ros2_ws/src /ws/src
 
-# --- Per-arch build variation ----------------------------------------------
-# Both default to empty, so an amd64/host build behaves exactly as before.
+# --- Headless/simulation build boundary ------------------------------------
 #
 # They exist because F3 added quadruped packages to a tree whose container layer
 # was written in F1, when the tree was diff-drive only. `gz_quadruped_hardware`
@@ -91,14 +90,19 @@ COPY ros2_ws/src /ws/src
 # names it: the build succeeds and the violation is invisible until the module
 # tries to run a desktop-OpenGL library that does not exist there.
 #
-# The module build passes:
+# Headless images use these defaults. The simulation image installs the Gazebo
+# dependencies and rebuilds the complete workspace in its own layer.
+# `scripts/module.sh` also passes the values explicitly as a guard:
 #   --build-arg SKIP_KEYS_EXTRA="gz_sim_vendor gz_plugin_vendor"
 #   --build-arg COLCON_IGNORE_PACKAGES="gz_quadruped_hardware"
 #
-# Both are needed and neither is sufficient alone: skip-keys stops rosdep from
-# INSTALLING Gazebo, --packages-ignore stops colcon from putting the package in
-# the workspace graph at all. Skipping only the first fails the build; skipping
-# only the second still ships Gazebo in the image.
+# The persistent COLCON_IGNORE marker below is also required. A one-shot
+# --packages-ignore is enough for the image build, but a later `colcon test` or
+# incremental build scans the source tree again and tries to source the absent
+# Gazebo package. The marker keeps every headless role consistent after build;
+# docker/sim/Dockerfile removes it before rebuilding the complete workspace.
+# skip-keys prevents rosdep from installing Gazebo, while the marker and
+# --packages-ignore prevent colcon from adding its hardware package.
 #
 # IT MUST BE --packages-ignore, NOT --packages-skip. This was tried the other way
 # and failed, and the reason is not obvious:
@@ -114,15 +118,19 @@ COPY ros2_ws/src /ws/src
 # that was never produced. demo_simulation fails, demo_bringup is "not
 # processed", and demo_bringup holds nav.launch.py and perception.launch.py —
 # the entrypoints of both module services. --packages-ignore removes the package
-# from the workspace entirely, so nothing depends on it.
+# from that invocation; COLCON_IGNORE makes this persist for later commands.
 #
 # `gz_quadruped_hardware` is the Gazebo-side hardware interface for
 # ros2_control. It has no purpose on the module in hil mode, where the simulated
 # robot lives on the host. `unitree_guide_controller` IS built here — it needs
 # controller_interface and kdl_parser only, no Gazebo — because deploy mode runs
 # the leg controller on the module.
-ARG SKIP_KEYS_EXTRA=""
-ARG COLCON_IGNORE_PACKAGES=""
+ARG SKIP_KEYS_EXTRA="gz_sim_vendor gz_plugin_vendor"
+ARG COLCON_IGNORE_PACKAGES="gz_quadruped_hardware"
+
+# This file exists only inside headless images. It is not added to the source
+# tree on the host, and the simulation image explicitly removes it.
+RUN touch /ws/src/gz_quadruped_hardware/COLCON_IGNORE
 
 # rosdep needs the apt lists present, so update/install/clean has to be one
 # layer with the build. Splitting it leaves either a stale list or a fat image.
@@ -141,7 +149,7 @@ nav2_amcl nav2_behavior_tree nav2_behaviors nav2_bt_navigator \
 nav2_collision_monitor nav2_controller nav2_costmap_2d nav2_lifecycle_manager \
 nav2_map_server nav2_mppi_controller nav2_navfn_planner nav2_planner nav2_route \
 nav2_smoother nav2_velocity_smoother nav2_waypoint_follower opennav_docking \
-${SKIP_KEYS_EXTRA}" \
+gz_quadruped_hardware ${SKIP_KEYS_EXTRA}" \
     && colcon build --symlink-install --event-handlers console_direct+ \
         ${COLCON_IGNORE_PACKAGES:+--packages-ignore ${COLCON_IGNORE_PACKAGES}} \
     && rm -rf /var/lib/apt/lists/* /ws/log

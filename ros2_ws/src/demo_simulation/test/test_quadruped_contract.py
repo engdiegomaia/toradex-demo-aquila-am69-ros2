@@ -44,6 +44,16 @@ def test_cmd_vel_is_not_forwarded_to_a_gazebo_drive_plugin() -> None:
     assert '/demo/cmd_vel' not in bridged_topics
 
 
+def test_scan_cloud_uses_sensor_data_qos() -> None:
+    """Nav2's best-effort cloud readers must receive fragmented HIL samples."""
+    entries = {
+        item['ros_topic_name']: item
+        for item in _bridge_entries()
+    }
+
+    assert entries['/demo/scan_cloud']['qos_profile'] == 'SENSOR_DATA'
+
+
 def _maze_worlds():
     worlds = sorted((Path(__file__).parents[1] / 'worlds').glob('quadruped_maze*.sdf'))
     assert worlds, 'nenhum mundo de labirinto encontrado'

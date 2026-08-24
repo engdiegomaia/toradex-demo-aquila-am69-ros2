@@ -379,8 +379,8 @@ docker compose -f compose.host.yml run --rm sim \
 docker compose -f compose.host.yml up viz
 ```
 
-O default continua sendo `diffdrive`; `robot_type:=quadruped` é obrigatório.
-`docker compose up sim` sozinho não inicia o Go2.
+Desde F6 o default é `quadruped`. Use `ROBOT_TYPE=diffdrive` para exercitar o
+fallback; o mesmo valor também seleciona o launch Nav2 correspondente.
 
 ## 10. Regressão do diff-drive
 
@@ -413,18 +413,18 @@ Marcar F4 somente quando todos forem verdadeiros. Estado em 18/08/2026:
 | não deriva em guinada parado em `HOLD` | ✅ corrigido pelo latch de toque |
 | yaw comandado não produz rotação explosiva | ✅ zero `RECOVER`, tilt ≤ 1,3° |
 | **guinada comandada rastreável** | ⚠️ satura em ~0,13 rad/s, ver abaixo |
-| warehouse carrega com câmera e lidar ativos | ⬜ |
-| RViz2 mostra as 12 juntas e TF consistente | ❌ falta `odom → base_link` |
-| diff-drive mantém goal Nav2 `SUCCEEDED` | ⬜ |
+| warehouse carrega com câmera e lidar ativos | ✅ headless, contrato F4 |
+| RViz2 mostra as 12 juntas e TF consistente | 🟡 confirmação visual pendente; TF fecha |
+| diff-drive mantém goal Nav2 `SUCCEEDED` | ✅ 24/08/2026 |
 
 **Envelope real do robô, medido em 18/08: 0,20 m/s linear e 0,13 rad/s
 angular.** A guinada satura em ~0,13 rad/s porque o momento do QP topa em
 5,3 N·m — acima disso o comando não tem efeito. `nav2_params.yaml` precisa de
 `max_vel_theta ≈ 0,12`, não os 0,25 que a ponte aceita.
 
-**A árvore TF não tem `odom → base_link`** e nem o frame `odom`: está toda
-ancorada em `trunk`. O Nav2 não localiza assim. Publicar a odometria do
-quadrúpede é trabalho obrigatório de F5.
+**A árvore TF agora fecha em `odom → base`**, mas `odom_tf` deriva essa aresta do
+ground truth do Gazebo. Isso habilita o Nav2 em simulação; não substitui a
+estimativa de estado por pernas exigida para localização em hardware.
 
 Os dois critérios anteriores de `linear.x` foram escritos quando `_SAFE_STICK_LIMIT = 0.03` era
 tido como "envelope estável de F3". Esse envelope foi medido com a marcha nunca

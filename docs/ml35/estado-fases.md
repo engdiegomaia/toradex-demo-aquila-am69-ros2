@@ -27,17 +27,17 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `5d95934` |
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
-| **F4** | Contrato atravessando fronteira de container | 🟡 **em andamento** | marcha ativa, trote dinâmico ainda cai |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 21/08/2026 | HIL de pé no Aquila AM69, Nav2 composto; gargalo = câmera no Wi-Fi |
-| **F6** | Fallback selecionável e testes | ⬜ | — |
+| **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 24/08/2026 | Ethernet HIL e meta curta `SUCCEEDED`; protocolo de 8 m ainda falha |
+| **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
 
 **Decisão tomada: alvo trocado de A1 para Go2** (ver "F2 — verificação
 executada"; a justificativa de licença dada em F2 estava incompleta e foi
 corrigida em F3 — ver "F3 — o rastreamento de licença"). **F3 rodou e o portão
 bateu**: Go2 em pé, estável, andando por `/demo/cmd_vel` com os pacotes e o
-launch do projeto, não mais com o spike. **F4 está em andamento**; checkpoint,
-evidências, falha de sintonia e próximos passos em
-`docs/results/ml35-f4-parcial.md`.
+launch do projeto, não mais com o spike. A falha de HOLD de F4 foi corrigida em
+20/08 e o contrato completo com perception foi revalidado em 24/08. Evidência
+de marcha em `docs/results/ml35-postura-parada.md` e do fechamento abaixo.
 
 Plano de movimentação vigente: **`docs/ml35/plano-movimentacao.md`** (19/08/2026).
 Substitui `plano-proximos-passos.md`, cujas Fases 1-3 já foram executadas.
@@ -103,9 +103,34 @@ giro parado de ~85° e o MPPI comanda `wz = 0,035` rad/s, 17% do teto. Loop de
 controle, TF, costmap e `collision_monitor` foram descartados por medição.
 Hipótese sem medida: `PathAlignCritic` em 14,0 contra `PathAngleCritic` em 2,0.
 
-**Decisões pendentes do operador:** trocar Wi-Fi por Ethernet (bancada) ou
-reduzir taxa/resolução da câmera em `demo_simulation/urdf/go2_sim.urdf.xacro`
-(muda o que a demo mostra).
+**Decisão do operador em 24/08/2026:** preservar 640×480 a 10 Hz e migrar o HIL
+para Ethernet. F5 só fecha depois da corrida real nesse enlace; não inferir o
+resultado a partir da banda medida no Wi-Fi.
+
+### 24/08/2026 — HIL Ethernet executado, portão longo ainda aberto
+
+O enlace foi executado de verdade: host `enp0s31f6` e Aquila `ethernet1`, com
+peers CycloneDDS fixados em `10.22.1.190` e `10.22.1.130`. As duas portas do
+Aquila na mesma sub-rede anunciam o mesmo hostname mDNS; deixar `MODULE_IP`
+implícito alternou entre os dois endereços. A configuração local agora fixa uma
+porta antes de `module.sh sync`.
+
+Dois defeitos de QoS só apareceram com amostras fragmentadas no HIL. A câmera
+RAW de 921600 bytes precisava de leitor `RELIABLE`; a nuvem LiDAR precisava de
+produtor `SENSOR_DATA` para os leitores `BEST_EFFORT` do Nav2. Depois das duas
+correções, câmera, detecções e nuvem de detecções fluíram a ~10 Hz, e o
+`collision_monitor` deixou de rejeitar comandos por fonte antiga.
+
+Uma meta curta fechou `SUCCEEDED` em **28 s**, com Nav2 + percepção no AM69,
+Gazebo/RViz/câmera no host e zero queda. O protocolo final, porém, não bateu o
+portão: **419,9 s, 8,31 m de caminho, 0,0198 m/s, 0 metas de 8 m concluídas**
+(dois prazos de 200 s). O valor repete o Wi-Fi com percepção (0,0197 m/s),
+refutando a hipótese de que trocar apenas o meio físico removeria o gargalo. O
+custo restante está no caminho de processamento/cópias/fragmentação da câmera e
+na baixa razão de trabalho do MPPI.
+
+Evidência completa e CSVs em **`docs/results/ml35-hil-ethernet.md`**. F5 segue
+aberta até uma meta de 8 m terminar `SUCCEEDED` no protocolo de 420/200 s.
 
 **Atenção ao ler aquele plano:** o bloqueador que ele registra — "a árvore TF não
 fecha, não existe frame `odom`" — **foi resolvido em 20/08/2026**. A árvore agora
@@ -623,14 +648,28 @@ manda não editar. Corrigir destruiria o byte-idêntico; deixar torna
 
 ---
 
-## F4 — em andamento 17/08/2026, atualizada 18/08/2026
+## F4 — concluída 24/08/2026
+
+> **Continuidade:** esta seção registra o checkpoint de 18/08. A queda em HOLD
+> foi corrigida em 20/08 por `hold.settle_rate: 0.02`, com os três critérios de
+> marcha verdes; ver `docs/results/ml35-postura-parada.md`. A revalidação
+> conjunta do contrato e de perception foi executada em 24/08.
 
 Checkpoint detalhado em `docs/results/ml35-f4-parcial.md`. Nomes, tipos e
 mensagens reais de odom, scan e imagem atravessaram dois containers por DDS. O
 primeiro mapeamento SI → stick derrubou o Go2 e foi substituído por clamp no
 envelope `0.03` comprovado em F3, mas essa última edição ainda não foi
 revalidada em runtime. Perception, warehouse oficial e regressão diff-drive
-seguem pendentes; portanto o portão de F4 permanece aberto.
+estavam pendentes naquele checkpoint.
+
+**Fechamento em 24/08/2026:** cold start do perfil `learn` com Go2, warehouse,
+Nav2 e perception em containers distintos. Os cinco tópicos foram descobertos
+com os tipos do contrato: `geometry_msgs/msg/Twist`, `nav_msgs/msg/Odometry`,
+`sensor_msgs/msg/LaserScan`, `sensor_msgs/msg/Image` e
+`vision_msgs/msg/Detection2DArray`. Foram recebidas mensagens reais de odom,
+scan, imagem 640 px e detecção sintética no consumidor. `/clock` avançou, a TF
+fechou e o Nav2 chegou a `Managed nodes are active`. Isso fecha o portão F4 sem
+fazer alegação de desempenho ou de hardware.
 
 **18/08/2026 — a marcha passou a existir.** `StateTrotting` foi separado em
 `WALK`, `HOLD` e `RECOVER`, e `twist_to_inputs` ganhou watchdog de comando. Três
@@ -668,10 +707,9 @@ medida 0,106 m/s. Duas causas, ambas medidas antes de qualquer ajuste:
 Alargar o batente (±25) e desmembrar os ganhos de atitude por eixo foram
 ensaiados e **rejeitados por medição** — evidência em `ml35-f4-parcial.md`.
 
-F4 segue aberta: deriva de guinada de ~3°/s parado em `HOLD`, viés de 24 mm no
-`z` estimado (`foot_radius` contra `feet_h_ = 0`), warehouse, RViz2/TF e
-regressão diff-drive. Os gates de `linear.x = 0.01` e `0.03` herdaram a premissa
-nula do item 1 e precisam ser reescritos em termos de `v_cmd`.
+Esse era o estado em 18/08. A correção e os critérios substitutos estão no
+relatório de 20/08 citado acima; não usar este parágrafo histórico para escolher
+o próximo experimento.
 
 ---
 
@@ -808,11 +846,29 @@ Registradas para que ninguém as retente:
 
 - **Estimativa de estado com perna.** `odom_tf` republica ground truth. Enquanto
   isso, nada aqui valida localização.
-- **Modo HIL.** A imagem `demo-sim:spike-go2` **não tem Nav2** dentro (medido:
-  zero pacotes `nav2` em `/opt/ros/jazzy/lib`). Hoje o Nav2 sobe nativo no host
-  x86 e conversa com o container por DDS. Para o modo HIL, a imagem do módulo
-  precisa da pilha dentro.
-- **Qualquer número de hardware.** Tudo medido na estação x86.
+- **Meta de 8 m no portão HIL Ethernet.** Ethernet, câmera RAW, percepção e uma
+  meta curta já passaram no Aquila. No protocolo de 420 s / 200 s por meta, as
+  duas metas longas expiraram. Isolar custo da câmera e razão de trabalho do
+  MPPI, sem reduzir 640×480 a 10 Hz, e repetir o mesmo protocolo.
+
+## F6 — fallback selecionável: concluída 24/08/2026
+
+`ROBOT_TYPE=quadruped|diffdrive` agora seleciona em conjunto a planta do host e
+o launch Nav2 correspondente, tanto no Compose do host quanto no do módulo.
+`quadruped` é o padrão; valor desconhecido falha antes de iniciar Nav2. Os testes
+unitários verificam o pareamento e a rejeição de valores inválidos.
+
+Portão executado a partir de subidas limpas do perfil `learn`:
+
+- `quadruped`: TF fechada, Nav2 ativo e meta curta de x≈−1,59 para x=−0,8 com
+  `SUCCEEDED`, `error_code: 0`;
+- `diffdrive`, com `SIM_GUI=false`: odometria disponível e meta de x=0 para x=1
+  com `SUCCEEDED`, `error_code: 0`.
+
+As imagens de base, simulação, navegação, percepção, ferramentas e visualização
+foram reconstruídas. O backend `gz_quadruped_hardware` existe apenas na imagem
+de simulação; `COLCON_IGNORE` mantém as funções headless isoladas também em
+builds e testes incrementais posteriores.
 
 ## Decisões tomadas
 
@@ -922,13 +978,15 @@ certo em vez de aparecer como surpresa no bring-up de hardware.
   e a seção "Preparação do target" acima. `ssh torizon@` e `rsync` agora rodam
   por `scripts/module.sh`. A regra 7 continua valendo integralmente: nada de
   desempenho, latência, térmica ou FPS foi medido nem é reivindicado.
-- ~~`eth0` nos XMLs de DDS é placeholder~~ — **RESOLVIDO para o módulo.** A
-  interface verificada é `ethernet0`, e ela é **fixada em tempo de
+- ~~`eth0` nos XMLs de DDS é placeholder~~ — **RESOLVIDO para o módulo.** As
+  interfaces verificadas são `ethernet0` e `ethernet1`; no HIL de 24/08 foi
+  escolhida explicitamente `ethernet1`, e ela é **fixada em tempo de
   renderização**, detectada a partir de `MODULE_IP`, não escrita à mão:
   `autodetermine` pode escolher a bridge Docker do easy-pairing
-  (`br-*`, 172.18.0.1), que está UP ao mesmo tempo. `host.xml` segue em
-  `autodetermine` e ainda **não** lista o peer do módulo — é o que falta para o
-  modo `hil` completo.
+  (`br-*`, 172.18.0.1), que está UP ao mesmo tempo. O `host.xml` é template; o
+  `module.sh sync` gera `host.rendered.xml` com `enp0s31f6` e o peer escolhido.
+  Com as duas portas na mesma sub-rede, `MODULE_IP` deve ser explícito porque o
+  mesmo hostname mDNS pode resolver para qualquer uma delas.
 - `tools` aparece em `docker compose exec tools` no guia §9 mas não está
   declarado no compose §6. Será declarado com `profiles: ["tools"]` e um
   `command` que não encerra.

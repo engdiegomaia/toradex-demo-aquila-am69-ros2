@@ -1,4 +1,4 @@
-# Navigation container — Nav2 over a static map.
+# Navigation container — robot-selected Nav2 stack (Go2 or diff-drive).
 #
 # Builds for: linux/amd64 AND linux/arm64. This is one of the two images that
 # actually migrates to the Aquila AM69, so it carries nothing graphical: no
@@ -81,12 +81,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Rebuild the overlay so demo_navigation and demo_bringup resolve against the
 # Nav2 packages the base image skipped.
-# Must carry the same value as the base build that produced the parent image.
-# This RUN rebuilds the WHOLE workspace, so without it colcon reaches
+# This RUN rebuilds the WHOLE workspace, so without the default below colcon reaches
 # gz_quadruped_hardware and fails against a Gazebo that the module image
-# deliberately does not have (see docker/base/Dockerfile). Empty default keeps
-# amd64/host builds unchanged.
-ARG COLCON_IGNORE_PACKAGES=""
+# deliberately does not have (see docker/base/Dockerfile). The simulation role
+# is the only image that needs to build that package.
+ARG COLCON_IGNORE_PACKAGES="gz_quadruped_hardware"
 
 WORKDIR /ws
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
@@ -100,4 +99,6 @@ USER ubuntu
 # use_sim_time:=true even on the module in hil mode — the module follows the
 # host's /clock over DDS. A module on wall time while the host runs sim time
 # produces TF extrapolation errors and Nav2 silently refusing goals.
-CMD ["ros2", "launch", "demo_bringup", "nav.launch.py", "use_sim_time:=true"]
+# Standalone default matches Compose: Go2 is the ML3.5 default and the selector
+# keeps the diff-drive launch available through robot_type:=diffdrive.
+CMD ["ros2", "launch", "demo_bringup", "nav_select.launch.py", "robot_type:=quadruped", "use_sim_time:=true"]

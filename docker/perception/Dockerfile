@@ -35,10 +35,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # Must carry the same value as the base build that produced the parent image.
 # This RUN rebuilds the WHOLE workspace, so without it colcon reaches
-# gz_quadruped_hardware and fails against a Gazebo that the module image
-# deliberately does not have (see docker/base/Dockerfile). Empty default keeps
-# amd64/host builds unchanged.
-ARG COLCON_IGNORE_PACKAGES=""
+# gz_quadruped_hardware and fails against a Gazebo that this headless role does
+# not have (see docker/base/Dockerfile). The simulation role is the only image
+# that needs to build that package.
+ARG COLCON_IGNORE_PACKAGES="gz_quadruped_hardware"
 
 WORKDIR /ws
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \

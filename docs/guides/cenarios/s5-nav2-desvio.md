@@ -18,13 +18,10 @@ Isso exercita, de ponta a ponta: a nuvem do lidar → costmap → planejador →
 | componente | máquina | por quê |
 | --- | --- | --- |
 | Gazebo + robô + bridge | container `aquila-go2`, host x86 | OGRE 2, regra 1 do `CLAUDE.md` |
-| Nav2 + `odom_tf` + patrulha | host x86, **nativo** | a imagem `demo-sim:spike-go2` **não tem Nav2** |
+| Nav2 + `odom_tf` + patrulha | host x86 em learn; Aquila AM69 em HIL | mesma imagem multi-arch e mesmo launch |
 
-O segundo ponto é medido, não suposto: `ls /opt/ros/jazzy/lib | grep -c nav2`
-dentro daquela imagem devolve **0**. Enquanto ela for a imagem do spike, o Nav2
-sobe nativo no host e conversa com o container pelo DDS — mesma rede
-(`--network=host`), domínio 69, `rmw_cyclonedds_cpp`. No modo hil o Nav2 vai para
-o módulo, e aí a imagem do módulo é que precisa tê-lo dentro.
+O HIL foi executado no Aquila em 21/08/2026 com Nav2 composto; a evidência está
+em `docs/results/ml35-hil-aquila.md`. Gazebo permanece no host nos dois modos.
 
 ## Geometria e por que as metas são estas
 

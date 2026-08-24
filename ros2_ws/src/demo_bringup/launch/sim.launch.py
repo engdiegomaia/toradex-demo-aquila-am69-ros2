@@ -19,11 +19,12 @@ gz-sim-diff-drive-system) or `quadruped` (ML3.5 F3, Unitree Go2 on
 ros2_control). Each maps to exactly one launch file in demo_simulation; an
 unknown value fails loudly rather than silently starting the wrong plant.
 
-The default stays `diffdrive` through F3. The quadruped plant stands and walks
-but is not yet wired to Nav2 (F5), and the fallback is not yet tested in both
-directions (F6) — which is the F6 gate, not this one.
+The ML3.5 default is `quadruped`; `diffdrive` remains the tested fallback. The
+same selector is consumed by `nav_select.launch.py`, so plant and navigation
+cannot silently select different robots.
 """
 
+from demo_bringup.robot_selection import launch_file, ROBOT_LAUNCH_FILES
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -37,10 +38,7 @@ from launch_ros.substitutions import FindPackageShare
 # Each entry maps to exactly one launch file in demo_simulation. Adding a plant
 # means adding a launch file, not adding a conditional to an existing one
 # (CLAUDE.md: no single launch file full of conditionals).
-PLANT_LAUNCH_FILES = {
-    'diffdrive': 'simulation.launch.py',
-    'quadruped': 'quadruped.launch.py',
-}
+SUPPORTED_ROBOTS = tuple(sorted(ROBOT_LAUNCH_FILES))
 
 
 def _check_robot_type(context, *args, **kwargs):
@@ -52,11 +50,10 @@ def _check_robot_type(context, *args, **kwargs):
     start the diff-drive plant and look like it worked.
     """
     robot_type = LaunchConfiguration('robot_type').perform(context)
-    if robot_type not in PLANT_LAUNCH_FILES:
-        raise RuntimeError(
-            f'robot_type:={robot_type!r} is not a known plant. '
-            'Supported: ' + ', '.join(sorted(PLANT_LAUNCH_FILES)) + '.'
-        )
+    try:
+        launch_file(robot_type, 'plant')
+    except ValueError as error:
+        raise RuntimeError(str(error)) from error
     return []
 
 
@@ -73,7 +70,7 @@ def _launch_plant(context, *args, **kwargs):
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_simulation'),
             'launch',
-            PLANT_LAUNCH_FILES[robot_type],
+            launch_file(robot_type, 'plant'),
         ])),
         launch_arguments={
             'world': LaunchConfiguration('world'),
@@ -101,15 +98,13 @@ def generate_launch_description() -> LaunchDescription:
         description='Run Gazebo with its GUI. Set false for headless runs.',
     )
 
-    # Default stays diffdrive through F3: the quadruped plant is implemented
-    # but is not yet wired to Nav2 (F5) and the fallback is not yet tested in
-    # both directions (F6). Selecting it is deliberate, not the default.
+    # F5 validated the quadruped plant with Nav2 on the host and the Aquila.
+    # F6 promotes it while preserving diffdrive as an explicit fallback.
     robot_type_arg = DeclareLaunchArgument(
         'robot_type',
-        default_value='diffdrive',
+        default_value='quadruped',
         description=(
-            'Which plant to simulate: ' + ' | '.join(sorted(PLANT_LAUNCH_FILES)) +
-            '. quadruped is the Unitree Go2 on ros2_control (ML3.5 F3).'
+            'Which plant to simulate: ' + ' | '.join(SUPPORTED_ROBOTS) + '.'
         ),
     )
 

@@ -10,6 +10,7 @@ guarantees must survive the swap.
 from demo_perception.detection_stub import DetectionStub
 import pytest
 import rclpy
+from rclpy.qos import QoSReliabilityPolicy
 from sensor_msgs.msg import Image
 
 
@@ -46,6 +47,12 @@ def test_same_frame_index_yields_same_box(node) -> None:
     assert first.center.position.y == second.center.position.y
     assert first.size_x == second.size_x
     assert first.size_y == second.size_y
+
+
+def test_camera_subscription_is_reliable(node) -> None:
+    """Large fragmented HIL images require retransmission of missing pieces."""
+    assert node._subscription.qos_profile.reliability == \
+        QoSReliabilityPolicy.RELIABLE
 
 
 def test_box_moves_between_frames(node) -> None:

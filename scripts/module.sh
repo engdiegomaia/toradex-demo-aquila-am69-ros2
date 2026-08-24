@@ -21,6 +21,7 @@ set -euo pipefail
 #   HOST_IP       this workstation, as the module sees it
 #   ROS_DOMAIN_ID DDS domain                    (default 69)
 #   TAG/REGISTRY  image naming                  (default dev / local)
+#   ROBOT_TYPE    coupled plant/Nav2 selection  (default quadruped)
 #
 # --- WHY THE IMAGES ARE BUILT ON THE MODULE, NOT WITH QEMU ------------------
 #
@@ -58,6 +59,7 @@ MODULE_USER="${MODULE_USER:-torizon}"
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-69}"
 TAG="${TAG:-dev}"
 REGISTRY="${REGISTRY:-local}"
+ROBOT_TYPE="${ROBOT_TYPE:-quadruped}"
 remote_dir="${REMOTE_DIR:-/home/${MODULE_USER}/demo}"
 ssh_target="${MODULE_USER}@${MODULE_HOST}"
 
@@ -257,6 +259,7 @@ HOST_IP=${HOST_IP}
 MODULE_IP=${MODULE_IP}
 REGISTRY=${REGISTRY}
 TAG=${TAG}
+ROBOT_TYPE=${ROBOT_TYPE}
 EOF
 
   say "sync concluido em ${ssh_target}:${remote_dir}"

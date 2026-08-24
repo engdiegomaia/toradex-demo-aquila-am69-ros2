@@ -175,7 +175,10 @@ services:
     <<: *common
     image: ${REGISTRY}/demo-nav:${TAG}
     profiles: ["learn"]
-    command: ros2 launch demo_bringup nav.launch.py use_sim_time:=true
+    command: >
+      ros2 launch demo_bringup nav_select.launch.py
+      robot_type:=${ROBOT_TYPE:-quadruped}
+      use_sim_time:=true
 
   perception:
     <<: *common
@@ -217,7 +220,10 @@ services:
   nav:
     <<: *common
     image: ${REGISTRY}/demo-nav:${TAG}
-    command: ros2 launch demo_bringup nav.launch.py use_sim_time:=true
+    command: >
+      ros2 launch demo_bringup nav_select.launch.py
+      robot_type:=${ROBOT_TYPE:-quadruped}
+      use_sim_time:=true
 
   perception:
     <<: *common
@@ -226,6 +232,9 @@ services:
 ```
 
 Sem `sim`, sem `viz`, sem X11, sem `/dev/dri`. Nada gráfico chega ao módulo.
+O mesmo `ROBOT_TYPE` seleciona a planta no host e o Nav2 correspondente nos dois
+Compose. No quadrúpede, `odom_tf` ainda deriva a TF do ground truth do Gazebo;
+estimativa por pernas permanece fora do fechamento da ML3.5.
 
 Quando houver câmera real, no modo deploy, `perception` ganha o mapeamento do device:
 

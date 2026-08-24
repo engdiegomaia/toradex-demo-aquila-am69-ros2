@@ -69,24 +69,15 @@ simulação, e é a razão de o script existir.
 
 Não são defeitos deste ou daquele mundo; são o estado da aplicação hoje.
 
-- **A árvore TF não fecha no topo.** Medido com QoS correto em `/tf_static`:
-  **20 arestas, 8 estáticas, raiz `base`** — `base` → `trunk` → `lidar`,
-  `imu_link`, `front_camera` e as quatro pernas até os pés. A árvore do robô é
-  completa e o frame `lidar` existe. Faltam **duas arestas no topo**:
-  `odom → base` e `map → odom`. O `/demo/odom` já declara
-  `header.frame_id: "odom"` numa mensagem cujo frame ninguém publica.
-  `base_link` não existe (o URDF usa `base` e `trunk`), e o `nav2_params.yaml`
-  pede `base_link` — isso é configuração de arquivo do projeto, não mudança em
-  pacote vendorizado.
-- **O robô não desvia de obstáculo, e há três razões independentes.** (1) Nada
-  consome o scan: `gait_trial.sh` e `demo_routine` são malha aberta, publicam
-  velocidade fixa e nunca leem `/demo/scan`. (2) O Nav2 é o consumidor e não
-  pode subir — o `nav2_params.yaml` já está configurado para
-  `observation_sources: scan` / `/demo/scan` / `/demo/odom`, mas pede os frames
-  `map`, `odom` e `base_link`, e **nenhum dos três existe** (o URDF tem `base` e
-  `trunk`; `grep base_link` em `go2_description` não retorna nada). (3) Mesmo com
-  o Nav2 de pé, o `/demo/scan` é **um anel de um lidar de 16**, e esse anel não
-  vê objeto isolado à frente — medido em [s4-objetos.md](s4-objetos.md).
+- **A árvore TF fecha quando o Nav2 do Go2 está ativo.** `odom_tf` publica
+  `odom → base` a partir de `/demo/odom` e `map → odom` como identidade. Essa
+  odometria é ground truth do Gazebo: serve à demo HIL, mas não valida
+  localização por pernas. Sem o launch de navegação, essas duas arestas estarem
+  ausentes é esperado.
+- **Desvio só existe nos cenários comandados pelo Nav2.** `gait_trial.sh` e
+  `demo_routine` continuam em malha aberta por desenho. S5/S6 usam
+  `/demo/scan_cloud`, os 16 anéis do lidar, porque o `/demo/scan` de um anel não
+  vê objetos isolados de forma confiável.
 - **`/demo/perception/detections` só existe se `demo_perception` estiver
   rodando**, e quando existe é um stub **determinístico e sintético**: ele não
   olha a imagem. Nenhum cenário aqui valida detecção.

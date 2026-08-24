@@ -28,8 +28,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /ws
+# RViz consumes robot descriptions and Nav2 data but does not load the Gazebo
+# ros2_control backend. Keep the simulator-only package out of this role.
+ARG COLCON_IGNORE_PACKAGES="gz_quadruped_hardware"
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && colcon build --symlink-install --event-handlers console_direct+ \
+        ${COLCON_IGNORE_PACKAGES:+--packages-ignore ${COLCON_IGNORE_PACKAGES}} \
     && rm -rf /ws/log \
     && chown -R ubuntu:ubuntu /ws /home/ubuntu
 

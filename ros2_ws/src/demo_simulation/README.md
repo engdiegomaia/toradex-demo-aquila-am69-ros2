@@ -140,16 +140,17 @@ docker exec -it aquila-go2 bash -lc '
 '
 ```
 
-O robô entra no trote, mas a passada dinâmica ainda está instável: no ensaio
-de 18/08/2026 ele avançou sem alternância de pernas confiável e caiu. Portanto
-F4 continua aberto; a estabilidade em `FIXEDSTAND` é o critério atualmente
-validado. Pare o publisher com `Ctrl-C` e o simulador no primeiro terminal.
+O robô entra no trote. Desde 20/08/2026, caminhada, guinada comandada e HOLD de
+90 s estão validados, com zero `RECOVER`; a correção da queda prolongada é
+`hold.settle_rate: 0.02`. Pare o publisher com `Ctrl-C` e o simulador no primeiro
+terminal. Evidência: `docs/results/ml35-postura-parada.md`.
 
 Nesta etapa o controlador também imprime, uma vez por segundo, a linha
 `gait diagnostics`. Durante o trote, confirme `state=trotting`, `ly` diferente
 de zero e `contact` alternando entre os pares de pernas. Se `ly` mudar mas
-`contact` ficar constante, o próximo ajuste é o `WaveGenerator`; se ambos
-mudarem e o corpo cair, o próximo ajuste é a dinâmica/estimador.
+`contact` ficar constante, há regressão no `WaveGenerator`; se ambos mudarem e o
+corpo cair, compare primeiro com os portões versionados em
+`docs/guides/go2-testes.md`.
 
 ```bash
 # terminal 1 — simulator, robot, bridge

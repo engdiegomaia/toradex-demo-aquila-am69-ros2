@@ -57,11 +57,14 @@ class DetectionStub(Node):
         self._validate_score(float(self.get_parameter('score').value))
         self._validate_period(float(self.get_parameter('period_frames').value))
 
-        # Sensor data QoS: the camera publisher is best-effort, and a reliable
-        # subscription would never match it — the classic "topic lists fine but
-        # the callback never fires" failure.
+        # The ros_gz_bridge camera publisher is RELIABLE. This matters for the
+        # 921600-byte rgb8 samples used by the demo: over the HIL Ethernet link,
+        # a BEST_EFFORT reader was discovered normally but lost every fragmented
+        # sample, while a RELIABLE probe received the full 10 Hz stream. Keep the
+        # request aligned with the measured producer so DDS can retransmit a
+        # missing fragment instead of silently dropping the whole frame.
         sensor_qos = QoSProfile(
-            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            reliability=QoSReliabilityPolicy.RELIABLE,
             durability=QoSDurabilityPolicy.VOLATILE,
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=5,
