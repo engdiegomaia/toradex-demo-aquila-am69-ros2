@@ -1,0 +1,109 @@
+/*
+ * Design tokens do cockpit.
+ *
+ * Fonte única de paleta, escala tipográfica e movimento. Nenhum painel escreve
+ * cor no próprio arquivo: o mesmo bundle é o cockpit da workstation hoje e o
+ * kiosk DisplayPort do Aquila no M3, e reajustar contraste para outro painel
+ * tem de ser um arquivo, não cinco.
+ *
+ * IDENTIDADE TORADEX
+ * Os três valores da marca vieram do time e são exatos:
+ *
+ *     azul     #00508c    cor primária, barras e ações
+ *     verde    #96c837    estado bom, vivo, ok
+ *     laranja  #ff5a00    atenção
+ *
+ * O fundo é branco, também por definição da marca. Isso INVERTE o cockpit em
+ * relação à primeira versão, que era um instrumento escuro, e a inversão não é
+ * cosmética: num fundo claro o mapa de custo, o laser e o plano precisam de
+ * outra paleta para continuarem legíveis — ver buildCostLut em
+ * js/panels/map-view.js, que foi refeito junto.
+ *
+ * O VERMELHO NÃO É DA MARCA, E É DE PROPÓSITO
+ * "Parado há tempo demais" e "morto" precisam parecer coisas diferentes através
+ * da sala. O laranja da marca é o primeiro estado; o segundo usa um vermelho
+ * fora da paleta, reservado para falha de verdade e para o E-STOP. Usar laranja
+ * nos dois faria o pior caso desaparecer dentro do caso comum.
+ */
+
+:root {
+  color-scheme: light;
+
+  /* Marca, cruas. Nada além destes três deve aparecer como literal em CSS. */
+  --brand-blue: #00508c;
+  --brand-green: #96c837;
+  --brand-orange: #ff5a00;
+
+  /* Superfícies. O fundo da página é branco; os painéis são brancos também e
+     se separam por borda e sombra, não por tom — empilhar cinzas sobre branco
+     é o que faz uma UI clara parecer suja. */
+  --bg-root: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-panel-head: #f4f7fa;
+  --bg-inset: #eef2f6;
+  --bg-bar: var(--brand-blue);
+
+  --border: #dbe3ea;
+  --border-strong: #b8c6d3;
+
+  --text: #16232e;
+  --text-dim: #4a5c6b;
+  --text-faint: #7b8b99;
+
+  --accent: var(--brand-blue);
+  /* Fundo de realce: o azul da marca a 10%, calculado e não escolhido, para
+     acompanhar qualquer ajuste futuro do azul. */
+  --accent-dim: color-mix(in srgb, var(--brand-blue) 10%, white);
+
+  /* Estado semântico. Só para pontos de frescor, badge e alertas — nunca para
+     decoração, para que um pixel colorido nesta tela sempre queira dizer algo
+     sobre o robô. */
+  --ok: var(--brand-green);
+  --warn: var(--brand-orange);
+  --bad: #c0261b;
+  --idle: #b6c1cb;
+
+  /* Identidade de painel. Espelha docs/ml35/cockpit-division-view.png: o
+     esboço aprovado tinha quatro blocos de cor, e a faixa lateral de cada
+     painel é o que sobrou deles depois de passar pela paleta da marca. */
+  --hue-scene: var(--brand-blue);
+  --hue-nav: var(--brand-green);
+  --hue-camera: var(--brand-orange);
+  --hue-log: #6b7f91;
+
+  /* Traços do mapa 2D. Vivem aqui, e não no canvas, porque são as MESMAS
+     decisões de contraste do resto da tela: o plano usa o azul da marca, o
+     robô o verde, e a meta um violeta que não é da marca justamente para não
+     poder ser confundida com um estado. */
+  --map-plan: var(--brand-blue);
+  --map-robot: var(--brand-green);
+  --map-scan: #b34000;
+  --map-goal: #7b2fbe;
+  --map-grid: rgba(22, 35, 46, 0.09);
+
+  --font-ui: system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "DejaVu Sans Mono", Menlo, monospace;
+
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.125rem;
+
+  --radius: 10px;
+  --radius-sm: 5px;
+
+  --gap: 8px;
+  --pad: 10px;
+
+  --shadow-panel: 0 1px 2px rgba(22, 35, 46, 0.06),
+    0 4px 12px rgba(22, 35, 46, 0.05);
+
+  --duration-fast: 120ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --duration-fast: 0ms;
+  }
+}

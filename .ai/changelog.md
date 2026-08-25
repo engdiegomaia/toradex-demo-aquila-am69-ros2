@@ -5,6 +5,188 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-24 — cockpit web F3b: cena, navegação, controle e identidade
+
+Fecha o F3b do `plano-cockpit-web.md` e absorve quatro pedidos do operador na
+mesma sessão. Evidência completa em `docs/results/cockpit-web-f3b.md`.
+
+### Painel azul — vista da cena
+
+Duas câmeras estáticas do MUNDO, alternáveis no cabeçalho do painel. Elas são
+**modelos spawnáveis** (`demo_simulation/models/cockpit_scene_{iso,top}.sdf`),
+não elementos escritos nos mundos, por duas razões que só aparecem depois:
+
+- o mundo default (`nav2_minimal_tb4_sim/worlds/warehouse.sdf`) é de terceiros e
+  não é editável, e é ele que sobe quando o compose não passa `world:=`;
+- pendurar a câmera no `go2_description` vendorizado quebraria a garantia
+  byte a byte que sustenta o argumento de licença.
+
+Enquadramento medido, não chutado: a primeira tentativa (iso em `-7,-7,5`) caía
+dentro dos corredores de prateleira do armazém, e a de topo a 12 m batia numa
+viga do telhado exatamente sobre o robô.
+
+### Painel verde — navegação 2D
+
+Canvas único redesenhado por inteiro a cada tique: costmap (PNG, 33x menor que
+JSON), plano global, laser, pegada do robô com bigode de proa, e a meta. O
+clique manda `NavigateToPose`. Portão do F3b cumprido: meta clicada aceita e
+executada, com feedback e contagem de recuperações chegando ao HUD.
+
+**Falha silenciosa encontrada:** o rosbridge entrega **uma** mensagem latched de
+`/tf_static` por inscrição, e qual delas é sorte — medido em três inscrições
+novas e consecutivas: arestas do robô, `map->odom`, `map->odom`. Em cerca de
+metade dos carregamentos faltava `map->base` e o painel ficava vazio.
+`queue_length: 16` não muda nada; a perda é acima da fila do cliente. Correção:
+reinscrição limitada (1,5 s, no máximo 8 vezes), que para em definitivo assim
+que a cadeia resolve.
+
+### Controle da simulação pelo cockpit
+
+Play, pause e reset na barra. O pedido original dizia "iniciar a simulação **no
+target**", e essa parte **não é possível**: o Gazebo é OGRE 2 e o AM69 só expõe
+OpenGL ES 3.2 e Vulkan 1.2 (regra 1). O que existe é controlar **a partir do**
+cockpit o Gazebo que roda no host — no M3, com o cockpit servido pelo Aquila, o
+clique sai do módulo e a chamada atravessa o grafo ROS, como a meta do Nav2 já
+atravessa hoje.
+
+**Falha que definiu a arquitetura:** chamar `/demo/sim/control`
+(`ros_gz_interfaces/srv/ControlWorld`) direto do navegador não funciona —
+
+    call_service InvalidModuleException: Unable to import ros_gz_interfaces.srv
+
+O rosbridge monta o pedido importando o pacote de interfaces dentro do próprio
+container, e o container do cockpit não tem `ros_gz_interfaces`. E não deve ter:
+no M3 ele roda no Aquila, e no modo `deploy` não há Gazebo nenhum. Nasceu daí o
+nó **`sim_control_relay`** (host), que expõe `/demo/sim/{play,pause,reset}` como
+`std_srvs/Trigger` e traduz para `ControlWorld`. A fronteira do navegador só fala
+tipos de núcleo do ROS.
+
+O rótulo de estado vem do `/clock`, **não** do último clique: um eco mentiria
+com o container morto, com a chamada expirada, ou com a pausa feita pela GUI do
+Gazebo. Reset exige dois cliques — ele devolve o robô à pose inicial e apaga o
+costmap acumulado do Nav2.
+
+### Controle de câmera
+
+Pad sobre a imagem: girar, inclinar, mover, aproximar, recentrar. O navegador
+publica **deltas** em `/demo/cockpit/scene/cmd_view`; quem guarda a órbita,
+satura os limites e escreve a pose é o `scene_view_controller`, do lado do
+simulador. O caminho alternativo (cliente calcula a pose e manda pronta) quebra
+com dois cockpits abertos, zera o enquadramento a cada F5, e duplicaria a
+matemática de órbita em duas linguagens.
+
+### Identidade Toradex
+
+Fundo branco, `#00508c`, `#96c837`, `#ff5a00`, valores exatos do time, com as
+marcas Toradex e ROS na barra. Duas consequências que não são cosméticas:
+
+- **o vermelho de falha não é da marca, de propósito** — "parado há tempo
+  demais" e "morto" precisam parecer coisas diferentes através da sala;
+- **a barra é a única superfície escura da tela** — as marcas são tinta branca
+  com alfa e sobre branco sumiriam. Os tokens são redefinidos dentro de `.bar`,
+  em vez de duplicar cada regra de botão numa variante.
+
+O costmap foi repaletizado junto e cor de canvas deixou de existir em
+JavaScript: `hmi/js/panels/palette.js` lê os tokens `--map-*` uma vez.
+
+### Qualidade de imagem e o que ela custa
+
+Câmeras de cena de 800x600 a 5 Hz para **1600x1200**, anti-aliasing 8, e
+qualidade JPEG de 70 para 95. A proporção **continua 4:3**, e isso é restrição:
+o `horizontal_fov` e as poses foram medidos nessa proporção, e ir para 16:9
+desenquadra as duas cenas sem erro nenhum.
+
+A taxa subiu de 5 para **10 Hz, e não 15, por medição**. As duas câmeras
+renderizam no mesmo processo do Gazebo, e nesta resolução a workstation não
+entrega 15 Hz de qualquer forma:
+
+| `update_rate` | entregue | fator de tempo real |
+| --- | --- | --- |
+| 15 | 9,43 Hz | 0,59 |
+| 10 | 9,77 Hz | 0,97 |
+
+Pedir 15 não rendia um quadro a mais e custava 40% da velocidade da simulação —
+o que estica cada meta do Nav2 na mesma proporção. No modo `hil` o stream
+atravessa a Ethernet até o Aquila, e nada disso foi medido lá; se o gargalo for
+banda e não render, o parâmetro a baixar primeiro é a qualidade JPEG em
+`hmi/js/config.js`.
+
+### Caixas de detecção fora do vídeo
+
+A pedido do operador. O `demo_perception` de hoje é um stub que varre uma caixa
+sintética pela imagem quer haja objeto ali ou não; sobre o vídeo isso vira um
+retângulo passeando, que numa demo é lido como detecção de verdade. As detecções
+continuam publicadas e continuam alimentando a `perception_layer` do costmap — o
+contrato de tópicos não mudou, saiu só o desenho. O módulo de overlay segue no
+bundle, testado, para voltar com o TIDL.
+
+### Suítes
+
+131 testes de bundle (`node --test`) e 29 guardas estruturais (`pytest`).
+
+### Documentação
+
+Novo **`docs/guia-cockpit.md`**: como rodar, o que cada painel mostra, o que os
+botões fazem, como trocar de cenário, como ajustar qualidade de imagem, e as
+sete armadilhas próprias do cockpit. A seção "Cockpit de demonstração no host"
+de `guia-operacao.md` — que descrevia o `run_cockpit.sh` e o eixo X11 — foi
+substituída por um ponteiro e por um aviso explícito de não retomar aquele
+caminho.
+
+---
+
+## 2026-08-24 — cockpit web F1: transporte e esqueleto, no host
+
+Primeira fase do plano aprovado em `docs/ml35/plano-cockpit-web.md`. O eixo
+deixou de ser "capturar janelas X11" e passou a ser "renderizar a partir de
+tópicos ROS 2"; esta entrada é a parte de transporte desse eixo.
+
+Dois serviços novos em `docker/compose.host.yml`, fora do perfil `learn` porque
+são desejados nos dois modos:
+
+- **`cockpit`** — imagem própria (`docker/cockpit/Dockerfile`) com
+  `rosbridge_server` 2.7.0 e `web_video_server` 3.1.0, entrando por
+  `demo_bringup/launch/cockpit.launch.py`. É o único papel gráfico-adjacente que
+  pode ir para o módulo: nada aqui linka OGRE 2 nem OpenGL de desktop, e por
+  isso a imagem é multi-arch por construção. Não é o `viz`, que é amd64 para
+  sempre.
+- **`hmi`** — `nginx:alpine` servindo `hmi/`. Separado do `cockpit` para que uma
+  mudança de CSS não reconstrua uma imagem ROS de 1,3 GB.
+
+O bundle em `hmi/` é HTML/CSS/ES modules sem etapa de build, com cliente
+rosbridge próprio (~250 linhas, com reconexão e replay de assinaturas),
+rastreamento de frescor never/live/stale, painel de câmera e painel de logs.
+52 testes sob `node --test` e 7 guardas estruturais sob pytest.
+
+Portão do F1 atendido e fotografado: cinco regiões na proporção da imagem de
+referência, `/demo/camera/image_raw` ao vivo a 9,98 Hz, e derrubar o rosbridge
+troca o estado visual e reconecta sozinho. Evidência completa em
+`docs/results/cockpit-web-f1.md`.
+
+Duas falhas silenciosas medidas e travadas por teste:
+
+1. `web_video_server` **não faz percent-decode do parâmetro `topic`**. As duas
+   formas respondem HTTP 200; a codificada devolve 22 bytes e nenhum quadro.
+   `URLSearchParams` escapa `/` por padrão, então o painel ficava vazio com
+   status saudável e nada em log.
+2. No Firefox, um `<img>` ligado a `multipart/x-mixed-replace` **nunca dispara
+   `load`** e mantém `complete === false` durante toda a vida de um stream
+   saudável. O frescor da câmera passou a vir de `/demo/camera/camera_info` pelo
+   rosbridge — poucas centenas de bytes na mesma taxa da imagem.
+
+Dois pontos abertos do plano foram respondidos: rosbridge 2.x **expõe** ações
+ROS 2 (`SendActionGoal` registrado no startup), e `web_video_server` **aceita** o
+tópico reliable sem reconfiguração.
+
+Os botões de controle manual estão renderizados e **desabilitados de propósito**:
+publicar em `/demo/cmd_vel` junto com o Nav2 sem árbitro é o débito que o F4
+fecha com `twist_mux`, não com um mux à mão.
+
+Nada foi executado em arm64 nem no Aquila AM69. Próxima fase: F3b, painéis de
+cena e de navegação.
+
+---
+
 ## 2026-08-24 — cockpit standalone: checkpoint parcial, não aceito
 
 A primeira implementação interpretou "cockpit" como uma barra que organizava

@@ -25,6 +25,8 @@ cobre o módulo Aquila AM69, que é sempre container e sempre `arm64`.
 9. [As armadilhas que já custaram tempo](#9-as-armadilhas-que-já-custaram-tempo)
 10. [O módulo Aquila AM69](#10-o-módulo-aquila-am69)
 
+O cockpit web tem guia próprio: [`guia-cockpit.md`](guia-cockpit.md).
+
 ---
 
 ## 1. Antes de começar
@@ -117,43 +119,33 @@ Numa máquina mais lenta, aumente **todos juntos**.
 Para mandar o robô a um destino: no RViz2, botão **2D Goal Pose**, clique e
 arraste no mapa.
 
-### Cockpit de demonstração no host
+### Cockpit de demonstração
 
-> **EXPERIMENTAL / NÃO ACEITO (24/08/2026):** no último ensaio, RViz e câmera
-> permaneceram externos e seus painéis internos ficaram vazios. Não use este
-> caminho como procedimento de demonstração. Checkpoint e metodologia em
-> [`results/cockpit-standalone-parcial.md`](results/cockpit-standalone-parcial.md).
-
-Para abrir Gazebo, RViz e câmera já organizados no monitor principal, mantendo
-Nav2 e percepção no Aquila:
+Uma página web com as cinco regiões da demo — cena, navegação, logs, câmera e
+barra de controle — servida por container e aberta no navegador:
 
 ```bash
-./scripts/run_cockpit.sh start --mode hil --screen DP-1
+cd docker
+docker compose -f compose.host.yml --profile learn up -d --build
+# abra http://localhost:8081
 ```
 
-O objetivo é uma única janela standalone que incorpore, em três painéis, os
-clientes X11 do Gazebo, RViz e `rqt_image_view`; os processos de renderização
-continuam isolados nos containers x86. A faixa inferior de controle manual foi
-implementada, mas o movimento pelos botões ainda não foi validado. O comando só
-permanece ativo enquanto a tecla ou botão está pressionado; soltar, perder o
-foco, fechar a aplicação ou perder a ponte envia velocidade zero. Controle
-manual e Nav2 ainda não têm mux e não devem ser usados simultaneamente.
+**O guia completo é [`guia-cockpit.md`](guia-cockpit.md)**: o que cada painel
+mostra, o que os botões fazem, como trocar de cenário, como ajustar qualidade de
+imagem, e as armadilhas próprias dele.
 
-**Não desabilite nem reinicie o GNOME Shell:** isso não é pré-requisito e
-interrompe outros processos da sessão. Se o gerenciador não estiver disponível,
-o launcher encerra com erro antes de subir a aplicação; ele nunca tenta reparar,
-substituir ou reconfigurar o desktop.
-
-O launcher usa o `DISPLAY` da sessão corrente, mesmo que `docker/.env` ainda
-contenha o display de um login anterior. Para conferir antes de iniciar:
-
-```bash
-echo "$DISPLAY"
-xrandr --listmonitors
-```
-
-Ao fechar a janela do cockpit, os serviços são encerrados. Use
-`--keep-running` somente quando quiser preservar os containers para depuração.
+> **O caminho antigo foi descartado.** Havia aqui um procedimento que tentava
+> **incorporar janelas X11** de Gazebo, RViz e `rqt_image_view` numa aplicação
+> única (`./scripts/run_cockpit.sh`). Quatro tentativas, nenhuma aceita: no
+> último ensaio RViz e câmera permaneceram externos e os painéis internos
+> ficaram vazios. **Não retome esse caminho** — o checkpoint está em
+> [`results/cockpit-standalone-parcial.md`](results/cockpit-standalone-parcial.md),
+> marcado como superado.
+>
+> O motivo de fundo não era de implementação: RViz e Gazebo são OGRE 2 e
+> precisam de OpenGL de desktop, então nunca poderiam ir para o Aquila (regra 1
+> do `CLAUDE.md`). Aquele cockpit jamais viraria o HMI do módulo. O cockpit web,
+> que renderiza a partir de tópicos ROS 2, vira.
 
 ### Opções úteis
 
@@ -822,6 +814,7 @@ scripts/module.sh verify                         # etapa 1 separa firewall de DD
 
 ## Referências
 
+- [`guia-cockpit.md`](guia-cockpit.md) — o cockpit web: rodar, painéis, controles
 - `.ai/CLAUDE.md` — contrato operacional, regras invioláveis, fase atual
 - `.ai/AGENTS.md` — contrato de implementação, milestones, Definition of Done
 - `.ai/changelog.md` — decisões tomadas e o porquê

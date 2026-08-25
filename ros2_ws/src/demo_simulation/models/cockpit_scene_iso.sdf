@@ -1,0 +1,82 @@
+<?xml version="1.0"?>
+<!--
+  Camera de cena isometrica do cockpit web (ML3.5 F3b).
+
+  Alimenta o painel azul: a vista de fora que mostra o robo ANDANDO. E o unico
+  painel que responde "o robo se mexeu?" sem depender de nenhum no do stack.
+
+  POR QUE UM MODELO SPAWNADO E NAO UM BLOCO DENTRO DOS worlds/*.sdf
+  A primeira versao colocou as duas cameras direto em quadruped_empty.sdf e
+  quadruped_maze11.sdf. Isso deixa o painel azul MORTO na configuracao padrao:
+  docker/compose.host.yml nao passa `world:=`, e o default de sim.launch.py e o
+  warehouse.sdf de nav2_minimal_tb4_sim, que e arquivo de pacote instalado e nao
+  pode ser editado. Um painel que so funciona em mundo nao padrao e pior que um
+  painel ausente. Spawnado, o mesmo modelo entra em QUALQUER mundo, inclusive o
+  warehouse, com a pose vindo de argumento de launch.
+
+  E por que nao pendurar a camera no robo: go2_description e vendorizado com
+  garantia byte-a-byte que sustenta o argumento de licenca (ver o README dele).
+  Editar o pacote esta proibido. Ver a decisao 6 de
+  docs/ml35/plano-cockpit-web.md.
+
+  DEPENDE DO gz-sim-sensors-system ESTAR NO MUNDO. Sem esse plugin o sensor
+  existe, nao publica nada, e nenhuma linha de log nomeia o plugin ausente.
+  Conferido: warehouse.sdf, quadruped_empty.sdf e os demais mundos do projeto
+  carregam o plugin.
+
+  A pose vem do `create` (-x -y -z -R -P -Y), nao daqui. Ver
+  launch/scene_cameras.launch.py para os valores e a conta do enquadramento.
+
+  1600x1200 a 10 Hz. A primeira versao era 800x600 a 5 Hz "porque o painel nao
+  precisa de mais", e precisava: o painel de cena ocupa cerca de 1200 px de
+  largura na tela, entao 800 px de sensor eram esticados e as paredes do
+  labirinto — superficies grandes e de cor quase uniforme, o pior caso do JPEG —
+  chegavam sujas nas bordas.
+
+  A proporcao continua 4:3 DE PROPOSITO. O horizontal_fov e o enquadramento das
+  duas cameras foram medidos nesta proporcao (ver scene_cameras.launch.py); ir
+  para 16:9 mantendo o hfov cortaria vertical e desenquadraria as duas cenas de
+  uma vez.
+
+  A TAXA E 10 Hz E NAO 15 POR MEDICAO, nao por cautela. Cada camera renderiza no
+  mesmo processo do Gazebo do operador, e nesta resolucao a workstation nao
+  entrega 15 Hz de qualquer jeito. Medido na bancada, mesmo mundo (maze11):
+
+      update_rate 15  ->  9,4 Hz entregues,  fator de tempo real 0,59
+      update_rate 10  ->  9,8 Hz entregues,  fator de tempo real 0,97
+
+  Ou seja: pedir 15 nao rendia um quadro a mais e custava 40% da velocidade da
+  simulacao — o que estica cada meta do Nav2 na mesma proporcao. Antes de subir
+  este numero, meca de novo; e se o gargalo for banda e nao render (modo hil,
+  Ethernet ate o Aquila), o parametro a baixar primeiro e a qualidade JPEG em
+  hmi/js/config.js, que degrada suavemente, e nao a resolucao daqui, que desloca
+  o enquadramento em pixels.
+-->
+<sdf version="1.9">
+  <model name="cockpit_scene_iso">
+    <static>true</static>
+    <link name="camera">
+      <sensor name="scene_iso" type="camera">
+        <camera>
+          <horizontal_fov>1.20</horizontal_fov>
+          <image>
+            <width>1600</width>
+            <height>1200</height>
+          </image>
+          <!-- 8 amostras: as bordas das paredes do labirinto sao quase todas
+               diagonais, e serrilhado em diagonal e o artefato que mais aparece
+               num render parado. -->
+          <anti_aliasing>8</anti_aliasing>
+          <clip>
+            <near>0.1</near>
+            <far>80</far>
+          </clip>
+          <camera_info_topic>cockpit/scene_iso/camera_info</camera_info_topic>
+        </camera>
+        <always_on>true</always_on>
+        <update_rate>10</update_rate>
+        <topic>cockpit/scene_iso/image</topic>
+      </sensor>
+    </link>
+  </model>
+</sdf>

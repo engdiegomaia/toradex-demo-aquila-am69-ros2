@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Cockpit — Demo Aquila AM69</title>
+
+    <!--
+      ML3.5 cockpit-web, fases F1 e F3b.
+
+      Sem etapa de build: ES modules servidos como estão (plano-cockpit-web.md
+      Decisão 5). Nada de npm, bundler ou node_modules — o mesmo diretório vira
+      o kiosk arm64 do módulo no M3, e é justamente a cadeia npm que não deve
+      viajar para lá.
+
+      Layout: docs/ml35/cockpit-division-view.png, cinco regiões.
+    -->
+    <link rel="stylesheet" href="css/tokens.css" />
+    <link rel="stylesheet" href="css/layout.css" />
+    <link rel="stylesheet" href="css/panels.css" />
+  </head>
+
+  <body>
+    <main class="cockpit" data-role="cockpit" data-link="connecting">
+      <!-- ---------- azul: vista da cena ---------- -->
+      <!--
+        Duas câmeras estáticas do MUNDO (não do robô), alternadas no mesmo
+        <img>. É o único painel que responde "o robô se mexeu?" sem depender de
+        nenhum nó do stack: se o Nav2, a TF e a odometria mentirem juntos, esta
+        imagem continua honesta.
+      -->
+      <section
+        class="panel"
+        data-area="scene"
+        data-panel="scene"
+        aria-labelledby="scene-title"
+      >
+        <header class="panel__head">
+          <h2 class="panel__title" id="scene-title">Cena</h2>
+          <p class="panel__source" data-role="scene-source-label">
+            /demo/cockpit/scene_iso/image_raw
+          </p>
+          <div class="switch" role="group" aria-label="Vista da cena">
+            <button
+              class="switch__btn"
+              type="button"
+              data-role="scene-source"
+              data-source="iso"
+              aria-pressed="true"
+            >
+              iso
+            </button>
+            <button
+              class="switch__btn"
+              type="button"
+              data-role="scene-source"
+              data-source="top"
+              aria-pressed="false"
+            >
+              topo
+            </button>
+          </div>
+          <span
+            class="dot"
+            data-freshness="scene"
+            data-state="never"
+            aria-hidden="true"
+          ></span>
+        </header>
+        <div class="panel__body">
+          <img class="stream" data-role="stream" alt="Vista externa da cena" />
+
+          <!--
+            Comandos de camera, sobre a imagem e nao na barra: o alvo do
+            comando e ESTA imagem, e um controle a 80 px do que ele move nao
+            precisa de rotulo explicando o que move.
+
+            Nada aqui conhece a geometria da camera. Cada botao publica um
+            delta em /demo/cockpit/scene/cmd_view e quem integra, satura e
+            aplica a pose e o scene_view_controller, do lado do simulador. O
+            navegador nao sabe onde a camera esta, e e por isso que recarregar
+            a pagina nao mexe no enquadramento.
+          -->
+          <div
+            class="viewpad"
+            data-role="view-pad"
+            role="group"
+            aria-label="Controle da camera de cena"
+          >
+            <button class="viewpad__btn" type="button" data-role="view" data-command="orbit-left" title="girar para a esquerda" aria-label="girar para a esquerda">&#8634;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pitch-up" title="subir o ponto de vista" aria-label="subir o ponto de vista">&#9650;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pitch-down" title="descer o ponto de vista" aria-label="descer o ponto de vista">&#9660;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="orbit-right" title="girar para a direita" aria-label="girar para a direita">&#8635;</button>
+
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-left" title="mover para a esquerda" aria-label="mover para a esquerda">&#9664;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-forward" title="mover para frente" aria-label="mover para frente">&#9651;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-back" title="mover para tras" aria-label="mover para tras">&#9661;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-right" title="mover para a direita" aria-label="mover para a direita">&#9654;</button>
+
+            <button class="viewpad__btn" type="button" data-role="view" data-command="zoom-in" title="aproximar" aria-label="aproximar">+</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="zoom-out" title="afastar" aria-label="afastar">&#8722;</button>
+            <button class="viewpad__btn viewpad__btn--wide" type="button" data-role="view-reset" title="voltar ao enquadramento inicial">recentrar</button>
+          </div>
+
+          <div class="notice" data-role="notice" hidden>
+            <p class="notice__headline" data-role="notice-headline"></p>
+            <p class="notice__detail" data-role="notice-detail"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- verde: navegação 2D ---------- -->
+      <!--
+        Canvas único, redesenhado inteiro a cada tick. Sem SVG e sem camadas
+        empilhadas: o costmap é um raster que muda por completo a cada mensagem,
+        e mantê-lo em nós de DOM custaria muito mais do que redesenhar.
+
+        O clique manda meta. É o único controle vivo da tela no F3b — a barra de
+        baixo continua desligada até o F4 trazer o twist_mux.
+      -->
+      <section
+        class="panel"
+        data-area="nav"
+        data-panel="nav"
+        aria-labelledby="nav-title"
+      >
+        <header class="panel__head">
+          <h2 class="panel__title" id="nav-title">Navegação</h2>
+          <p class="panel__source">/global_costmap/costmap · /plan</p>
+          <button
+            class="switch__btn switch__btn--alert"
+            type="button"
+            data-role="nav-cancel"
+            hidden
+          >
+            cancelar meta
+          </button>
+          <span
+            class="dot"
+            data-freshness="costmap"
+            data-state="never"
+            aria-hidden="true"
+          ></span>
+        </header>
+        <div class="panel__body">
+          <canvas
+            class="canvas canvas--clickable"
+            data-role="nav-canvas"
+            aria-label="Mapa de navegação. Clique para enviar uma meta."
+          ></canvas>
+          <p class="hud" data-role="nav-hud" data-state="idle" aria-live="polite">
+            clique no mapa para mandar uma meta
+          </p>
+        </div>
+      </section>
+
+      <!-- ---------- rosa: logs de movimentação ---------- -->
+      <section
+        class="panel"
+        data-area="log"
+        data-panel="log"
+        aria-labelledby="log-title"
+      >
+        <header class="panel__head">
+          <h2 class="panel__title" id="log-title">Logs de movimentação</h2>
+          <p class="panel__source">/rosout</p>
+          <span
+            class="dot"
+            data-freshness="rosout"
+            data-state="never"
+            aria-hidden="true"
+          ></span>
+        </header>
+
+        <!--
+          Faixa de telemetria. Fica no topo do painel de logs, e não na barra,
+          porque responde à mesma pergunta que a lista abaixo: o que o robô está
+          fazendo agora.
+        -->
+        <div class="telemetry">
+          <span class="telemetry__item">
+            <span class="telemetry__label">cmd_vel lin.x</span>
+            <span class="telemetry__value" data-role="tele-lin">—</span>
+          </span>
+          <span class="telemetry__item">
+            <span class="telemetry__label">ang.z</span>
+            <span class="telemetry__value" data-role="tele-ang">—</span>
+          </span>
+          <span class="telemetry__item">
+            <span class="dot" data-freshness="cmdVel" data-state="never"></span>
+          </span>
+          <span class="telemetry__item">
+            <span class="telemetry__label">odom x,y</span>
+            <span class="telemetry__value" data-role="tele-pose">—</span>
+          </span>
+          <span class="telemetry__item">
+            <span class="telemetry__label">yaw</span>
+            <span class="telemetry__value" data-role="tele-yaw">—</span>
+          </span>
+          <span class="telemetry__item">
+            <span class="dot" data-freshness="odom" data-state="never"></span>
+          </span>
+        </div>
+
+        <div class="panel__body">
+          <ul class="log" data-role="log-list" aria-live="off"></ul>
+        </div>
+      </section>
+
+      <!-- ---------- rosa claro: câmera do robô ---------- -->
+      <section
+        class="panel"
+        data-area="camera"
+        data-panel="camera"
+        aria-labelledby="camera-title"
+      >
+        <header class="panel__head">
+          <h2 class="panel__title" id="camera-title">Câmera</h2>
+          <p class="panel__source">/demo/camera/image_raw</p>
+          <span
+            class="dot"
+            data-freshness="camera"
+            data-state="never"
+            aria-hidden="true"
+          ></span>
+        </header>
+        <div class="panel__body">
+          <!--
+            Sem src aqui: a URL depende de host e porta resolvidos em runtime
+            (config.js). Um src fixo no HTML seria exatamente o hostname
+            hard-coded que o AGENTS.md §5.7 proíbe.
+          -->
+          <img class="stream" data-role="stream" alt="Câmera frontal do robô" />
+          <!--
+            NÃO há canvas de detecções aqui, e a ausência é deliberada.
+
+            O `demo_perception` de hoje é um stub determinístico: ele varre uma
+            caixa sintética pela imagem quer haja um objeto ali ou não. Sobre o
+            vídeo isso vira um retângulo passeando de um lado para o outro, que
+            é ativamente pior que nada — durante uma demo o espectador lê aquilo
+            como detecção de verdade, e a única pergunta que sobra é por que a
+            caixa não gruda em nada.
+
+            As detecções continuam chegando e continuam alimentando a
+            perception_layer do costmap (contrato de tópicos do CLAUDE.md); o
+            que saiu foi só o desenho. Quando o TIDL substituir o stub, o
+            overlay volta — js/panels/detection-overlay.js segue no bundle,
+            testado, esperando exatamente isso.
+          -->
+          <div class="notice" data-role="notice" hidden>
+            <p class="notice__headline" data-role="notice-headline"></p>
+            <p class="notice__detail" data-role="notice-detail"></p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ---------- cinza: barra de controles ---------- -->
+      <footer class="bar" data-area="bar" data-role="bar">
+        <!--
+          As duas marcas sao PNG com alfa e tinta branca, e e por isso que a
+          barra e azul #00508c e nao branca: sobre branco elas desapareceriam.
+          O alt carrega o nome porque num kiosk sem imagem a barra ainda tem de
+          dizer de quem e a demo.
+        -->
+        <div class="brand">
+          <img class="brand__logo" src="img/toradex.png" alt="Toradex" />
+          <span class="brand__rule" aria-hidden="true"></span>
+          <img class="brand__logo brand__logo--ros" src="img/ros.png" alt="ROS 2" />
+        </div>
+        <span class="brand__sub">Aquila AM69 &middot; demo ROS 2</span>
+
+        <!--
+          Simulacao. O Gazebo roda na workstation x86 (regra 1 do CLAUDE.md: o
+          AM69 so expoe OpenGL ES 3.2/Vulkan 1.2 e o OGRE 2 precisa de OpenGL de
+          desktop). O que estes botoes fazem e chamar /demo/sim/control pelo
+          grafo ROS, do mesmo jeito que a meta do Nav2 ja atravessa hoje —
+          controlar a simulacao PELO cockpit, nao roda-la no modulo.
+
+          O rotulo de estado nao repete o ultimo clique: ele sai do /clock, que
+          e a unica fonte que sabe se o simulador esta mesmo andando.
+        -->
+        <div class="bar__group" role="group" aria-label="Simulação">
+          <span class="bar__label">simulação</span>
+          <button class="btn" type="button" data-role="sim" data-command="play" title="retomar a simulação">&#9654;</button>
+          <button class="btn" type="button" data-role="sim" data-command="pause" title="pausar a simulação">&#10073;&#10073;</button>
+          <button class="btn btn--warn" type="button" data-role="sim" data-command="reset" title="reiniciar o mundo: o robô volta à pose inicial e o Nav2 perde o costmap acumulado">&#8635;</button>
+          <span class="bar__state" data-role="sim-state">—</span>
+        </div>
+
+        <div class="bar__group" role="group" aria-label="Controle manual">
+          <button class="btn" type="button" data-role="control" data-command="forward">
+            ▲
+          </button>
+          <button class="btn" type="button" data-role="control" data-command="left">
+            ◀
+          </button>
+          <button class="btn" type="button" data-role="control" data-command="right">
+            ▶
+          </button>
+          <button class="btn" type="button" data-role="control" data-command="back">
+            ▼
+          </button>
+          <button
+            class="btn btn--stop"
+            type="button"
+            data-role="control"
+            data-command="stop"
+          >
+            E-STOP
+          </button>
+        </div>
+
+        <span class="bar__spacer"></span>
+
+        <span class="badge" data-role="badge" data-state="connecting">
+          <span data-role="badge-label">conectando</span>
+          <span class="badge__detail" data-role="badge-detail"></span>
+        </span>
+        <span class="build" data-role="build"></span>
+      </footer>
+    </main>
+
+    <script type="module" src="js/main.js"></script>
+  </body>
+</html>

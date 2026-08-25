@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<!--
+  Camera de cena de topo do cockpit web (ML3.5 F3b).
+
+  Segunda vista do painel azul, alternavel na UI. Serve para conferir a
+  trajetoria contra o painel de navegacao ao lado: as duas devem concordar.
+
+  ORIENTACAO, e aqui esta a unica sutileza do arquivo. A convencao de camera do
+  Gazebo e +X para frente e +Z para cima na imagem. Apontar para baixo e
+  pitch=+1.5708. So com isso a imagem sai com o +X do mundo para cima, e as duas
+  vistas discordam do mapa. Somando yaw=1.5708 o NORTE DO MAPA (+Y do mundo)
+  fica para cima, a mesma orientacao do canvas do painel verde. A pose completa
+  esta em launch/scene_cameras.launch.py, com a conta da altura.
+
+  As demais notas (por que spawnado, por que nao no robo, dependencia do
+  gz-sim-sensors-system) estao em cockpit_scene_iso.sdf e valem igual aqui.
+-->
+<sdf version="1.9">
+  <model name="cockpit_scene_top">
+    <static>true</static>
+    <link name="camera">
+      <sensor name="scene_top" type="camera">
+        <camera>
+          <horizontal_fov>1.20</horizontal_fov>
+          <image>
+            <width>1600</width>
+            <height>1200</height>
+          </image>
+          <!-- 8 amostras: as bordas das paredes do labirinto sao quase todas
+               diagonais, e serrilhado em diagonal e o artefato que mais aparece
+               num render parado. -->
+          <anti_aliasing>8</anti_aliasing>
+          <clip>
+            <near>0.1</near>
+            <far>80</far>
+          </clip>
+          <camera_info_topic>cockpit/scene_top/camera_info</camera_info_topic>
+        </camera>
+        <always_on>true</always_on>
+        <update_rate>10</update_rate>
+        <topic>cockpit/scene_top/image</topic>
+      </sensor>
+    </link>
+  </model>
+</sdf>

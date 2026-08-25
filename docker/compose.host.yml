@@ -7,6 +7,11 @@
 #   hil    — plant + viz here:     docker compose -f compose.host.yml up sim viz
 #            nav + perception on the module (compose.module.yml)
 #
+# The web cockpit (`cockpit` + `hmi`) is outside the learn profile because it is
+# wanted in both modes. Add it to either command:
+#   docker compose -f compose.host.yml up -d cockpit hmi
+# then open http://localhost:8081 (COCKPIT_HMI_PORT).
+#
 # nav and perception sit behind the `learn` profile so that in hil mode they
 # simply do not start here — no file editing, which is what makes the two modes
 # the same source tree.
@@ -68,9 +73,25 @@ services:
       # 1000, and QT_X11_NO_MITSHM avoids a shared-memory failure that shows up
       # as a blank Gazebo window rather than an error.
       QT_X11_NO_MITSHM: 1
+      # Where Gazebo resolves `model://` URIs that are not in the image. Always
+      # set, and it costs nothing when the mount below is the empty default: a
+      # resource path with no models behaves exactly like no resource path.
+      GZ_SIM_RESOURCE_PATH: /maze/models
     volumes:
       - ./cyclonedds/host.rendered.xml:/cfg/cyclonedds.xml:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # External model trees, for worlds whose meshes are not versioned here —
+      # today only the labyrinth (ros_maze_worlds, whose package.xml declares
+      # <license>TODO</license>).
+      #
+      # The default is an EMPTY directory in the repo, not an unset variable:
+      # Compose has no conditional mount, and an unset default would make it
+      # create a directory named after the variable. See models-extra/README.md.
+      #
+      # A missing mesh is a WARNING in Gazebo, never an error: the world loads,
+      # the labyrinth simply is not there, and the run looks like flawless
+      # obstacle avoidance in an open field.
+      - ${MAZE_MODELS:-./models-extra}:/maze/models:ro
     # Intel/AMD: /dev/dri is enough. For NVIDIA, remove this and use
     # `gpus: all` with the nvidia-container-toolkit installed (guia §6).
     devices:
@@ -92,10 +113,28 @@ services:
     # under load that do not name shm as the cause.
     shm_size: 512mb
     ipc: host
+    # SIM_ARGS is the per-scenario escape hatch, and it is free-form on purpose:
+    # a world brings its own spawn yaw and its own scene-camera framing, and
+    # promoting each of those to a named variable would put ten of them here for
+    # the benefit of one scenario. Undeclared arguments pass through
+    # sim.launch.py to the launch files it includes without error (verified
+    # 24/08/2026).
+    #
+    # The labyrinth, whole and framed, with the robot facing down the first
+    # corridor instead of into a wall:
+    #
+    #   MAZE_MODELS=/path/to/ros_maze_worlds/models \
+    #   SIM_ARGS="world:=/ws/install/demo_simulation/share/demo_simulation/worlds/quadruped_maze11.sdf \
+    #             yaw:=1.5708 \
+    #             scene_top_x:=-4.855 scene_top_y:=4.855 scene_top_z:=13.0 \
+    #             scene_iso_x:=-13.0 scene_iso_y:=-3.0 scene_iso_z:=9.0 \
+    #             scene_iso_pitch:=0.6717 scene_iso_yaw:=0.7676" \
+    #   docker compose -f compose.host.yml up -d sim
     command: >
       ros2 launch demo_bringup sim.launch.py
       robot_type:=${ROBOT_TYPE:-quadruped}
       gui:=${SIM_GUI:-true}
+      ${SIM_ARGS:-}
 
   # --- Navigation ----------------------------------------------------------
   # learn profile only. In hil mode this runs on the module instead.
@@ -177,6 +216,62 @@ services:
       - "${RENDER_GID:-992}"
     ipc: host
     command: ros2 launch demo_bringup viz.launch.py
+
+  # --- Cockpit transport ---------------------------------------------------
+  # rosbridge_server + web_video_server. Pure transport: no OGRE 2, no desktop
+  # OpenGL, so unlike viz this image is allowed on the module and the same
+  # service definition moves to compose.module.yml in M3 without edits.
+  #
+  # Not behind a profile: the cockpit is wanted in learn AND hil. In hil you
+  # name it explicitly, like sim and viz:
+  #   docker compose -f compose.host.yml up sim viz cockpit hmi
+  cockpit:
+    <<: *common
+    image: ${REGISTRY:-local}/demo-aquila-cockpit:${TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/cockpit/Dockerfile
+      args:
+        REGISTRY: ${REGISTRY:-local}
+        TAG: ${TAG:-dev}
+    platform: linux/amd64
+    depends_on:
+      base:
+        condition: service_completed_successfully
+    # No /clock gate, for the same reason viz has none: these are transport
+    # processes with no control loop. They come up empty and fill in, which is
+    # visible on screen, rather than blocking the cockpit until Gazebo loads.
+    command: >
+      ros2 launch demo_bringup cockpit.launch.py
+      rosbridge_port:=${COCKPIT_ROSBRIDGE_PORT:-9090}
+      video_port:=${COCKPIT_VIDEO_PORT:-8080}
+
+  # --- Cockpit bundle ------------------------------------------------------
+  # nginx serving hmi/. Separate from `cockpit` so a CSS change does not rebuild
+  # a 1.3 GB ROS image, and so the bundle can be baked into a Chromium kiosk
+  # image for the module later without dragging rosbridge along.
+  #
+  # No ROS environment: this container never speaks DDS. It still inherits
+  # network_mode: host from the anchor, which is why COCKPIT_HMI_PORT binds
+  # straight onto the workstation and must be overridable.
+  hmi:
+    image: ${REGISTRY:-local}/demo-aquila-hmi:${TAG:-dev}
+    build:
+      context: ..
+      dockerfile: docker/hmi/Dockerfile
+    platform: linux/amd64
+    network_mode: host
+    environment:
+      COCKPIT_HMI_PORT: ${COCKPIT_HMI_PORT:-8081}
+      COCKPIT_ROSBRIDGE_PORT: ${COCKPIT_ROSBRIDGE_PORT:-9090}
+      COCKPIT_VIDEO_PORT: ${COCKPIT_VIDEO_PORT:-8080}
+      # Empty means "the hostname the browser used to load the page". Keep it
+      # empty for the workstation and for the module kiosk alike; set it only
+      # when the page is served from a different machine than the ROS side.
+      COCKPIT_BACKEND_HOST: ${COCKPIT_BACKEND_HOST:-}
+      # Build identifier required by AGENTS.md §5.7. Defaults to the tag; CI or
+      # the operator can pass a git describe instead.
+      COCKPIT_BUILD: ${COCKPIT_BUILD:-${TAG:-dev}}
 
   # --- Tools ---------------------------------------------------------------
   # Inspection shell. Under its own profile so it does not start with the demo:

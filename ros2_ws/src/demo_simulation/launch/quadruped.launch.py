@@ -273,6 +273,28 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{'use_sim_time': True}],
     )
 
+    # Vistas externas do cockpit web (painel azul): duas cameras estaticas
+    # spawnadas no mundo, isometrica e de topo. Fragmento COMPARTILHADO com a
+    # planta diff-drive, para que o painel nao apague ao trocar ROBOT_TYPE.
+    # Toda a conta de enquadramento e o motivo de serem spawnadas em vez de
+    # escritas nos worlds/*.sdf estao em scene_cameras.launch.py.
+    scene_cameras = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('demo_simulation'), 'launch',
+            'scene_cameras.launch.py',
+        ])),
+    )
+
+    # Ponte de serviços do Gazebo: play/pause/reset do cockpit, e o set_pose que
+    # o scene_view_controller usa para mover as câmeras. Fragmento
+    # compartilhado, pela mesma razão do anterior.
+    sim_control = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('demo_simulation'), 'launch',
+            'sim_control.launch.py',
+        ])),
+    )
+
     return LaunchDescription([
         world_arg,
         robot_name_arg,
@@ -285,6 +307,8 @@ def generate_launch_description() -> LaunchDescription:
         bridge,
         gz_sim,
         gz_sim_headless,
+        scene_cameras,
+        sim_control,
         robot_state_publisher,
         spawn_robot,
         twist_to_inputs,

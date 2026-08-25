@@ -17,6 +17,9 @@ setup(
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('share', package_name, 'urdf'), glob('urdf/*.xacro')),
         (os.path.join('share', package_name, 'worlds'), glob('worlds/*.sdf')),
+        # Modelos spawnaveis (ros_gz_sim create -file). Hoje so as cameras
+        # de cena do cockpit; ver launch/scene_cameras.launch.py.
+        (os.path.join('share', package_name, 'models'), glob('models/*.sdf')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -35,6 +38,13 @@ setup(
             # Republica /clock a taxa fixa. Sem ele o clock de 1 kHz do passo
             # de fisica satura o Aquila AM69 no modo hil.
             'clock_throttle = demo_simulation.clock_throttle:main',
+            # Câmera orbital das vistas de cena. Ela é quem sabe onde as
+            # câmeras estão; o cockpit só publica passos relativos.
+            'scene_view_controller = '
+            'demo_simulation.scene_view_controller:main',
+            # Fachada std_srvs para play/pause/reset. Existe porque o container
+            # do cockpit não tem (nem deve ter) ros_gz_interfaces.
+            'sim_control_relay = demo_simulation.sim_control_relay:main',
         ],
     },
 )

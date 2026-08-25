@@ -10,6 +10,7 @@ The authoritative guides live in `.ai/`. Read them before editing:
 - `.ai/AGENTS.md` (mirrored as `.ai/codex.md`) — full implementation contract: milestones (M0, ML1-ML4, M0-HW, M1-M5, MX-TIDL), Definition of Done, naming, launch/compose conventions, HMI/perception specs, ADR format, completion-report format.
 - `.ai/demo-ros2-aquila-am69.md` — project rationale, hardware/software premises, phases, risks.
 - `docs/guia-operacao.md` — how to run and edit the demo (Portuguese). Written for someone new to ROS 2; documents each known silent-failure trap at the point where it would be hit.
+- `docs/guia-cockpit.md` — the web cockpit: how to run it, what each panel shows, what the buttons do, how to switch scenario, and its own silent-failure traps. Read this before touching `hmi/` or the cockpit services.
 - `docs/ml35/estado-fases.md` — **read this first in a new session.** Per-phase state of the in-flight ML3.5 milestone (quadruped + containerization), the gate each phase must clear, decisions already taken, and what is still to confirm.
 - `docs/ml35/guia-ml35-docker.md` — the ML3.5 implementation spec. Where it and the original plan diverge, the spec wins.
 
@@ -75,7 +76,7 @@ When proposing a change, always state which of the two machines the code runs on
 ## Conventions
 
 - ROS package prefix: `demo_`. Python with `ament_python` by default; C++ only where hardware-measured performance justifies it.
-- One explicit launch file per container role in `demo_bringup` (`sim.launch.py`, `nav.launch.py`, `perception.launch.py`, `viz.launch.py`), each the entrypoint of one service. `learn.launch.py` remains the native, non-containerized composition. No single launch file full of conditionals.
+- One explicit launch file per container role in `demo_bringup` (`sim.launch.py`, `nav.launch.py`, `perception.launch.py`, `viz.launch.py`, `cockpit.launch.py`), each the entrypoint of one service. `learn.launch.py` remains the native, non-containerized composition. No single launch file full of conditionals.
 - Nav2 parameters in YAML under `demo_navigation`, never embedded in code.
 - Each container has a single responsibility. `demo_perception` is separated from day one, stub or not, because it defines the OTA update granularity.
 - Multi-arch images. `platform:` is declared explicitly in compose, never inferred.
@@ -119,8 +120,29 @@ simulated plant and matching navigation stack through
 `ROBOT_TYPE=quadruped|diffdrive`, with a successful goal on both paths. Final
 F5 remains open after the 24/08 Ethernet HIL: the link, full perception stream
 and a short goal passed on the AM69, but both 8 m goals timed out in the
-420/200 s protocol. See `docs/ml35/estado-fases.md` for the authoritative
-status and evidence; do not infer completion from this summary.
+420/200 s protocol.
+
+Running alongside it: the **web cockpit** (`docs/ml35/plano-cockpit-web.md`).
+F1 and F3b are closed — all five panels live, click-to-goal accepted by Nav2,
+simulation play/pause/reset and scene-camera control from the cockpit, Toradex
+identity applied. Evidence: `docs/results/cockpit-web-f3b.md`. Next is cockpit
+F4 (manual control behind `twist_mux`); the bar's arrow buttons are deliberately
+inert until then. Two invariants that came out of F3b and cost a debugging
+session each: the browser must never call a `ros_gz_interfaces` service (the
+cockpit container has no such package, and on the module it never will — go
+through the `std_srvs` façade in `sim_control_relay`), and "start the simulation
+on the target" is not achievable under rule 1 — only "control the host's
+simulation from the cockpit".
+
+See `docs/ml35/estado-fases.md` for the authoritative status and evidence; do
+not infer completion from this summary.
+
+In parallel, the **web cockpit** replaces the abandoned X11-embedding attempts:
+`rosbridge_server` + `web_video_server` (service `cockpit`) feeding a build-step-free
+HTML/CSS/ES-module bundle in `hmi/` served by nginx (service `hmi`). F1 closed on
+24/08 on the host only — nothing arm64, nothing on the Aquila. Decisions and
+phases in `docs/ml35/plano-cockpit-web.md`; F1 evidence in
+`docs/results/cockpit-web-f1.md`. Next is F3b.
 
 When finishing a phase, update `.ai/CLAUDE.md` "Onde estamos" and `.ai/changelog.md`.
 
