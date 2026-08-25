@@ -706,28 +706,41 @@ era incapaz de carregar a câmera.
 
 ### Trocar o host para Ethernet
 
-O módulo tem duas portas Ethernet. Escolha uma delas explicitamente; não presuma
-que o hostname mDNS identifica uma porta.
+O módulo tem duas portas Ethernet na mesma `/24`, mas o kernel roteia os peers
+dessa rede por `ethernet0` (métrica 101 contra 102). Use explicitamente
+`ethernet0`; fixar DDS em `ethernet1` enquanto a rota sai por
+`ethernet0` cria bind e envio divergentes. Não presuma que o hostname mDNS
+identifica uma porta.
 
-1. Ligue host e a porta escolhida do módulo no mesmo switch/roteador.
-2. Confirme que a rota mudou:
+1. Antes de ligar o cabo, confirme que o PHY do host anuncia gigabit:
 
    ```bash
-   ip -br addr show enp0s31f6          # tem de sair de NO-CARRIER
-   ip route get <IP_DA_PORTA_DO_AQUILA> # tem de dizer "dev enp0s31f6"
+   ethtool enp0s31f6 | sed -n '/Supported link modes:/,/Advertised/p'
    ```
 
-3. Se as duas portas do Aquila estiverem na mesma sub-rede, fixe uma no arquivo
-   local e ignorado `docker/.env`. As duas anunciam o mesmo `.local`; em
-   24/08/2026 a resolução alternou entre elas e causou ARP flux:
+   `1000baseT/Full` precisa aparecer. Se o I219 anunciar apenas 10baseT depois
+   de uma retomada de suspensão, recarregue `e1000e`; se ainda não aparecer,
+   desligue o host de verdade — reboot morno preserva esse estado do PHY.
 
-   ```dotenv
-   HOST_IP=<IP_ETHERNET_DO_HOST>
-   MODULE_IP=<IP_DA_PORTA_ESCOLHIDA_DO_AQUILA>
+2. Ligue host e `ethernet0` do módulo no mesmo switch/roteador, nunca ponto a
+   ponto para este portão. Confirme link e rota:
+
+   ```bash
+   ip -br addr show enp0s31f6
+   ethtool enp0s31f6 | grep -E 'Speed:|Duplex:|Link detected:'
+   ip route get <IP_ETHERNET0_AQUILA>   # tem de dizer "dev enp0s31f6"
    ```
 
-   Preferencialmente, use apenas uma porta nessa sub-rede ou separe as portas em
-   sub-redes distintas.
+   O portão exige `Speed: 1000Mb/s`, `Duplex: Full`, `Link detected: yes` e um
+   `src` cabeado na mesma sub-rede. Se a rota usar Wi-Fi, não meça.
+
+3. Passe os endereços explicitamente. Variável no ambiente vence
+   `docker/.env`, inclusive quando vazia; isso é coberto por teste:
+
+   ```bash
+   MODULE_HOST=<IP_ETHERNET0_AQUILA> MODULE_IP=<IP_ETHERNET0_AQUILA> \
+     HOST_IP=<IP_ETHERNET_DO_HOST> ./scripts/module.sh sync
+   ```
 
 4. **Re-renderize a configuração de DDS.** Este é o passo que se esquece:
 
@@ -741,7 +754,31 @@ que o hostname mDNS identifica uma porta.
    sintoma é idêntico a firewall. O `run_quadruped_sim.sh` avisa quando os dois
    divergem — leia a linha `DDS:` na subida.
 
-5. Reinicie simulador e containers do módulo e repita o ensaio.
+5. Reinicie simulador e containers do módulo e exija as três etapas do
+   instrumento:
+
+   ```bash
+   MODULE_HOST=<IP_ETHERNET0_AQUILA> MODULE_IP=<IP_ETHERNET0_AQUILA> \
+     HOST_IP=<IP_ETHERNET_DO_HOST> ./scripts/module.sh up
+   MODULE_HOST=<IP_ETHERNET0_AQUILA> MODULE_IP=<IP_ETHERNET0_AQUILA> \
+     HOST_IP=<IP_ETHERNET_DO_HOST> ./scripts/module.sh verify
+   ```
+
+   `verify` agora cria o assinante do host antes do heartbeat remoto, espera a
+   descoberta unicast com prazo limitado e retorna falha se UDP, contrato de
+   tópicos ou heartbeat não passarem.
+
+6. Execute três corridas sem mudar carga, imagem ou parâmetros:
+
+   ```bash
+   python3 scripts/nav_trial.py docs/results/ml35-f5-ethernet0-run1.csv \
+     --seconds 420 --goal-timeout 200 --sim-log <LOG_DA_SIMULACAO>
+   # reinicie a planta no mesmo estado e repita como run2 e run3
+   ```
+
+   Cada CSV registra `sim_s` e `wall_s`; o resumo imprime o RTF calculado no
+   mesmo intervalo. F5 fecha apenas se as três corridas concluírem ao menos uma
+   meta de 8 m, sem queda e com enlace/RTF comparáveis.
 
 Se a Ethernet não for possível, os outros caminhos são reduzir taxa ou resolução
 em `demo_simulation/urdf/go2_sim.urdf.xacro` (muda o que a demo mostra) ou
@@ -864,11 +901,12 @@ scripts/module.sh verify                         # etapa 1 separa firewall de DD
 
 ### O que ainda falta para o modo `hil` completo
 
-- **`docker/cyclonedds/host.xml` não lista o peer do módulo** e segue em
-  `autodetermine`. Sem isso o lado host não fecha o par.
-- **F5 continua bloqueada por TF**, não por infraestrutura: a árvore não fecha e
-  não existe frame `odom`. Nav2 sobre pernas não passa o portão de F5 mesmo com o
-  módulo pronto.
+- O portão funcional passa: TF fecha, Nav2 e percepção arm64 sobem no Aquila e
+  o contrato atravessa a fronteira.
+- O portão de estabilidade ainda depende do enlace físico gigabit e das três
+  corridas de 420/200 s descritas acima. Nenhum número por Wi-Fi fecha F5.
+- `odom_tf` ainda republica ground truth da simulação; portanto HIL não valida
+  localização por pernas nem um Go2 físico.
 
 ---
 
