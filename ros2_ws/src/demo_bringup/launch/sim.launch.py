@@ -24,7 +24,11 @@ same selector is consumed by `nav_select.launch.py`, so plant and navigation
 cannot silently select different robots.
 """
 
-from demo_bringup.robot_selection import launch_file, ROBOT_LAUNCH_FILES
+from demo_bringup.robot_selection import (
+    launch_file,
+    official_world,
+    ROBOT_LAUNCH_FILES,
+)
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
@@ -66,6 +70,21 @@ def _launch_plant(context, *args, **kwargs):
     problem, instead of failing later as a missing-file error that does not.
     """
     robot_type = LaunchConfiguration('robot_type').perform(context)
+
+    # O mundo e resolvido AQUI e passado explicitamente, e nao deixado para o
+    # default da planta. A razao e escopo de launch: `world` declarado neste
+    # arquivo entra no contexto, e um DeclareLaunchArgument na descricao incluida
+    # NAO sobrepoe um valor herdado -- o valor do pai vence. Se este arquivo
+    # declarasse `world` vazio e confiasse no default da planta, o fragmento
+    # scene_cameras.launch.py herdaria o vazio, cairia no enquadramento generico,
+    # e as cameras do cockpit apontariam para a origem num mundo cuja area util
+    # esta em (-4,855; 4,855). Sem erro, sem log: painel azul olhando para chao.
+    world = LaunchConfiguration('world').perform(context)
+    if not world:
+        package, *parts = official_world(robot_type)
+        world = PathJoinSubstitution(
+            [FindPackageShare(package)] + parts).perform(context)
+
     return [IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_simulation'),
@@ -73,21 +92,26 @@ def _launch_plant(context, *args, **kwargs):
             launch_file(robot_type, 'plant'),
         ])),
         launch_arguments={
-            'world': LaunchConfiguration('world'),
+            'world': world,
             'gui': LaunchConfiguration('gui'),
         }.items(),
     )]
 
 
 def generate_launch_description() -> LaunchDescription:
-    # Same source and same reasoning as simulation.launch.py's default: the
-    # world ships with ros-jazzy-nav2-minimal-tb4-sim and is not vendored.
+    # VAZIO = o cenario oficial do robot_type selecionado (robot_selection.py):
+    # labirinto para o quadrupede, armazem para o diff-drive.
+    #
+    # Era o armazem cravado aqui para os dois. O quadrupede passou a ser o robo
+    # padrao no F6 e a sintonia do Nav2 dele foi medida no labirinto, entao o
+    # default cravado deixou o caminho mais curto rodando o robo oficial no mundo
+    # errado -- com a inflacao de 0,85 pensada para corredor de 1,20 m aplicada
+    # num armazem aberto, e as cameras de cena enquadrando outro lugar.
     world_arg = DeclareLaunchArgument(
         'world',
-        default_value=PathJoinSubstitution([
-            FindPackageShare('nav2_minimal_tb4_sim'), 'worlds', 'warehouse.sdf',
-        ]),
-        description='SDF world to load.',
+        default_value='',
+        description='SDF world to load. Vazio = cenario oficial do robo '
+                    '(labirinto no quadrupede, armazem no diff-drive).',
     )
 
     # Default true: the sim container gets /dev/dri and the X socket, so the

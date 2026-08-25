@@ -113,23 +113,33 @@ services:
     # under load that do not name shm as the cause.
     shm_size: 512mb
     ipc: host
-    # SIM_ARGS is the per-scenario escape hatch, and it is free-form on purpose:
-    # a world brings its own spawn yaw and its own scene-camera framing, and
-    # promoting each of those to a named variable would put ten of them here for
-    # the benefit of one scenario. Undeclared arguments pass through
-    # sim.launch.py to the launch files it includes without error (verified
-    # 24/08/2026).
+    # NENHUM SIM_ARGS E NECESSARIO PARA O CENARIO OFICIAL.
     #
-    # The labyrinth, whole and framed, with the robot facing down the first
-    # corridor instead of into a wall:
+    # O labirinto e o mundo default do quadrupede, e a pose de nascimento e o
+    # enquadramento das duas cameras de cena vem com ele
+    # (demo_simulation/scenarios.py). So falta apontar a malha externa:
     #
     #   MAZE_MODELS=/path/to/ros_maze_worlds/models \
-    #   SIM_ARGS="world:=/ws/install/demo_simulation/share/demo_simulation/worlds/quadruped_maze11.sdf \
-    #             yaw:=1.5708 \
-    #             scene_top_x:=-4.855 scene_top_y:=4.855 scene_top_z:=13.0 \
-    #             scene_iso_x:=-13.0 scene_iso_y:=-3.0 scene_iso_z:=9.0 \
-    #             scene_iso_pitch:=0.6717 scene_iso_yaw:=0.7676" \
     #   docker compose -f compose.host.yml up -d sim
+    #
+    # Sem MAZE_MODELS o launch ABORTA nomeando a variavel. Antes ele subia um
+    # plano vazio, e um ensaio nesse plano termina SUCCEEDED mais rapido que a
+    # realidade -- ver models-extra/README.md.
+    #
+    # Este bloco tinha aqui um SIM_ARGS de seis linhas com os dez numeros do
+    # labirinto colados a mao. Era a QUARTA copia deles, e a que ninguem
+    # atualizava: colar metade do bloco dava mundo do labirinto com camera do
+    # armazem, que aponta o painel azul para chao vazio sem erro nenhum. Os
+    # numeros agora vivem num lugar so e sao indexados pelo mundo.
+    #
+    # SIM_ARGS continua sendo a valvula de escape para DESVIOS do cenario, e
+    # continua livre de proposito. Qualquer argumento sobrepoe a tabela:
+    #
+    #   SIM_ARGS="scene_top_z:=20.0"        # olhar o labirinto de mais alto
+    #   SIM_ARGS="world:=/ws/install/demo_simulation/share/demo_simulation/worlds/quadruped_empty.sdf"
+    #
+    # Argumentos nao declarados atravessam sim.launch.py ate os launches que ele
+    # inclui sem erro (verificado 24/08/2026).
     command: >
       ros2 launch demo_bringup sim.launch.py
       robot_type:=${ROBOT_TYPE:-quadruped}

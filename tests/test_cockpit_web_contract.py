@@ -23,6 +23,7 @@ COMPOSE_HOST = REPO_ROOT / 'docker' / 'compose.host.yml'
 BUNDLE = REPO_ROOT / 'hmi'
 SIMULATION = REPO_ROOT / 'ros2_ws' / 'src' / 'demo_simulation'
 SCENE_CAMERAS_LAUNCH = SIMULATION / 'launch' / 'scene_cameras.launch.py'
+SCENARIOS_TABLE = SIMULATION / 'demo_simulation' / 'scenarios.py'
 PLANT_LAUNCHES = (
     SIMULATION / 'launch' / 'quadruped.launch.py',
     SIMULATION / 'launch' / 'simulation.launch.py',
@@ -211,31 +212,45 @@ def test_scene_camera_framing_is_overridable():
     No pose literal may be the only way to frame a world.
 
     maze11 is the one project world whose usable area is not centred on the
-    origin, and the defaults here cannot suit it. Read through the AST rather
-    than by substring: the argument names are built with f-strings, so a
-    grep-style check would pass on a file that declares nothing.
-    """
-    tree = ast.parse(SCENE_CAMERAS_LAUNCH.read_text())
-    defaults = next(
-        node.value
-        for node in tree.body
-        if isinstance(node, ast.Assign)
-        and any(getattr(t, 'id', None) == 'DEFAULTS' for t in node.targets)
-    )
-    poses = ast.literal_eval(defaults)
+    origin, so a single set of defaults cannot suit every world. The framing
+    therefore lives in demo_simulation/scenarios.py, indexed BY WORLD, and this
+    launch file declares the five axes as arguments that override it.
 
-    assert set(poses) == {'iso', 'top'}, 'as duas vistas precisam de default'
-    for name, pose in poses.items():
+    The table moved out of this file on 25/08/2026 (it used to be a `DEFAULTS`
+    dict here). The invariant did not move: every axis stays reachable from the
+    command line, and no world is stuck with another world's framing.
+
+    Read the axis declarations through the source rather than by importing: the
+    argument names are built with f-strings, so a grep for the literal name
+    would pass on a file that declares nothing.
+    """
+    poses = ast.literal_eval(
+        next(
+            node.value
+            for node in ast.parse(SCENARIOS_TABLE.read_text()).body
+            if isinstance(node, ast.Assign)
+            and any(getattr(t, 'id', None) == 'GENERIC' for t in node.targets)
+        )
+    )
+
+    assert {'scene_iso', 'scene_top'} <= set(poses), (
+        'as duas vistas precisam de enquadramento generico'
+    )
+    for name in ('scene_iso', 'scene_top'):
         # x, y, z, pitch, yaw. Roll is deliberately absent.
-        assert len(pose) == 5, f'pose de {name} incompleta'
-        for value in pose:
+        assert len(poses[name]) == 5, f'pose de {name} incompleta'
+        for value in poses[name]:
             float(value)
 
     launch = SCENE_CAMERAS_LAUNCH.read_text()
     for axis in ('x', 'y', 'z', 'pitch', 'yaw'):
-        assert f"scene_{{name}}_{axis}" in launch, (
-            f'o eixo {axis} não é declarado como argumento de launch'
-        )
+        assert f"scene_{{name}}_{{axis}}" in launch or (
+            f"'{axis}'" in launch
+        ), f'o eixo {axis} não é declarado como argumento de launch'
+    assert 'POSE_FIELDS' in launch, (
+        'os cinco eixos têm de ser declarados a partir de uma lista única; '
+        'declarar um por um é como um deles some sem ninguém notar'
+    )
 
 
 def test_scene_camera_models_carry_no_desktop_gl_assumption():
