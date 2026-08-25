@@ -28,64 +28,60 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 25/08/2026 | portão funcional passa no AM69; portão de estabilidade bloqueado por enlace — ver "Sessão 25/08" |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 25/08/2026 | enlace cabeado gigabit comprovado e `verify` 3/3; portão de 8 m REPROVADO por CPU do módulo e por decisão de trajeto — ver "Sessão 25/08 (noite)" |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
 
-### Sessão 25/08 — onde retomar (leia isto antes de tocar em qualquer coisa)
+### Sessão 25/08 (noite) — onde retomar (leia isto antes de tocar em qualquer coisa)
 
-Evidência completa: `docs/results/ml35-hil-rota-ethernet0.md`.
+Evidência completa: `docs/results/ml35-f5-ethernet0-repeticao.md`.
+A orientação anterior desta seção (consertar PHY, trocar cabo, medir depois)
+**foi cumprida e está vencida** — não a repita.
 
-**O módulo está acessível e sempre esteve.** `192.0.2.3` (`ethernet0`) e
-`192.0.2.5` (`ethernet1`), Torizon OS 7.7.0. O bloqueio era resolução de nome:
-`MODULE_HOST` tem por padrão o nome mDNS, mDNS não resolve neste host, e
-`docker/.env` não define `MODULE_IP`. **Sempre passe `MODULE_IP` explícito.**
+**O enlace está resolvido e comprovado.** `enp0s31f6` a 1000 Mb/s full,
+host `192.0.2.14` ↔ Aquila `192.0.2.16` por `ethernet0`, RTT 0,400 ms,
+rota simétrica nos dois sentidos, `scripts/module.sh verify` retornando **0** com
+as três etapas. A assimetria sumiu de forma estrutural: o Wi-Fi ficou em métrica
+600 contra 100 do cabo, então a `/24` inteira prefere o cabo.
 
-**Use `ethernet0`, não `ethernet1`.** O módulo tem as duas portas na mesma /24 e
-o kernel roteia tudo dessa sub-rede por `ethernet0` (métrica 101 contra 102).
-O `ethernet1` fixado desde 24/08 divergia do caminho real de envio. Comando que
-funciona hoje:
+**O portão de 8 m continua REPROVADO, e a rede não é a causa.** A hipótese
+`ethernet1`/`ethernet0` que estava aberta aqui está **refutada por medição**: com
+rota correta e enlace limpo, as duas metas de 8 m estouraram o prazo igual.
 
-```bash
-MODULE_HOST=192.0.2.3 MODULE_IP=192.0.2.3 HOST_IP=<host> scripts/module.sh sync
-```
+**As duas causas medidas, em ordem de tamanho:**
 
-**Não meça nada pelo Wi-Fi.** A mesma câmera deu 1,716 / 9,994 / 2,692 Hz em três
-corridas idênticas. O portão de estabilidade é inexecutável neste caminho, não
-apenas inválido. O que falta é físico e precisa das mãos do operador:
+1. **CPU do módulo.** O Nav2 sozinho consome **600–727% de 800%** no AM69. A
+   percepção soma ~187% e passa da capacidade. Aí a frescura do sensor colapsa:
+   o `collision_monitor` recusou a nuvem do LiDAR 16 vezes com 1,0–1,2 s de
+   defasagem. Com o Nav2 ocioso essa defasagem é de 42 ms — ou seja, é
+   enfileiramento por contenção, **não** transporte. Custo medido: **2,8×** na
+   velocidade média (0,0429 → 0,0155 m/s).
+2. **Decisão de trajeto.** No HIL completo o robô tem `vx` em zero em **79%** das
+   amostras e gira em **93,9%** delas: ele passa o ensaio **girando em vez de
+   transladar**. Sem a câmera o padrão alivia mas não some, e o custo migra para
+   a rota — 18,00 m de caminho para 5,20 m líquidos, **28,9% de eficiência**
+   contra 57% no host. Bate com a hipótese já registrada de `PathAlignCritic`
+   14,0 contra `PathAngleCritic` 2,0, que **segue sem teste de correção**.
 
-1. `sudo modprobe -r e1000e && sudo modprobe e1000e` — critério: `1000baseT/Full`
-   aparecer em "Supported link modes" do `ethtool enp0s31f6`. Se não aparecer,
-   **power off de verdade** (o estado do PHY sobrevive a reboot morno).
-2. Cabo no **switch**, não ponto a ponto — a `ethernet2` sem pilha IP deixa de
-   importar e o dongle de 100 Mb deixa de ser necessário.
-3. Refazer `sync` / `up` / `verify`, e só então o protocolo n≥3 com RTF
-   registrado por corrida.
+**Tirar a câmera do fio NÃO faz a meta passar.** Foi medido: 0,0429 m/s e ainda
+assim 0 de 2 metas. São dois limites independentes, e só um é CPU.
 
-**Duas coisas que NÃO são problema, para não gastar sessão de novo:**
+**Estabilidade:** zero quedas nas duas corridas, mas o tilt de pico vai de 0,94°
+para **15,66°** justamente na corrida em que o robô anda. O valor baixo do HIL
+completo descreve um robô quase parado, não um robô estável. Folga de carcaça
+segue em **+6,5 cm**.
 
-- **O colapso de RTF para ~0,5 não reproduz.** Medido RTF ≈ 0,99 com a pilha
-  `learn` e o RViz2 em pé (`nproc` = 22). O desligamento pendente serve ao PHY da
-  NIC, não ao estado da bancada.
-- **`enp0s31f6` não é cabo nem porta de switch.** `carrier_up_count` = 0 e o
-  PHY anuncia só `10baseT` num I219; falha de inicialização na retomada.
+**Corridas 2 e 3 do protocolo n=3 não foram executadas** — a 1 reprovou e o
+mecanismo ficou identificado; repetir gastaria bancada sem informação nova.
 
-**Duas armadilhas de método, caras e repetíveis:**
+**Uma armadilha de método fechada nesta sessão:** `verify` reprovava por
+`/clock` ausente contra um módulo que lia `/clock` a 616 Hz. A etapa 2 coletava
+com `grep /demo/` e depois exigia `/clock`, que não está sob `/demo/`. O teste
+que existia passava o tempo todo porque só checava se a string aparecia no
+arquivo. Corrigido, com teste que falha por mutação.
 
-- Sob `AllowMulticast=false`, a descoberta unicast é periódica. `ros2 topic list`
-  e o teste 3/3 do `verify` concluem ausência antes de ela assentar — e o
-  participante mais novo é o menos provável de já ter sido descoberto, então a
-  ferramenta de investigação é a que não vê. O 3/3 do `verify` precisa de tempo
-  de assentamento; hoje ele dá falso negativo.
-- Identificar o módulo por varredura da LAN esperando um MAC Toradex *novo*
-  nunca dispara: ele publica em duas portas na mesma /24 e já está no baseline.
-  Identifique por identidade (hostname, chave de host, IP registrado).
-
-**Hipótese aberta, testável, para o protocolo de 8 m que falha:** a divergência
-`ethernet1`/`ethernet0` existia em 24/08 também, e `/demo/cmd_vel` corre
-módulo→host, exatamente a direção degradada. Entrega intermitente explicaria
-"meta curta passou, 8 m estourou" sem invocar a marcha. Não está afirmado como
-causa — está por descartar.
-
+**Ordem sugerida pelos dados para a próxima sessão:** reduzir CPU do Nav2 no
+módulo → tirar a imagem RAW do fio (transporte comprimido até a percepção) →
+só então mexer no MPPI → repetir 420 s / 200 s com n=3.
 ---
 
 **Decisão tomada: alvo trocado de A1 para Go2** (ver "F2 — verificação

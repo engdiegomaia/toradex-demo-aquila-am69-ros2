@@ -5,6 +5,61 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-25 (noite) — HIL cabeado no AM69: enlace resolvido, portão de 8 m reprovado
+
+Primeira execução do protocolo de estabilidade em enlace cabeado gigabit real.
+**O enlace deixou de ser o assunto; o portão de 8 m continua reprovado, e a rede
+não é a causa.** Evidência em `docs/results/ml35-f5-ethernet0-repeticao.md`.
+Nada de térmica ou consumo foi medido (regra 7).
+
+Pré-condição física finalmente satisfeita: `enp0s31f6` a 1000 Mb/s full,
+host ↔ Aquila por `ethernet0`, RTT 0,400 ms, rota simétrica, `verify` 3/3.
+A assimetria foi eliminada de forma estrutural — Wi-Fi em métrica 600 contra 100
+do cabo, então a `/24` inteira prefere o cabo; a rota `/32` é redundância.
+
+**Hipótese refutada por medição:** a divergência `ethernet1`/`ethernet0` não
+explicava "meta curta passa, 8 m estoura". Com rota correta e enlace limpo, as
+duas metas de 8 m estouraram igual.
+
+**Duas causas medidas, ambas fora da rede:**
+
+1. **CPU do módulo.** Nav2 sozinho a **600–727% de 800%** no AM69; a percepção
+   soma ~187% e passa da capacidade. A frescura do sensor colapsa e o
+   `collision_monitor` recusa a nuvem do LiDAR 16 vezes com 1,0–1,2 s de
+   defasagem — contra 42 ms com o Nav2 ocioso, o que prova enfileiramento por
+   contenção e não transporte. Custo: **2,8×** na velocidade média
+   (0,0429 → 0,0155 m/s). Vazão medida nas duas pontas bate (9,50 → 9,45 Hz),
+   e o tráfego total é ~100 Mbit/s num enlace de 1 Gbit/s.
+2. **Decisão de trajeto.** `vx` em zero em **79%** das amostras e giro em
+   **93,9%**: o robô passa o ensaio girando em vez de transladar. Sem a câmera o
+   padrão alivia e o custo migra para a rota — 18,00 m de caminho para 5,20 m
+   líquidos, **28,9% de eficiência** contra 57% no host. Bate com a hipótese já
+   registrada de `PathAlignCritic` 14,0 × `PathAngleCritic` 2,0, ainda sem teste
+   de correção.
+
+Tirar a câmera do fio **não** faz a meta passar (0,0429 m/s e ainda 0 de 2). São
+dois limites independentes.
+
+Uma falha silenciosa a mais, na própria ferramenta de diagnóstico: **`verify`
+reprovava por `/clock` ausente contra um módulo que lia `/clock` a 616 Hz**. A
+etapa 2 coletava com `ros2 topic list | grep /demo/` e depois exigia `/clock`,
+que não está sob `/demo/` — a checagem não podia passar nunca. O teste que
+existia passou durante todo o defeito porque só verificava se a string aparecia
+no arquivo. Corrigido, com teste que casa cada tópico exigido contra o filtro de
+coleta e que falha por mutação.
+
+Também nesta sessão: imagens arm64 reconstruídas nativamente no módulo (o
+`route_server` obsoleto que carregava `ReroutingService` saiu; configura e ativa
+sem SIGSEGV), regra 1 verificada nas quatro imagens, e `module.sh up` passou a
+usar `--force-recreate` porque o bind mount do XML não muda de caminho e o
+Compose consideraria o container antigo atualizado.
+
+Corridas 2 e 3 do protocolo n=3 não foram executadas: a 1 reprovou com mecanismo
+identificado. Próxima ordem sugerida pelos dados: reduzir CPU do Nav2 → tirar a
+imagem RAW do fio → só então MPPI → repetir 420 s / 200 s com n=3.
+
+---
+
 ## 2026-08-25 — HIL no AM69: rota do DDS, precedência de `.env`, limite do Wi-Fi
 
 Sessão de transição para o hardware. **Portão funcional passa no Aquila AM69
@@ -47,7 +102,11 @@ decisão validada com base em n=1.
 O que falhava no `verify` 3/3 era o instrumento: sob `AllowMulticast=false` a
 descoberta unicast é periódica, e o teste conclui ausência antes de ela assentar.
 O participante mais novo é o menos provável de ter sido descoberto — a ferramenta
-de investigação é a que não vê.
+de investigação é a que não vê. Corrigido iniciando o assinante do host antes do
+publisher remoto, com prazo limitado e código de saída cobrindo as três etapas.
+O ensaio de navegação também passou a registrar tempo monotônico de parede e RTF
+no mesmo intervalo de cada CSV; o portão cabeado é n=3, sucesso de uma meta de
+8 m em cada corrida e zero quedas.
 
 Dois itens abertos fecharam como "não é problema": o colapso de RTF para ~0,5
 **não reproduz** (medido RTF ≈ 0,99 com `learn` e RViz2 em pé, `nproc` = 22), e a

@@ -25,6 +25,9 @@ cumprido. O docstring dele manda usar um script de teste para isso. É este.
 
 O QUE ELE MEDE, E POR QUE CADA COISA ESTÁ AQUI
 
+- **RTF no mesmo intervalo das amostras.** Cada linha carrega tempo de simulação
+  e tempo monotônico de parede. Corridas com carga ou enlace diferentes deixam
+  de parecer comparáveis só porque `/clock` continuou publicando rapidamente.
 - **Velocidade média, não o pico.** Nas corridas de 20/08 o pico foi 0,119 m/s e
   a média 0,021 m/s: o MPPI gasta a maior parte do tempo corrigindo rumo a
   0,12 rad/s de teto de guinada. Subir `vx_max` mexe no pico; o que se sente é
@@ -43,8 +46,10 @@ O QUE ELE MEDE, E POR QUE CADA COISA ESTÁ AQUI
   como tópico. Passe `--sim-log` e elas entram no resumo; sem isso o resumo diz
   que não as tem, em vez de omitir silenciosamente.
 
-Nenhum número deste script vale para o Aquila AM69: ele mede a simulação no
-host x86 (regras 5 e 7 do `CLAUDE.md`).
+No HIL, o script mede a planta simulada no host e o Nav2 que roda no Aquila. Os
+números valem para essa pilha distribuída, mas não validam localização por
+pernas, um Go2 físico, térmica ou desempenho isolado do módulo (regras 5 e 7 do
+`CLAUDE.md`).
 """
 
 import argparse
@@ -65,6 +70,8 @@ from rclpy.node import Node
 from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
+
+from trial_timing import timing_spans
 
 
 # Raio circunscrito do tronco do Go2. A folga do lidar até a parede menos isto é
@@ -112,6 +119,7 @@ class NavTrial(Node):
         self.min_range = float('inf')
         self.rows: list[dict] = []
         self.goal_log: list[tuple] = []
+        self._wall_start: float | None = None
         # Uma meta por vez, com EPOCA. O servidor navigate_to_pose aceita uma
         # meta so: mandar outra PREEMPTA a anterior, que devolve ABORTED, cujo
         # callback chegaria depois e sobrescreveria o estado da meta nova. Isso
@@ -214,8 +222,11 @@ class NavTrial(Node):
 
     def sample(self) -> None:
         yaw, tilt = yaw_and_tilt(self.pose.orientation)
+        if self._wall_start is None:
+            raise RuntimeError('wall clock not initialized')
         self.rows.append({
             'sim_s': round(self.sim_s(), 3),
+            'wall_s': round(time.monotonic() - self._wall_start, 3),
             'x': round(self.pose.position.x, 4),
             'y': round(self.pose.position.y, 4),
             'z': round(self.pose.position.z, 4),
@@ -275,6 +286,7 @@ class NavTrial(Node):
     def run(self, goals) -> str:
         """Cicla as metas por --seconds de tempo de SIMULAÇÃO."""
         start = self.sim_s()
+        self._wall_start = time.monotonic()
         next_sample = start
         index = 0
         goal_started = start
@@ -371,7 +383,7 @@ def summarise(trial: NavTrial, verdict: str, stats: dict | None) -> None:
     ys = np.array([r['y'] for r in rows])
     path = float(np.hypot(np.diff(xs), np.diff(ys)).sum())
     net = float(math.hypot(xs[-1] - xs[0], ys[-1] - ys[0]))
-    elapsed = rows[-1]['sim_s'] - rows[0]['sim_s']
+    elapsed, wall_elapsed, rtf = timing_spans(rows)
     cmd_vx = np.array([r['cmd_vx'] for r in rows])
     ranges = np.array([r['min_range_m'] for r in rows])
     ranges = ranges[np.isfinite(ranges)]
@@ -379,6 +391,8 @@ def summarise(trial: NavTrial, verdict: str, stats: dict | None) -> None:
     print()
     print(f'veredito                 {verdict}')
     print(f'tempo de simulação       {elapsed:.1f} s  ({len(rows)} amostras)')
+    print(f'tempo de parede          {wall_elapsed:.1f} s')
+    print(f'fator de tempo real      {rtf:.3f}')
     print(f'caminho percorrido       {path:.2f} m')
     print(f'deslocamento líquido     {net:.2f} m')
     print(f'velocidade média         {path / elapsed:.4f} m/s'

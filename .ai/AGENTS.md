@@ -2,7 +2,7 @@
 
 Project owner: Diego Maia, FAE Toradex Brasil  
 Project type: internal technical demonstration  
-Target platform: Aquila AM69 V1.0A + Torizon OS 7.4.0  
+Target platform: Aquila AM69 V1.0A + Torizon OS 7.7.0
 Development host: Ubuntu 24.04 x86_64  
 Primary stack: ROS 2 Jazzy, Gazebo Harmonic, Nav2, CycloneDDS, Docker Compose
 
@@ -105,11 +105,11 @@ A separate experiment may test `gz sim -s` with a physics-only world and no rend
 
 ### 3.3 Torizon OS and Aquila safety rule
 
-The target module is Aquila AM69 V1.0A and the required image is Torizon OS 7.4.0 installed from scratch with Toradex Easy Installer.
+The target module is Aquila AM69 V1.0A and the required image is Torizon OS 7.7.0 installed from scratch with Toradex Easy Installer.
 
-Never create instructions that update this V1.0 module to 7.4.0 through OTA from an older base image. The runbook must prominently state:
+Never create instructions that update this V1.0 module to 7.7.0 through OTA from an older base image. The runbook must prominently state:
 
-- install Torizon OS 7.4.0 from scratch through Tezi;
+- install Torizon OS 7.7.0 from scratch through Tezi;
 - do not use a remote base-OS upgrade from an older image on this module revision;
 - recovery from an invalid boot state requires Tezi reflash and Torizon Cloud reprovisioning.
 
@@ -119,7 +119,7 @@ Application-container updates are in scope. Unsafe base-OS update automation is 
 
 - The target display path is direct DisplayPort.
 - Do not assume an HDMI adapter or converter.
-- The embedded HMI must use an Aquila-compatible GPU-accelerated Chromium/Weston container for Torizon OS 7.4.0.
+- The embedded HMI must use an Aquila-compatible GPU-accelerated Chromium/Weston container for Torizon OS 7.7.0.
 - Software rendering is not acceptable as the final Phase 3 result.
 - GPU acceleration must be validated on hardware and documented with evidence.
 - Development fallback may run the web HMI in a normal desktop browser on x86, but that is not target acceptance.
@@ -761,7 +761,7 @@ This is not part of the initial product implementation.
 
 Deliver only a two-day investigation plan/report covering:
 
-- TIDL runtime availability for Torizon OS 7.4.0;
+- TIDL runtime availability for Torizon OS 7.7.0;
 - required C7x device nodes;
 - runtime/model filesystem requirements;
 - licensing and redistribution constraints;
@@ -868,7 +868,7 @@ Create an ADR in `docs/decisions/` for material architecture choices. Initial AD
 3. web HMI with rosbridge;
 4. separate perception container and final topic contract;
 5. explicit launch files per mode;
-6. Torizon OS 7.4.0 clean-install rule;
+6. Torizon OS 7.7.0 clean-install rule;
 7. distributed use of one Compose file through profiles/service selection rather than remote scheduling.
 
 ADR format:

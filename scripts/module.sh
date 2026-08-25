@@ -59,7 +59,7 @@ cd "${repo_dir}"
 # overrode an explicit `HOST_IP=` on the command line, and both CycloneDDS
 # configs were rendered for an interface with no carrier. That fails as silent
 # non-discovery — the exact failure mode this script exists to prevent.
-env_file="${repo_dir}/docker/.env"
+env_file="${MODULE_ENV_FILE:-${repo_dir}/docker/.env}"
 if [[ -f "${env_file}" ]]; then
   while IFS= read -r line || [[ -n "${line}" ]]; do
     line="${line#"${line%%[![:space:]]*}"}"          # strip leading blanks
@@ -75,8 +75,11 @@ if [[ -f "${env_file}" ]]; then
     if [[ ! "${env_key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
       continue
     fi
-    # An explicit environment variable wins over .env. This is the whole point.
-    if [[ -n "${!env_key:-}" ]]; then
+    # Presence, not non-empty content, defines an explicit override. HOST_IP=
+    # is useful: it deliberately asks resolve_addresses() to derive the current
+    # route instead of accepting a stale value from docker/.env. Testing `-n`
+    # here made that empty override indistinguishable from an unset variable.
+    if [[ -v ${env_key} ]]; then
       continue
     fi
     # Strip one layer of matching quotes, as `source` would have.
@@ -470,7 +473,11 @@ EOF
     say "e dos sensores que o Gazebo publica; sem isso o Nav2 fica esperando."
   fi
 
-  remote "cd ${remote_dir} && docker compose -f compose.module.yml up -d"
+  # The rendered CycloneDDS file is a bind mount whose PATH does not change
+  # between syncs. Compose therefore considers an old container up to date even
+  # when the peer/interface inside that file changed. CycloneDDS reads the XML
+  # only at process start, so a normal `up -d` leaves the stale interface alive.
+  remote "cd ${remote_dir} && docker compose -f compose.module.yml up -d --force-recreate"
   cmd_status
 }
 
@@ -491,6 +498,7 @@ cmd_status() {
 # Stopping at (2) is how a one-way link gets reported as working.
 cmd_verify() {
   resolve_addresses
+  local verify_failed=0
 
   # RTPS unicast discovery ports for domain N: 7400 + 250*N + 10 + 2*index.
   #
@@ -524,48 +532,50 @@ PYPORT
 )" || true
 
   if [[ -z "${port}" ]]; then
-    printf '    nenhuma porta livre em %s..%s: DDS ocupando a faixa toda. Siga para a etapa 2.\n' \
+    printf '    nenhuma porta livre em %s..%s: alcance UDP nao verificado.\n' \
       "${base_port}" "$((base_port + 18))"
+    verify_failed=1
   else
     [[ "${port}" == "${base_port}" ]] || busy=" (${base_port} ocupada: DDS vivo neste host)"
     say "1/3 alcance UDP no dominio ${ROS_DOMAIN_ID}, porta ${port}${busy}"
 
     python3 - "${port}" <<'PYLISTEN' &
-import socket, sys
+import socket, sys, time
 p = int(sys.argv[1])
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 try:
     s.bind(("0.0.0.0", p))
 except OSError as exc:
     print(f"    modulo -> host: nao consegui escutar em {p}: {exc}")
-    raise SystemExit(0)
-s.settimeout(15)
+    raise SystemExit(1)
 # The payload IS checked. These are live RTPS discovery ports: with a simulation
 # running on the same domain, the first datagram to arrive is often real SPDP
 # traffic from another participant, and accepting it would report "OK" for a
 # port the module never reached. Measured once as "de 192.0.2.15" — the
 # host's own address — on a probe that was supposed to prove the module could
 # reach us.
-deadline = 15
-while deadline > 0:
-    s.settimeout(deadline)
-    start = None
+deadline = time.monotonic() + 15
+while True:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        print("    modulo -> host: so chegou trafego RTPS de terceiros, probe nao confirmado.")
+        raise SystemExit(1)
+    s.settimeout(remaining)
     try:
         data, addr = s.recvfrom(2048)
     except socket.timeout:
         print("    modulo -> host: TIMEOUT. Verifique firewall do host nesta porta UDP.")
-        break
+        raise SystemExit(1)
     if data == b"dds-probe":
         print(f"    modulo -> host: OK (de {addr[0]})")
-        break
-    deadline -= 1
-else:
-    print("    modulo -> host: so chegou trafego RTPS de terceiros, probe nao confirmado.")
+        raise SystemExit(0)
 PYLISTEN
     local listener=$!
     sleep 2
     remote "python3 -c \"import socket;s=socket.socket(socket.AF_INET,socket.SOCK_DGRAM);[s.sendto(b'dds-probe',('${HOST_IP}',${port})) for _ in range(3)]\"" || true
-    wait "${listener}"
+    if ! wait "${listener}"; then
+      verify_failed=1
+    fi
   fi
 
   say "2/3 contrato de topicos visto de dentro do modulo"
@@ -587,17 +597,43 @@ PYLISTEN
   #
   # So: no 2>/dev/null on the ros2 calls, and the entrypoint sources the underlay
   # and the /ws/install overlay before anything runs.
-  local seen
+  local seen seen_status
+  set +e
   seen="$(remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
     /usr/local/bin/entrypoint.sh bash -c '
       ros2 node list
-      ros2 topic list | grep /demo/
-    '" 2>/dev/null | grep -v 'ROS_LOCALHOST_ONLY\|automatic_discovery_range' || true)"
+      # /clock IS NOT UNDER /demo/, AND A BARE grep /demo/ DROPS IT.
+      #
+      # The required-topic loop below asks for /clock. Collecting with the
+      # /demo/ filter alone removed it before that loop ever ran, so verify
+      # printed AUSENTE: /clock and returned failure for a link that was
+      # healthy -- measured 616 Hz on /clock from inside the module at the same
+      # moment the check called it missing. That is the false negative this
+      # script exists to prevent, pointed at its own reader.
+      #
+      # Keep the anchor: every topic named in that loop must be matched here.
+      #
+      # Two -e patterns and not an -E alternation on purpose. This whole block
+      # is nested inside remote "...", a double-quoted string, so a quoted
+      # regex or a parenthesised group would be eaten by the outer shell before
+      # ssh ever sees it. Plain -e arguments need no quoting at all.
+      ros2 topic list | grep -e /clock -e /demo/
+    '" | grep -v 'ROS_LOCALHOST_ONLY\|automatic_discovery_range')"
+  seen_status=$?
+  set -e
 
-  if [[ -n "${seen}" ]]; then
+  if [[ ${seen_status} -eq 0 && -n "${seen}" ]]; then
     printf '%s\n' "${seen}" | sed 's/^/    /'
+    local required_topic
+    for required_topic in /clock /demo/odom /demo/scan /demo/camera/image_raw; do
+      if ! grep -qx "${required_topic}" <<<"${seen}"; then
+        printf '    AUSENTE: %s\n' "${required_topic}"
+        verify_failed=1
+      fi
+    done
   else
     printf '    o modulo nao ve nada publicado no dominio %s.\n' "${ROS_DOMAIN_ID}"
+    verify_failed=1
     # An empty list here is EXPECTED while the host side runs without the
     # rendered config, and saying only "no topics" sends the reader hunting the
     # module. The producer is what is misconfigured, not the consumer.
@@ -646,55 +682,84 @@ EOF
   # /demo/system/heartbeat waits forever on a name nobody publishes.
   say "3/3 modulo publica, host recebe (/demo/system/heartbeat)"
 
-  [[ -f /opt/ros/jazzy/setup.bash ]] || {
-    printf '    ROS nativo ausente no host, etapa 3 nao executada\n'; return 0
-  }
-
-  # `timeout 60` and not a later pkill: procps is not guaranteed in ros-base, so
-  # a cleanup that depends on pkill can silently fail and leave a publisher
-  # injecting into the domain after this script exits. The node bounds itself.
-  remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -d tools \
-    /usr/local/bin/entrypoint.sh timeout 60 ros2 run demo_tutorials heartbeat_publisher \
-    --ros-args -r __ns:=/demo" >/dev/null
-
-  # exec -d hides every error, including "command not found". Confirm the node is
-  # actually up before blaming DDS for the silence on the host side.
-  sleep 4
-  if ! remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
-        /usr/local/bin/entrypoint.sh ros2 node list" 2>/dev/null | grep -q heartbeat_publisher; then
-    printf '    o publisher NAO subiu no modulo. Nada a concluir sobre o link DDS.\n'
+  if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
+    printf '    ROS nativo ausente no host, etapa 3 nao executada\n'
     return 1
   fi
-  printf '    publisher ativo no modulo\n'
 
-  # Unicast discovery in both directions takes a few seconds. Echoing
-  # immediately reports "no messages" for a reason unrelated to configuration.
-  sleep 6
-  local received
-  set +e
-  # CYCLONEDDS_URI is the whole point: without the rendered host config this
-  # subscriber uses CycloneDDS defaults and never discovers the module. See
-  # render_host_config.
+  # Start the NEW participant on the host first. Under unicast discovery the
+  # participant that joins last is precisely the one least likely to have been
+  # announced to its peer. The old order started a remote publisher, slept an
+  # arbitrary six seconds, and only then created the subscriber; identical
+  # links alternated between PASS and false-negative depending on the SPDP
+  # period. A subscriber already waiting cannot miss the first useful sample.
   [[ -f "${host_cfg:-}" ]] || render_host_config
-  received="$(
+  local heartbeat_output subscriber_pid
+  heartbeat_output="$(mktemp)"
+  (
     CYCLONEDDS_URI="file://${host_cfg}" bash -c '
       source /opt/ros/jazzy/setup.bash >/dev/null 2>&1
       export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
       export ROS_DOMAIN_ID='"${ROS_DOMAIN_ID}"'
-      timeout 25 ros2 topic echo --once /demo/system/heartbeat std_msgs/msg/String 2>&1
+      timeout 75 ros2 topic echo --once /demo/system/heartbeat std_msgs/msg/String
     '
-  )"
+  ) >"${heartbeat_output}" 2>&1 &
+  subscriber_pid=$!
+
+  # `timeout 70` and not a later pkill: procps is not guaranteed in ros-base, so
+  # a cleanup that depends on pkill can silently fail and leave a publisher
+  # injecting into the domain after this script exits. The node bounds itself.
+  if ! remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -d tools \
+      /usr/local/bin/entrypoint.sh timeout 70 ros2 run demo_tutorials heartbeat_publisher \
+      --ros-args -r __ns:=/demo" >/dev/null; then
+    printf '    falha ao iniciar o publisher no modulo.\n'
+    kill "${subscriber_pid}" >/dev/null 2>&1 || true
+    wait "${subscriber_pid}" >/dev/null 2>&1 || true
+    rm -f "${heartbeat_output}"
+    return 1
+  fi
+
+  # exec -d hides every error, including "command not found". Confirm the node is
+  # actually up before blaming DDS for the silence on the host side. Polling is
+  # bounded, but does not confuse a chosen fixed sleep with a readiness signal.
+  local publisher_ready=0 attempt
+  for attempt in {1..15}; do
+    if remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
+          /usr/local/bin/entrypoint.sh ros2 node list" 2>/dev/null | grep -q heartbeat_publisher; then
+      publisher_ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ ${publisher_ready} -eq 0 ]]; then
+    printf '    o publisher NAO subiu no modulo. Nada a concluir sobre o link DDS.\n'
+    verify_failed=1
+    kill "${subscriber_pid}" >/dev/null 2>&1 || true
+    wait "${subscriber_pid}" >/dev/null 2>&1 || true
+    rm -f "${heartbeat_output}"
+    return 1
+  fi
+  printf '    publisher ativo no modulo\n'
+
+  set +e
+  wait "${subscriber_pid}"
+  local subscriber_status=$?
   set -e
+  local received
+  received="$(<"${heartbeat_output}")"
+  rm -f "${heartbeat_output}"
 
   # Belt and braces on top of the timeout above; harmless when pkill is absent.
   remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools pkill -f heartbeat_publisher" >/dev/null 2>&1 || true
 
-  if printf '%s' "${received}" | grep -q 'count='; then
+  if [[ ${subscriber_status} -eq 0 ]] && printf '%s' "${received}" | grep -q 'count='; then
     printf '    host recebeu do modulo: %s\n' "$(printf '%s' "${received}" | grep -m1 'count=')"
   else
     printf '    host NAO recebeu. Saida do echo:\n%s\n' "${received}"
-    return 1
+    verify_failed=1
   fi
+
+  return "${verify_failed}"
 }
 
 cmd_shell() {
@@ -727,6 +792,13 @@ cmd_render_local() {
   say "Recrie os containers para que a config nova seja lida:"
   say "  docker compose -f docker/compose.host.yml up -d --force-recreate"
 }
+
+# Sourcing is a test seam for the configuration loader. It deliberately stops
+# before command dispatch, so precedence tests never need SSH and never touch
+# the operator's real module.
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  return 0
+fi
 
 case "${1:-}" in
   inventory)    cmd_inventory ;;

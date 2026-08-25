@@ -13,7 +13,7 @@ Estas existem porque violá-las custa dias. Não são preferências.
 
 1. **Nada que dependa de OpenGL desktop roda no alvo.** A GPU do AM69 expõe apenas OpenGL ES 3.2 e Vulkan 1.2. Gazebo (OGRE 2), RViz2 e qualquer coisa sobre OGRE 2 ficam no host x86. Nunca gere launch file, compose ou Dockerfile que coloque essas ferramentas no serviço do módulo.
 2. **RMW é sempre `rmw_cyclonedds_cpp`.** Definido na imagem base via `ENV`, nunca em runtime. Não troque para Fast DDS nem remova a variável: há falha conhecida de descoberta entre containers com o padrão.
-3. **Instalação do Torizon OS só por Toradex Easy Installer.** Nunca documente, script ou sugira atualização remota para chegar à 7.4.0 neste módulo. O módulo V1.0 com bootloader antigo carrega a device tree da V1.1 e para de bootar.
+3. **Instalação do Torizon OS só por Toradex Easy Installer.** O baseline do hardware é 7.7.0. Nunca documente, script ou sugira atualização remota para chegar a ele neste módulo. O módulo V1.0 com bootloader antigo carrega a device tree da V1.1 e para de bootar.
 4. **`/opt` não é modificável por TorizonCore Builder.** Qualquer proposta que dependa de escrever em `/opt` no OS está errada. Vai para dentro do container ou para build Yocto.
 5. **Emulação arm64 não mede desempenho.** Nunca tire conclusão de CPU, latência ou FPS de execução sob QEMU. Números só valem no hardware.
 6. **Percepção fala pelo contrato, nunca direto.** Ver seção Contrato de tópicos.
@@ -138,11 +138,19 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   ambiente explícito em `module.sh`, `host.rendered.xml` que nunca havia sido
   renderizado, e o DDS do módulo fixado em `ethernet1` quando a rota do kernel
   usa `ethernet0` (as duas portas estão na mesma /24, métricas 101/102).
-  **Use `MODULE_IP` explícito e `ethernet0`.** O portão de estabilidade continua
-  aberto e é inexecutável pelo Wi-Fi: a mesma câmera deu 1,716 / 9,994 / 2,692 Hz
-  em três corridas idênticas. Falta enlace cabeado — `enp0s31f6` tem falha de PHY
-  na retomada, não problema de cabo. Ver `docs/results/ml35-hil-rota-ethernet0.md`
-  e a seção "Sessão 25/08" de `docs/ml35/estado-fases.md`.
+  **Use `MODULE_IP` explícito e `ethernet0`.** Ainda em 25/08, à noite, o enlace
+  cabeado gigabit foi estabelecido e comprovado (1000 Mb/s full, RTT 0,400 ms,
+  rota simétrica, `verify` 3/3) e o protocolo de estabilidade **foi executado**.
+  **O portão de 8 m reprovou, e a rede não é a causa** — a hipótese
+  `ethernet1`/`ethernet0` está refutada por medição. As duas causas medidas são
+  **CPU do módulo** (Nav2 sozinho a 600–727% de 800%; a percepção soma ~187% e
+  passa da capacidade, o `collision_monitor` recusa a nuvem com 1,0–1,2 s de
+  defasagem contra 42 ms com o Nav2 ocioso, custo de 2,8× na velocidade média) e
+  **decisão de trajeto** (`vx` em zero em 79% das amostras, giro em 93,9%: o robô
+  gira em vez de transladar; 28,9% de eficiência de rota contra 57% no host).
+  Tirar a câmera do fio **não** faz a meta passar. Ver
+  `docs/results/ml35-f5-ethernet0-repeticao.md` e a seção
+  "Sessão 25/08 (noite)" de `docs/ml35/estado-fases.md`.
 - **Cockpit web** — trilha paralela, plano em `docs/ml35/plano-cockpit-web.md`.
   **F1 e F3b fechados em 24/08/2026**: as cinco regiões da tela ao vivo, clique
   no mapa vira meta aceita pelo Nav2, play/pause/reset da simulação e controle

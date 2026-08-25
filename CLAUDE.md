@@ -41,7 +41,7 @@ Violating any of these costs days. They are not preferences.
 
 1. **No desktop-OpenGL software runs on the target.** The AM69 GPU exposes only OpenGL ES 3.2 and Vulkan 1.2. Gazebo (OGRE 2), RViz2, and anything else on OGRE 2 stay on the x86 host. Never generate a launch file, compose service, or Dockerfile that places these tools on the module.
 2. **RMW is always `rmw_cyclonedds_cpp`.** Bake it into the base image via `ENV`, never set at runtime, never swap for Fast DDS. There is a known inter-container discovery failure with the default RMW.
-3. **Torizon OS is installed only via Toradex Easy Installer.** Never document, script, or suggest a remote OTA upgrade path to reach 7.4.0 on this module. A V1.0 module with the old bootloader loads the V1.1 device tree and stops booting. Recovery = Tezi reflash + Torizon Cloud reprovision.
+3. **Torizon OS is installed only via Toradex Easy Installer.** The hardware baseline is 7.7.0. Never document, script, or suggest a remote OTA upgrade path to reach it on this module. A V1.0 module with the old bootloader loads the V1.1 device tree and stops booting. Recovery = Tezi reflash + Torizon Cloud reprovision.
 4. **`/opt` is not modifiable by TorizonCore Builder.** Any proposal that depends on writing to `/opt` on the OS is wrong — it goes inside a container or into a Yocto build.
 5. **arm64 emulation does not measure performance.** Never draw conclusions about CPU, latency, thermals, or FPS from QEMU. Those numbers only count on the real hardware.
 6. **Perception speaks through the contract, never directly.** See the topic contract below.
