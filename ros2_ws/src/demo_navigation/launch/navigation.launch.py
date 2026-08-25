@@ -89,6 +89,19 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
+    # Fachada std_srvs do "resetar meta" do cockpit. Fragmento compartilhado
+    # com nav_quadruped.launch.py — ver o cabeçalho de nav_control.launch.py
+    # para por que ele é um include e não um bloco Node duplicado.
+    nav_control = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('demo_navigation'),
+            'launch', 'nav_control.launch.py',
+        ])),
+        launch_arguments={
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+        }.items(),
+    )
+
     return LaunchDescription([
         map_arg,
         params_arg,
@@ -96,4 +109,5 @@ def generate_launch_description() -> LaunchDescription:
         autostart_arg,
         use_composition_arg,
         nav2_bringup,
+        nav_control,
     ])

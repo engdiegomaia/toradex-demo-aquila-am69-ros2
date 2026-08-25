@@ -214,11 +214,27 @@ def generate_launch_description() -> LaunchDescription:
     # planta quadrupede, para que o painel nao apague ao trocar ROBOT_TYPE.
     # Toda a conta de enquadramento e o motivo de serem spawnadas em vez de
     # escritas nos worlds/*.sdf estao em scene_cameras.launch.py.
+    #
+    # O seed odom -> mundo E PASSADO EXPLICITAMENTE, e essa e a unica diferenca
+    # deste include em relacao ao da planta quadrupede. A odometria daqui vem do
+    # plugin DiffDrive, que integra encoders a partir de ZERO: a origem do odom e
+    # a pose de SPAWN, nao a do mundo. Sem este seed, um `x:=5` faz as duas
+    # vistas seguirem um ponto 5 m ao lado do robo — errado por um deslocamento
+    # constante, sem erro em lugar nenhum.
+    #
+    # A planta quadrupede NAO passa nada porque la /go2/odom e ground truth do
+    # Gazebo (ja e a pose no mundo) e um seed nao-nulo somaria a pose de spawn
+    # duas vezes.
     scene_cameras = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_simulation'), 'launch',
             'scene_cameras.launch.py',
         ])),
+        launch_arguments={
+            'follow_offset_x': LaunchConfiguration('x'),
+            'follow_offset_y': LaunchConfiguration('y'),
+            'follow_offset_yaw': LaunchConfiguration('yaw'),
+        }.items(),
     )
 
     # Ponte de serviços do Gazebo: play/pause/reset do cockpit, e o set_pose que

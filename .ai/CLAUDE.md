@@ -137,8 +137,20 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   no mapa vira meta aceita pelo Nav2, play/pause/reset da simulação e controle
   das câmeras de cena a partir do cockpit, e a identidade Toradex aplicada
   (fundo branco, `#00508c`, `#96c837`, `#ff5a00`). Evidência em
-  `docs/results/cockpit-web-f3b.md`. **Próximo: F4**, controle manual atrás do
-  `twist_mux` — as setas da barra estão desligadas de propósito até lá.
+  `docs/results/cockpit-web-f3b.md`. Em 25/08 entraram três **ajustes de UI** de
+  bancada, fora da numeração de fases: marca Toradex ao dobro (com
+  `--bar-min-height` acoplada ao mesmo token, senão a faixa corta a marca sem
+  sintoma), câmeras de cena **seguindo o robô** nas duas vistas (só o alvo da
+  órbita se move, então o enquadramento medido do armazém continua valendo), e
+  **`/demo/nav/reset`** — reiniciar o Nav2 pelo cockpit, por um relay que roda no
+  container do Nav2, isto é, no Aquila no modo `hil`. Evidência em
+  `docs/results/cockpit-web-ui-ajustes.md`. Achado com peso próprio:
+  **`RESET`+`STARTUP` no `lifecycle_manager` do Nav2 derruba o container** com
+  `SIGSEGV` ao configurar o `route_server`, reproduzido duas vezes — determinístico,
+  não o "aconteceu uma vez" que os docs registravam; daí a sequência ser cancelar
+  + limpar costmaps + `PAUSE`/`RESUME`, que nunca passa por `CONFIGURE`.
+  **Próximo: F4**, controle manual atrás do `twist_mux` — as setas da barra estão
+  desligadas de propósito até lá.
   Duas invariantes que saíram do F3b, cada uma paga com uma sessão de
   depuração: (a) o navegador **não** pode chamar serviço com tipo do Gazebo —
   o rosbridge importa o pacote de interfaces dentro do container do cockpit,

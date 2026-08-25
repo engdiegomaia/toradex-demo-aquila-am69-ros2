@@ -299,6 +299,24 @@
   letter-spacing: 0.03em;
 }
 
+.viewpad__btn--full {
+  grid-column: 1 / -1;
+  letter-spacing: 0.03em;
+}
+
+/* Pressionado = seguindo. Verde da marca porque isto e um ESTADO do sistema e
+   nao um destaque de UI: a mesma cor que o ponto de frescor vivo e a pegada do
+   robo no mapa. Ver a nota sobre semantica de cor em tokens.css. */
+.viewpad__btn[aria-pressed="true"] {
+  color: #16232e;
+  background: var(--brand-green);
+  border-color: var(--brand-green);
+}
+
+.viewpad__btn[aria-pressed="true"]:hover {
+  background: color-mix(in srgb, var(--brand-green) 80%, white);
+}
+
 /* --- header switch (scene iso/topo, cancel goal) --------------------------- */
 
 .switch {
@@ -347,6 +365,32 @@
 .switch__btn--alert {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+/* Reiniciar a navegacao. Vermelho e nao laranja: laranja aqui e "atencao,
+   olhe", e este botao apaga estado que nao volta. Ver a nota em tokens.css
+   sobre --bad nao ser cor da marca de proposito. */
+.switch__btn--danger {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 45%, transparent);
+}
+
+/* Armado, esperando o segundo clique. Fundo cheio, porque o estado "um clique
+   ja foi dado" tem de ser visivel do outro lado da sala. */
+.switch__btn[data-armed="true"] {
+  color: #fff;
+  background: var(--bad);
+  border-color: var(--bad);
+}
+
+/* Reinicio em curso. Nao e desabilitado por acaso: sao ~7 s medidos, e um
+   segundo clique nesse meio tempo empilharia um PAUSE sobre um RESUME. */
+.switch__btn[data-busy="true"] {
+  color: var(--text-faint);
+  background: var(--bg-inset);
+  border-color: var(--border);
+  cursor: progress;
+  pointer-events: none;
 }
 
 .switch__btn[hidden] {
@@ -489,21 +533,34 @@
 
    As alturas sao diferentes de proposito. Igualar a caixa nao iguala a
    presenca: a marca da Toradex tem descida e um ponto acima do texto, entao ao
-   mesmo numero de pixels ela LE menor que o ROS. Os 34/22 px abaixo foram
-   ajustados na tela ate as duas pesarem igual. */
+   mesmo numero de pixels ela LE menor que o ROS. A razao 34/22 foi ajustada na
+   tela ate as duas pesarem igual.
+
+   AS DUAS DOBRARAM JUNTAS (34/22 -> 68/44). O pedido era a marca da Toradex 2x;
+   dobrar so ela quebraria a razao acima, que nao e arbitraria. Se em algum
+   momento a Toradex tiver de dominar de verdade, mexa em --logo-ros e nao na
+   proporcao por acidente.
+
+   E A ALTURA DA BARRA VEM DAQUI. `.cockpit` reserva
+   `minmax(var(--bar-min-height), 0.36fr)` para a faixa, e esse minimo e
+   calculado a partir destes tokens em layout.css: subir --logo-toradex sem
+   subir o minimo faz a marca ser CORTADA em telas baixas, sem erro nenhum e
+   sem barra de rolagem (a barra tem overflow-x, nao -y). */
 .brand__logo {
   display: block;
   width: auto;
-  height: 34px;
+  height: var(--logo-toradex);
 }
 
 .brand__logo--ros {
-  height: 22px;
+  height: var(--logo-ros);
 }
 
 .brand__rule {
   width: 1px;
-  height: 26px;
+  /* Acompanha a marca menor: um filete mais alto que o logo do ROS leria como
+     borda de painel e nao como separador entre duas marcas. */
+  height: calc(var(--logo-ros) + 4px);
   background: var(--border);
 }
 

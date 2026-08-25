@@ -56,13 +56,37 @@ A cobertura de uma vista de topo a altura h e, portanto, 1,368*h por 1,026*h.
   mundo. O robo nasce em (0,0), o canto inferior direito. O labirinto nao tem
   teto, entao aqui a vista de topo pode subir:
 
+      WORLDS=$(ros2 pkg prefix demo_simulation)/share/demo_simulation/worlds
       ros2 launch demo_bringup sim.launch.py \
-        world:=$(ros2 pkg prefix demo_simulation)/share/demo_simulation/worlds/quadruped_maze11.sdf \
+        world:=$WORLDS/quadruped_maze11.sdf \
         scene_top_x:=-4.855 scene_top_y:=4.855 scene_top_z:=13.0 \
         scene_iso_x:=-13.0 scene_iso_y:=-3.0 scene_iso_z:=9.0 \
         scene_iso_pitch:=0.671 scene_iso_yaw:=0.768
 
   (topo a 13 m cobre 17,8 x 13,3 m, os 11,6 m com margem).
+
+SEGUIR O ROBO, E O SEED odom -> MUNDO
+
+As duas vistas seguem o robo por default (`follow:=false` desliga). O
+scene_view_controller usa /demo/odom como pose do robo, e ele precisa dessa pose
+no referencial do MUNDO, que e o unico que o set_pose do Gazebo entende.
+
+As duas plantas divergem nisso:
+
+  quadrupede   /go2/odom e ground truth do gz-sim-odometry-publisher-system:
+               ja e a pose no mundo. Seed = 0, e quadruped.launch.py nao passa
+               nada.
+
+  diff-drive   /odom e integrado dos encoders pelo plugin DiffDrive, com origem
+               na pose de SPAWN. Seed = x/y/yaw do spawn, e simulation.launch.py
+               liga os tres explicitamente.
+
+Os argumentos `follow_offset_*` existem para isso. Eles NAO sao lidos de `x`,
+`y` e `yaw` aqui dentro por acidente de escopo: as duas plantas declaram esses
+tres nomes e o include os herdaria dos dois, o que faria a camera do quadrupede
+seguir um fantasma deslocado pela pose de spawn (no maze11, deslocado E girado
+de 90 graus). Quem sabe se a odometria e ground truth e a planta, e e ela que
+passa.
 
 POR QUE OS DOIS `create` NAO SAO ADIADOS POR TIMER
 Mesma razao do spawn do robo em quadruped.launch.py: `create` ja repete o
@@ -160,9 +184,33 @@ def _view_controller() -> Node:
             'top_z': as_float('scene_top_z'),
             'top_pitch': as_float('scene_top_pitch'),
             'top_yaw': as_float('scene_top_yaw'),
+            'follow': ParameterValue(LaunchConfiguration('follow'),
+                                     value_type=bool),
+            'follow_offset_x': as_float('follow_offset_x'),
+            'follow_offset_y': as_float('follow_offset_y'),
+            'follow_offset_yaw': as_float('follow_offset_yaw'),
             'use_sim_time': True,
         }],
     )
+
+
+def _follow_args() -> list:
+    return [
+        DeclareLaunchArgument(
+            'follow',
+            default_value='true',
+            description='Vistas de cena seguem o robo. false congela as duas '
+                        'no enquadramento medido (a vista larga do cenario).',
+        ),
+        DeclareLaunchArgument(
+            'follow_offset_x',
+            default_value='0.0',
+            description='odom -> mundo, X. Zero para odometria ground truth '
+                        '(quadrupede); a pose de spawn para o diff-drive.',
+        ),
+        DeclareLaunchArgument('follow_offset_y', default_value='0.0'),
+        DeclareLaunchArgument('follow_offset_yaw', default_value='0.0'),
+    ]
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -177,5 +225,6 @@ def generate_launch_description() -> LaunchDescription:
         [enabled_arg]
         + _pose_args('iso')
         + _pose_args('top')
+        + _follow_args()
         + [_spawn('iso'), _spawn('top'), _view_controller()]
     )

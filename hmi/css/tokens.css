@@ -95,6 +95,16 @@
   --gap: 8px;
   --pad: 10px;
 
+  /* Marcas da barra, e a altura minima que elas impoem a faixa.
+     Vivem aqui e nao em panels.css porque layout.css tambem precisa do numero:
+     a linha da grade que reserva a barra e dimensionada por --bar-min-height, e
+     as duas coisas divergirem faz a marca ser cortada em silencio.
+     68/44 e o dobro dos 34/22 originais — ver o bloco .brand__logo. */
+  --logo-toradex: 68px;
+  --logo-ros: 44px;
+  /* --logo-toradex + o padding vertical de .brand (5+5) + as duas bordas. */
+  --bar-min-height: 80px;
+
   --shadow-panel: 0 1px 2px rgba(22, 35, 46, 0.06),
     0 4px 12px rgba(22, 35, 46, 0.05);
 

@@ -227,6 +227,25 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
+    # Fachada std_srvs do "resetar meta" do cockpit: cancela a meta, limpa os
+    # costmaps e recicla por PAUSE/RESUME o `lifecycle_manager_navigation` que o
+    # include acima sobe. RESET + STARTUP seria o obvio e mata o container --
+    # o cabecalho de nav_control_relay.py tem a medicao. Fragmento
+    # compartilhado com o caminho de mapa estatico, por isso e um include —
+    # o cabecalho de nav_control.launch.py diz por que duplicar o Node seria
+    # pior. Depois do `navigation` na lista de proposito: o relay tolera o
+    # gerenciador ainda nao existir (`wait_for_service`), mas a ordem de leitura
+    # deve dizer quem depende de quem.
+    nav_control = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(PathJoinSubstitution([
+            FindPackageShare('demo_navigation'),
+            'launch', 'nav_control.launch.py',
+        ])),
+        launch_arguments={
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+        }.items(),
+    )
+
     return LaunchDescription([
         params_arg,
         use_sim_time_arg,
@@ -237,4 +256,5 @@ def generate_launch_description() -> LaunchDescription:
         cmd_vel_adapter,
         nav2_container,
         navigation,
+        nav_control,
     ])

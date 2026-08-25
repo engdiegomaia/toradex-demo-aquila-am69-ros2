@@ -16,6 +16,20 @@
  * base raster here is the costmap, not a static map — and that is also why the
  * view follows the robot for free: the costmap window does.
  *
+ * O painel tem DOIS controles destrutivos e eles não são a mesma coisa:
+ *
+ *   cancelar meta    fala com a ação navigate_to_pose. Para o robô e deixa todo
+ *                    o resto no lugar. É o "mudei de ideia", e só aparece
+ *                    enquanto há meta ativa.
+ *   reiniciar nav    chama /demo/nav/reset, e a fachada do lado da navegação
+ *                    cancela a meta, esvazia os dois costmaps e faz
+ *                    PAUSE + RESUME nos servidores do Nav2 — o que roda no
+ *                    Aquila no modo hil. É o "o Nav2 travou", e por isso está
+ *                    SEMPRE visível: o caso em que ele serve é justamente
+ *                    aquele em que a ação parou de responder.
+ *                    NÃO é RESET + STARTUP; esse par mata o container, e a
+ *                    medição está no cabeçalho de nav_control_relay.py.
+ *
  * Detections are deliberately NOT drawn here. They reach this panel already,
  * through the costmap's `perception_layer` — which is the wiring CLAUDE.md
  * requires ("Detections feed a Nav2 costmap layer, not just the HMI screen").
@@ -38,6 +52,28 @@ import {
 const NAVIGATE_ACTION = '/navigate_to_pose';
 const NAVIGATE_TYPE = 'nav2_msgs/action/NavigateToPose';
 
+/**
+ * std_srvs/Trigger servido pelo `nav_control_relay`, do lado da navegação.
+ *
+ * NÃO é `/lifecycle_manager_navigation/manage_nodes`. E o motivo aqui NÃO é o
+ * da armadilha do Gazebo: `nav2_msgs` existe no container `cockpit` (é o pacote
+ * do NavigateToPose que a meta acima usa), então a chamada direta funcionaria.
+ *
+ * O motivo é que reiniciar o Nav2 são QUATRO passos com um estado inválido no
+ * meio — entre o PAUSE e o RESUME a pilha está inativa, e nada a levanta
+ * sozinha. Uma sequência dessas conduzida pelo navegador morre com um F5 e deixa
+ * a navegação desativada sem ninguém para terminar. Do lado do ROS ela roda
+ * inteira, num processo que não depende desta página.
+ *
+ * E qual par de transições usar é uma descoberta medida, não uma escolha de
+ * interface: RESET + STARTUP mata o container. O cabeçalho de
+ * demo_navigation/nav_control_relay.py tem a medição.
+ */
+export const NAV_RESET_SERVICE = '/demo/nav/reset';
+
+/** Segundos que o botão de reiniciar fica armado esperando a confirmação. */
+export const RESET_ARM_MS = 4000;
+
 /** Metres between grid lines. */
 const GRID_STEP_M = 1;
 
@@ -51,6 +87,7 @@ export function createNavPanel({ root, client, tracker }) {
   const canvas = root.querySelector('[data-role="nav-canvas"]');
   const hud = root.querySelector('[data-role="nav-hud"]');
   const cancelButton = root.querySelector('[data-role="nav-cancel"]');
+  const resetButton = root.querySelector('[data-role="nav-reset"]');
   const context = canvas.getContext('2d');
 
   const lut = buildCostLut();
@@ -63,7 +100,10 @@ export function createNavPanel({ root, client, tracker }) {
     plan: null,
     scan: null,
     goal: null,
-    /** 'idle' | 'sent' | 'running' | 'ok' | 'fail' | 'lost' | 'cancelled' */
+    /**
+     * 'idle' | 'sent' | 'running' | 'ok' | 'fail' | 'lost' | 'cancelled'
+     * | 'resetting' | 'reset' | 'reset-failed'
+     */
     goalState: 'idle',
     goalDetail: '',
     feedback: null,
@@ -335,6 +375,71 @@ export function createNavPanel({ root, client, tracker }) {
 
   cancelButton?.addEventListener('click', cancelActive);
 
+  // --- reiniciar a navegação ----------------------------------------------
+  //
+  // Dois cliques, e o rótulo do botão diz em qual dos dois estamos. Mesmo
+  // padrão do reset da simulação em sim-controls.js, e pela mesma razão: um
+  // clique por engano custa dezenas de segundos no meio de uma demo.
+  const resetLabel = resetButton?.textContent ?? '';
+  let armedUntil = 0;
+
+  function disarmReset() {
+    armedUntil = 0;
+    if (!resetButton) return;
+    resetButton.dataset.armed = 'false';
+    resetButton.textContent = resetLabel;
+  }
+
+  async function resetNavigation() {
+    // O handle local morre com a pilha; largá-lo aqui evita que o `.then` do
+    // resultado, que chega abortado, sobrescreva o estado de reinício com um
+    // 'fail' que descreve a consequência e não a causa.
+    state.handle = null;
+    state.feedback = null;
+    state.goal = null;
+    state.goalState = 'resetting';
+    state.goalDetail = '';
+    if (resetButton) {
+      resetButton.dataset.busy = 'true';
+      resetButton.textContent = 'reiniciando…';
+    }
+
+    try {
+      // Sem timeout do lado do navegador de propósito. Medido em 6,6 s na
+      // workstation, e no arm64 do AM69 é mais lento — um limite local
+      // pintaria "falhou" sobre uma pilha que estava voltando. Quem tem os
+      // limites é a fachada, que sabe o que está esperando.
+      const result = await client.callService(NAV_RESET_SERVICE, {});
+      if (result?.success === false) {
+        state.goalState = 'reset-failed';
+        state.goalDetail = result.message ?? '';
+      } else {
+        state.goalState = 'reset';
+        state.goalDetail = result?.message ?? '';
+      }
+    } catch (error) {
+      state.goalState = 'reset-failed';
+      state.goalDetail = error.message;
+    } finally {
+      if (resetButton) {
+        resetButton.dataset.busy = 'false';
+        resetButton.textContent = resetLabel;
+      }
+      disarmReset();
+    }
+  }
+
+  resetButton?.addEventListener('click', () => {
+    if (Date.now() > armedUntil) {
+      armedUntil = Date.now() + RESET_ARM_MS;
+      resetButton.dataset.armed = 'true';
+      resetButton.textContent = 'confirmar';
+      window.setTimeout(disarmReset, RESET_ARM_MS);
+      return;
+    }
+    resetNavigation();
+  });
+
   // --- drawing ------------------------------------------------------------
 
   function draw() {
@@ -492,6 +597,9 @@ export function createNavPanel({ root, client, tracker }) {
     fail: 'meta falhou',
     lost: 'meta perdida',
     cancelled: 'meta cancelada',
+    resetting: 'reiniciando a navegação — o costmap volta vazio',
+    reset: 'navegação reiniciada · clique no mapa para mandar uma meta',
+    'reset-failed': 'o reinício da navegação FALHOU',
   };
 
   function updateHud() {
@@ -544,6 +652,18 @@ export function createNavPanel({ root, client, tracker }) {
       state.footprint = null;
       state.feedback = null;
       state.tf?.clear();
+      // Um reinício em curso perdeu a resposta junto com o link, e o botão
+      // travado em "reiniciando…" seria a leitura errada: a chamada pode ter
+      // sido aplicada. Volta ao rótulo e deixa o HUD dizer o que sabe.
+      disarmReset();
+      if (resetButton) {
+        resetButton.dataset.busy = 'false';
+        resetButton.textContent = resetLabel;
+      }
+      if (state.goalState === 'resetting') {
+        state.goalState = 'lost';
+        state.goalDetail = 'link caiu durante o reinício da navegação';
+      }
     },
     destroy() {
       observer.disconnect();
