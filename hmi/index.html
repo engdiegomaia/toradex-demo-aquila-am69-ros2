@@ -100,6 +100,24 @@
             <button class="viewpad__btn" type="button" data-role="view" data-command="zoom-in" title="aproximar" aria-label="aproximar">+</button>
             <button class="viewpad__btn" type="button" data-role="view" data-command="zoom-out" title="afastar" aria-label="afastar">&#8722;</button>
             <button class="viewpad__btn viewpad__btn--wide" type="button" data-role="view-reset" title="voltar ao enquadramento inicial">recentrar</button>
+
+            <!--
+              Seguir o robo. Vale para as DUAS vistas de uma vez, e nao so para
+              a que esta na tela: o alvo da orbita e a pose do robo, e deixar
+              uma seguindo e a outra parada faria o botao iso/topo trocar de
+              comportamento junto com a imagem.
+
+              Comeca pressionado porque o no comeca seguindo. Desligar volta a
+              vista larga estatica -- o enquadramento MEDIDO em
+              scene_cameras.launch.py, que e o que mostra o labirinto inteiro.
+            -->
+            <button
+              class="viewpad__btn viewpad__btn--full"
+              type="button"
+              data-role="view-follow"
+              aria-pressed="true"
+              title="a camera acompanha o robo; desligue para congelar a vista larga"
+            >seguir robo</button>
           </div>
 
           <div class="notice" data-role="notice" hidden>
@@ -134,6 +152,29 @@
             hidden
           >
             cancelar meta
+          </button>
+          <!--
+            Reiniciar a pilha de navegacao — o Nav2 que roda no Aquila no modo
+            hil. Nao mata container nenhum: chama /demo/nav/reset, e a fachada
+            do lado da navegacao cancela a meta, esvazia os dois costmaps e faz
+            PAUSE + RESUME nos servidores do Nav2.
+
+            Dois cliques, igual ao reset da simulacao, e pela mesma razao: sao
+            6,6 s medidos na workstation e mais no modulo, com o robo parado no
+            meio, e um clique por engano durante uma demo custa a demo.
+
+            SEMPRE VISIVEL, ao contrario do `cancelar meta`. O caso em que ele
+            e necessario e justamente o Nav2 travado, e um botao que aparece
+            so quando ha meta ativa nao estaria la quando a acao parou de
+            responder.
+          -->
+          <button
+            class="switch__btn switch__btn--danger"
+            type="button"
+            data-role="nav-reset"
+            title="reinicia a pilha do Nav2: descarta a meta, esvazia os costmaps e reativa os servidores"
+          >
+            reiniciar nav
           </button>
           <span
             class="dot"

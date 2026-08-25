@@ -335,6 +335,31 @@ Os que você mais vai mexer:
 Editou YAML? Não precisa recompilar (`--symlink-install`), mas **precisa
 reiniciar o Nav2** — parâmetros são lidos no configure do ciclo de vida.
 
+> Reiniciar aqui significa **subir o launch de novo** (ou recriar o serviço
+> `nav`). Não serve o `/demo/nav/reset` descrito abaixo: ele não passa por
+> `CONFIGURE`, de propósito, então parâmetro novo não é lido. Um reset que
+> "não pegou a mudança" é o sintoma.
+
+### Descartar a meta e limpar os costmaps
+
+```bash
+ros2 service call /demo/nav/reset std_srvs/srv/Trigger
+```
+
+Serve para "a demo travou, quero recomeçar sem derrubar nada": cancela toda meta
+em andamento, esvazia os dois costmaps e recicla os servidores por
+`PAUSE`/`RESUME`. ~6,6 s no host. É o mesmo serviço do botão **reiniciar nav** do
+cockpit. Sobe junto com os dois caminhos de Nav2 (`navigation.launch.py` e
+`nav_quadruped.launch.py`); `nav_control:=false` desliga.
+
+`/demo/nav/cancel` faz só a primeira parte, sem tocar em costmap nem em ciclo de
+vida.
+
+> **Não troque isso por `RESET`+`STARTUP` no `lifecycle_manager`.** É o caminho
+> óbvio e ele derruba o container inteiro com `SIGSEGV` ao configurar o
+> `route_server` — medido duas vezes, determinístico. Ver a armadilha 8 do
+> `guia-cockpit.md`.
+
 > **Não esvazie listas YAML.** `docks: []` chega ao launch como tupla Python e
 > derruba tudo com `Expected 'value' to be one of [float, int, str, bool,
 > bytes], but got '()'`. Se não quer a chave, **omita** — não deixe vazia.

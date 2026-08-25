@@ -445,3 +445,247 @@ def test_scene_cameras_keep_the_measured_aspect_ratio():
         width = int(re.search(r'<width>(\d+)</width>', sdf).group(1))
         height = int(re.search(r'<height>(\d+)</height>', sdf).group(1))
         assert width * 3 == height * 4, f'{name} deixou de ser 4:3 ({width}x{height})'
+
+
+# --------------------------------------------------------------------------
+# Câmera seguindo o robô, e reinício da navegação a partir do cockpit
+# (pedido do operador, 24/08/2026: logo maior, resetar o alvo reiniciando o ROS
+# de navegação no Aquila, e vista trackeada ao robô nas duas câmeras).
+# --------------------------------------------------------------------------
+
+SCENE_VIEW_CONTROLLER = SIMULATION / 'demo_simulation' / 'scene_view_controller.py'
+NAVIGATION = REPO_ROOT / 'ros2_ws' / 'src' / 'demo_navigation'
+NAV_CONTROL_RELAY = NAVIGATION / 'demo_navigation' / 'nav_control_relay.py'
+NAV_CONTROL_LAUNCH = NAVIGATION / 'launch' / 'nav_control.launch.py'
+NAV_PANEL_JS = BUNDLE / 'js' / 'panels' / 'nav-panel.js'
+PANELS_CSS = BUNDLE / 'css' / 'panels.css'
+LAYOUT_CSS = BUNDLE / 'css' / 'layout.css'
+# Os dois entrypoints explícitos de navegação. Os dois sobem o
+# lifecycle_manager_navigation, então os dois têm de expor a fachada de reinício
+# — o modo como isso quebra é o botão funcionar num ROBOT_TYPE e não no outro.
+NAV_ENTRYPOINTS = (
+    NAVIGATION / 'launch' / 'navigation.launch.py',
+    REPO_ROOT / 'ros2_ws' / 'src' / 'demo_bringup' / 'launch'
+    / 'nav_quadruped.launch.py',
+)
+
+
+def _python_code(source: str) -> str:
+    """
+    Código Python sem comentário e sem docstring.
+
+    Mesma razão do `_code_lines` acima, um andar mais fundo: os cabeçalhos destes
+    nós EXPLICAM por que a localização não é resetada, e citam o nome do
+    gerenciador ao fazê-lo. Uma busca ingênua proibiria a documentação da regra.
+
+    Via ast, e não por regex: uma docstring com aspas triplas dentro de uma
+    f-string é exatamente o caso que o regex erra em silêncio.
+    """
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.Module, ast.ClassDef, ast.FunctionDef,
+                                 ast.AsyncFunctionDef)):
+            continue
+        body = node.body
+        if (body and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)):
+            node.body = body[1:] or [ast.Pass()]
+    return ast.unparse(ast.fix_missing_locations(tree))
+
+
+def test_scene_views_follow_the_robot_on_both_cameras():
+    """
+    Seguir vale para as DUAS vistas, e o alvo é o robô.
+
+    Uma implementação que seguisse só a iso passaria por qualquer teste de
+    "existe seguimento" e falharia exatamente no botão iso/topo: a vista de topo
+    é a que o operador usa para ver o robô caminhar pelo labirinto.
+    """
+    code = SCENE_VIEW_CONTROLLER.read_text(encoding='utf-8')
+    assert 'def follow(self, anchor)' in code, (
+        'a Orbit não tem como seguir um alvo móvel'
+    )
+    # O laço do tique percorre self._orbits, que contém as duas câmeras. Um
+    # `self._orbits['scene_iso']` literal aqui seria a regressão.
+    assert 'for name, orbit in self._orbits.items()' in code
+    assert "'scene_iso'" in code and "'scene_top'" in code
+
+
+def test_scene_follow_state_is_published_not_echoed():
+    """
+    O botão `seguir` é pintado pelo nó, não pelo próprio clique.
+
+    Mesma regra do rótulo de simulação: recarregar a página, abrir o cockpit numa
+    segunda tela ou desligar o seguimento por linha de comando são três casos em
+    que o clique local não sabe a resposta.
+    """
+    node = SCENE_VIEW_CONTROLLER.read_text(encoding='utf-8')
+    assert "'/demo/cockpit/scene/following'" in node, (
+        'o nó não publica o estado do seguimento'
+    )
+    assert 'TRANSIENT_LOCAL' in node, (
+        'sem durabilidade latched uma aba nova fica sem valor até a próxima '
+        'mudança'
+    )
+
+    code = '\n'.join(_code_lines(VIEW_CONTROLS_JS.read_text(encoding='utf-8')))
+    assert 'FOLLOWING_TOPIC' in code and 'client.subscribe(' in code, (
+        'o cockpit não lê o estado do seguimento de tópico nenhum'
+    )
+    assert 'following = wanted' not in code, (
+        'o botão está sendo pintado pelo clique; o valor tem de vir do nó'
+    )
+
+
+def test_follow_anchor_carries_the_odom_to_world_seed():
+    """
+    /demo/odom não é a pose no mundo nas duas plantas, e a diferença é silenciosa.
+
+    No quadrúpede é ground truth do Gazebo. No diff-drive o plugin DiffDrive
+    integra encoders a partir de zero, então a origem do odom é a pose de SPAWN.
+    Sem o seed, um `x:=5` faz a câmera seguir um ponto 5 m ao lado do robô — e um
+    `yaw:=` faz o erro crescer com a distância.
+    """
+    node = SCENE_VIEW_CONTROLLER.read_text(encoding='utf-8')
+    for name in ('follow_offset_x', 'follow_offset_y', 'follow_offset_yaw'):
+        assert f"'{name}'" in node, f'{name} não é declarado pelo nó'
+    # O yaw tem de ser APLICADO, não apenas declarado: uma rotação ignorada é
+    # exatamente o erro que cresce com a distância percorrida.
+    assert 'math.cos(syaw)' in node and 'math.sin(syaw)' in node, (
+        'o seed de yaw é declarado e não usado'
+    )
+
+    # A planta diff-drive passa a pose de spawn; a quadrúpede NÃO passa nada,
+    # porque somaria a pose duas vezes sobre uma odometria que já é do mundo.
+    diffdrive = (SIMULATION / 'launch' / 'simulation.launch.py').read_text(
+        encoding='utf-8')
+    assert "'follow_offset_x': LaunchConfiguration('x')" in diffdrive
+    assert "'follow_offset_yaw': LaunchConfiguration('yaw')" in diffdrive
+
+    quadruped = (SIMULATION / 'launch' / 'quadruped.launch.py').read_text(
+        encoding='utf-8')
+    assert 'follow_offset' not in quadruped, (
+        'a planta quadrúpede tem odometria ground truth: um seed aqui somaria a '
+        'pose de spawn duas vezes'
+    )
+
+
+def test_nav_reset_facade_ships_with_both_navigation_paths():
+    """
+    A fachada de reinício sobe nos DOIS caminhos de navegação.
+
+    Os dois sobem o `lifecycle_manager_navigation`, então os dois podem ser
+    reiniciados. Se ela subisse só num, o botão do cockpit funcionaria com um
+    ROBOT_TYPE e não com o outro — sem erro em lugar nenhum, porque o serviço
+    simplesmente não existiria.
+    """
+    for path in NAV_ENTRYPOINTS:
+        source = path.read_text(encoding='utf-8')
+        assert 'nav_control.launch.py' in source, (
+            f'{path.name} sobe o Nav2 sem a fachada de reinício'
+        )
+
+    launch = NAV_CONTROL_LAUNCH.read_text(encoding='utf-8')
+    assert "executable='nav_control_relay'" in launch
+
+    entry_points = (NAVIGATION / 'setup.py').read_text(encoding='utf-8')
+    assert (
+        'nav_control_relay = demo_navigation.nav_control_relay:main'
+        in entry_points
+    ), 'o executável não está registrado; o launch falha ao encontrá-lo'
+
+
+def test_nav_reset_never_uses_reset_startup_because_it_segfaults():
+    """
+    Reiniciar é PAUSE + RESUME, nunca RESET + STARTUP.
+
+    Medido em 24/08/2026, learn, caminho quadrúpede: RESET seguido de STARTUP
+    mata o `component_container_isolated` com SIGSEGV (exit code -11), sempre no
+    segundo CONFIGURE do `route_server`, em "Configuring Rerouting service
+    operation". Duas tentativas, duas mortes idênticas. Depois disso não existe
+    navegação nenhuma — só `docker compose restart nav` traz de volta.
+
+    `route_server` está na lista `lifecycle_nodes` do navigation_launch.py
+    vendorizado, que é cópia upstream e tem de seguir idêntica, e este projeto
+    não usa rota nenhuma. Enquanto ele estiver na lista gerenciada, RESET é
+    proibido: um botão de consertar a navegação que mata a navegação é pior que
+    nenhum botão.
+    """
+    relay = NAV_CONTROL_RELAY.read_text(encoding='utf-8')
+    code = _python_code(relay)
+    assert 'ManageLifecycleNodes.Request.PAUSE' in code
+    assert 'ManageLifecycleNodes.Request.RESUME' in code
+    for forbidden in ('Request.RESET', 'Request.STARTUP'):
+        assert forbidden not in code, (
+            f'{forbidden} volta a passar pelo CONFIGURE do route_server, que '
+            'mata o container — ver o docstring deste teste'
+        )
+    # A alternativa ao CONFIGURE: o costmap é esvaziado pelos serviços dos
+    # próprios nós de costmap, sem passar pelo ciclo de vida. Sem isto o reset
+    # deixaria o obstáculo fantasma que suja uma demo longa.
+    assert 'clear_entirely_global_costmap' in code
+    assert 'clear_entirely_local_costmap' in code
+
+    assert 'lifecycle_manager_localization' not in code, (
+        'a fachada está mexendo na localização junto; ver o cabeçalho dela'
+    )
+    # O timeout é medido no relógio de PAREDE. Este nó roda com use_sim_time e um
+    # Nav2 desativado coexiste com um /clock parado: medir no tempo simulado
+    # transforma "expirou" em "espera para sempre".
+    assert 'time.monotonic()' in relay
+    assert 'self.get_clock()' not in relay
+
+
+def test_nav_reset_needs_two_clicks_and_the_browser_speaks_std_srvs():
+    """
+    Reiniciar é destrutivo e leva dezenas de segundos: dois cliques, como o
+    reset da simulação.
+
+    E a chamada é a fachada std_srvs, não o manage_nodes. Aqui `nav2_msgs` até
+    existe no container do cockpit — é o pacote do NavigateToPose que a meta
+    usa — então o motivo não é o da armadilha do Gazebo: é que a sequência tem um
+    estado inválido no meio e não pode depender da página continuar aberta.
+    """
+    code = '\n'.join(_code_lines(NAV_PANEL_JS.read_text(encoding='utf-8')))
+    assert "'/demo/nav/reset'" in code, 'o painel não chama a fachada'
+    assert 'manage_nodes' not in code, (
+        'o navegador está conduzindo o ciclo de vida do Nav2 direto; um F5 no '
+        'meio deixa a pilha desativada'
+    )
+    assert 'RESET_ARM_MS' in code and "dataset.armed = 'true'" in code, (
+        'reiniciar a navegação não está atrás de confirmação'
+    )
+
+
+def test_toradex_logo_doubled_and_the_bar_grew_with_it():
+    """
+    A marca da Toradex é 2x a original, e a faixa reserva altura para ela.
+
+    O 34 px original foi ajustado na tela contra o logo do ROS; o pedido era
+    dobrar a Toradex. O que este teste guarda não é o número: é o acoplamento.
+    `.bar` tem overflow-x e não -y, então subir o logo sem subir o mínimo da
+    linha da grade CORTA a marca, sem barra de rolagem e sem erro nenhum.
+    """
+    tokens = TOKENS_CSS.read_text(encoding='utf-8')
+    toradex = int(re.search(r'--logo-toradex:\s*(\d+)px', tokens).group(1))
+    bar_min = int(re.search(r'--bar-min-height:\s*(\d+)px', tokens).group(1))
+
+    assert toradex >= 68, (
+        f'a marca da Toradex voltou a {toradex}px; o pedido era ao menos 2x os '
+        '34px originais'
+    )
+    assert bar_min >= toradex + 10, (
+        f'a faixa reserva {bar_min}px para um logo de {toradex}px mais 10px de '
+        'padding: a marca é cortada'
+    )
+
+    # A altura vem do token nos dois lados. Um literal em px em qualquer um
+    # deles é exatamente como os dois números divergem.
+    panels = PANELS_CSS.read_text(encoding='utf-8')
+    assert 'height: var(--logo-toradex)' in panels
+    layout = LAYOUT_CSS.read_text(encoding='utf-8')
+    assert 'minmax(var(--bar-min-height)' in layout
+    assert 'minmax(48px' not in layout, (
+        'a linha da barra voltou a um mínimo literal, dessincronizado do logo'
+    )

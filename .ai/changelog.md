@@ -5,6 +5,121 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-25 — cockpit web: ajustes de UI de bancada
+
+Três pedidos do operador, fora da numeração de fases do `plano-cockpit-web.md`:
+não abrem fase e não fecham portão. Tudo medido no host x86, modo `learn`;
+**nada rodou no Aquila AM69**. Evidência em
+`docs/results/cockpit-web-ui-ajustes.md`.
+
+### Marca Toradex ao dobro
+
+34 → 68 px (a do ROS, 22 → 44). A altura mínima da faixa foi de 48 para 80 px
+**pelo mesmo token** — `--bar-min-height` em `tokens.css`, consumido também por
+`layout.css`, onde fica a linha da grade que reserva a barra. A `.bar` tem
+`overflow-x` e não `-y`: uma marca maior que a faixa é cortada sem console, sem
+layout quebrado, sem sintoma. Acoplar as duas ao mesmo número torna essa
+divergência impossível em vez de improvável.
+
+### Câmeras de cena seguindo o robô
+
+As duas vistas acompanham `/demo/odom` a 10 Hz, e o que se move é **só o alvo** da
+órbita — azimute, elevação e distância ficam onde estavam, então o enquadramento
+medido do armazém continua valendo com o robô andando. Medido: `scene_top` em
+`(-1,552 ; 0,151 ; 6,0)` contra robô em `(-1,598 ; 0,130)`, ~5 cm de erro com o
+`z` intacto; `scene_iso` em `(-4,551 ; 3,150 ; 2,4)`, mantendo o deslocamento
+medido `(-3, +3, 2,4)`. Preservar o `z` era o risco: uma vista de topo que sobe
+entra nas vigas do telhado do armazém.
+
+Com seguimento ligado, os botões de mover viram **deslocamento relativo ao robô**
+(saturado em 15 m) em vez de ponto fixo do mundo; `recentrar` zera isso junto.
+
+**A divergência entre as duas plantas teve de ser explicitada.** O `set_pose` do
+Gazebo só entende o referencial do mundo, e `/demo/odom` do quadrúpede é ground
+truth do `gz-sim-odometry-publisher-system` (já é pose no mundo, seed 0), enquanto
+o do diff-drive é integrado dos encoders com origem na pose de **spawn** (seed =
+essa pose). Daí `follow_offset_{x,y,yaw}` como argumentos que a planta passa, e
+não valores lidos de `x`/`y`/`yaw` dentro de `scene_cameras.launch.py`: as duas
+plantas declaram esses nomes, o include os herdaria das duas, e a câmera do
+quadrúpede seguiria um fantasma deslocado pela pose de spawn — no `maze11`,
+deslocado **e** girado 90°.
+
+O estado do botão vem de `/demo/cockpit/scene/following` (`std_msgs/Bool`,
+latched), publicado pelo nó, e **não do clique** — mesmo raciocínio do rótulo de
+simulação: F5, segundo cockpit aberto, ou alguém que desligou por linha de
+comando são três casos em que o clique local não sabe a resposta.
+
+### Reiniciar a navegação pelo cockpit
+
+`/demo/nav/reset` (`std_srvs/Trigger`), novo `demo_navigation/nav_control_relay.py`
+subido por `nav_control.launch.py` — fragmento incluído pelos **dois** caminhos de
+Nav2 (mapa estático e reativo), não um `Node` duplicado. Roda no container do
+Nav2, isto é, **no Aquila** no modo `hil`. Dois cliques, como o reset de
+simulação: ele descarta a meta em andamento.
+
+Medido: 6,638 s, meta interrompida terminando `CANCELED`, servidores voltando
+`active [3]`, meta nova aceita em seguida.
+
+### O achado que custou o redesenho: `RESET`+`STARTUP` mata o container
+
+A primeira versão usava as transições que descrevem exatamente o pedido. O
+`nav2_container` morre:
+
+```
+[route_server]: Configuring Rerouting service operation.
+[ERROR] [component_container_isolated-4]: process has died [exit code -11]
+```
+
+`SIGSEGV`, **reproduzido duas vezes** — com e sem meta ativa. O changelog e o
+guia registravam antes um segfault do `route_server` "que aconteceu uma vez";
+não é intermitente, é determinístico, e está no caminho do `CONFIGURE` que
+`STARTUP` executa. O `route_server` está na lista de `lifecycle_nodes` do
+`navigation_launch.py` vendorizado, que precisa seguir idêntico ao upstream, então
+retirá-lo não é opção; a demo não usa roteamento e ele não tem seção em
+`nav2_params_go2.yaml`. Hipótese **não confirmada** no fonte do Nav2:
+reconfiguração sobre estado que não sobrevive ao `CLEANUP`. Candidato a issue
+upstream.
+
+Sequência adotada, que nunca passa por `CONFIGURE`: cancelar todas as metas
+(`goal_info` zerado, para pegar também as que o cockpit não conhece), limpar os
+dois costmaps **enquanto ainda estão ativos** (nó desativado não responde
+serviço, e limpar depois de pausar não limparia nada nem daria erro), `PAUSE`,
+`RESUME`. O `RESUME` é tentado mesmo se o `PAUSE` falhar — a alternativa é
+deixar a pilha desativada. Os timeouts usam `time.monotonic()`: um Nav2
+desativado coexiste com um `/clock` parado, e timeout em tempo simulado nessa
+janela nunca expira.
+
+A localização fica fora de propósito. Reciclar o AMCL joga a pose fora, e o robô
+"se perde" num reset que era só para descartar a meta.
+
+### Testes
+
+`tests/` 29 → **36**; bundle 131 → **138**. Novos: 9 casos de órbita em
+`demo_simulation/test/test_scene_view_controller.py`, 7 casos de fiação do botão
+de seguimento no bundle (com um duplo de DOM mínimo, primeiro do projeto), e seis
+guardas estruturais — um deles existindo só para impedir que o reset volte a
+`RESET`+`STARTUP`.
+
+Um dos guardas casou com a **própria documentação** do relay: buscar
+`'lifecycle_manager_localization' not in code` batia no docstring que explica por
+que a localização fica de fora. Os guardas agora leem o código com `ast`, sem
+comentários nem docstrings. Regex não serviria — uma tripla quota dentro de
+f-string quebra a varredura em silêncio.
+
+De carona: as três falhas de lint pré-existentes em `demo_simulation` (I100, E731,
+E501) foram corrigidas, para que a suíte onde entraram testes novos esteja verde
+em vez de já vermelha.
+
+### Não verificado
+
+Nenhuma das três mudanças foi vista num navegador — o Chrome não está instalado
+nesta máquina e o Firefox snap headless não respondeu. O que existe é a página
+servida com o HTML e o CSS corretos (`curl` 200, tokens e os dois botões presentes
+no que o nginx entrega) mais a verificação pelo lado do ROS. A conferência visual
+fica pendente do operador.
+
+---
+
 ## 2026-08-24 — cockpit web F3b: cena, navegação, controle e identidade
 
 Fecha o F3b do `plano-cockpit-web.md` e absorve quatro pedidos do operador na

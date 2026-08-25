@@ -43,7 +43,7 @@ body {
   padding: var(--gap);
   gap: var(--gap);
   grid-template-columns: 3.35fr 1fr;
-  grid-template-rows: 2.4fr 1fr minmax(48px, 0.36fr);
+  grid-template-rows: 2.4fr 1fr minmax(var(--bar-min-height), 0.36fr);
   grid-template-areas:
     "scene  nav"
     "log    camera"
@@ -75,7 +75,7 @@ body {
 @media (max-width: 900px) {
   .cockpit {
     grid-template-columns: 1fr;
-    grid-template-rows: 1.6fr 1fr 1fr 1fr minmax(48px, auto);
+    grid-template-rows: 1.6fr 1fr 1fr 1fr minmax(var(--bar-min-height), auto);
     grid-template-areas:
       "scene"
       "nav"

@@ -16,6 +16,21 @@
  * O `header.frame_id` escolhe a câmera. Ele acompanha o botão iso/topo do
  * cabeçalho do painel: comandar a câmera que não está na tela é o tipo de erro
  * que parece "os botões não funcionam".
+ *
+ * SEGUIR O ROBÔ
+ *
+ * O botão `seguir robô` é um SetBool, e vale para as duas vistas de uma vez —
+ * o alvo da órbita é a pose do robô, e não há versão disso que faça sentido para
+ * uma câmera só. Também não é o navegador que segue: quem lê /demo/odom e
+ * reescreve a pose é o mesmo nó do simulador, pela mesma razão de sempre (o
+ * cockpit não conhece geometria).
+ *
+ * O estado do botão vem de /demo/cockpit/scene/following, publicado pelo nó, e
+ * NÃO do próprio clique. Mesmo raciocínio do rótulo de simulação em
+ * sim-controls.js: recarregar a página, abrir o cockpit numa segunda tela, ou
+ * abri-lo depois de alguém ter desligado o seguimento por linha de comando são
+ * três casos em que o clique local não sabe a resposta. O tópico é latched, então
+ * uma aba nova recebe o valor sem esperar a próxima mudança.
  */
 
 import { ConnectionState } from '../ros/rosbridge-client.js';
@@ -25,6 +40,21 @@ export const CMD_VIEW_TYPE = 'geometry_msgs/msg/TwistStamped';
 
 /** std_srvs/Trigger, servido pelo scene_view_controller. */
 export const RESET_VIEW_SERVICE = '/demo/cockpit/scene/reset_view';
+
+/** std_srvs/SetBool, mesmo nó. Liga e desliga o seguimento das duas vistas. */
+export const FOLLOW_VIEW_SERVICE = '/demo/cockpit/scene/follow';
+
+/** Estado do seguimento, publicado pelo nó. Latched — ver o cabeçalho. */
+export const FOLLOWING_TOPIC = '/demo/cockpit/scene/following';
+export const FOLLOWING_TYPE = 'std_msgs/msg/Bool';
+
+/**
+ * Enquanto o tópico não chega, o botão assume o default do nó (parâmetro
+ * `follow`, true em scene_cameras.launch.py). Assumir `false` aqui pintaria um
+ * botão desligado sobre uma câmera que já está seguindo, e o primeiro clique
+ * mandaria o valor que já vale — sem efeito visível.
+ */
+export const FOLLOW_DEFAULT = true;
 
 /**
  * Passo de cada comando, na unidade que o controlador integra.
@@ -67,7 +97,9 @@ export function viewCommand(command, camera) {
 export function createViewControls({ root, client, camera = 'scene_iso', onNotice }) {
   const pad = root.querySelector('[data-role="view-pad"]');
   const resetButton = root.querySelector('[data-role="view-reset"]');
+  const followButton = root.querySelector('[data-role="view-follow"]');
   let active = camera;
+  let following = FOLLOW_DEFAULT;
 
   client.advertise(CMD_VIEW_TOPIC, CMD_VIEW_TYPE);
 
@@ -121,6 +153,38 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
     }
   });
 
+  const paintFollow = () => {
+    if (followButton) followButton.setAttribute('aria-pressed', String(following));
+  };
+
+  // Quem escreve `following` é o nó, por este tópico. O clique abaixo só pede.
+  const offFollowing = client.subscribe(
+    FOLLOWING_TOPIC,
+    FOLLOWING_TYPE,
+    (message) => {
+      following = Boolean(message?.data);
+      paintFollow();
+    },
+  );
+
+  followButton?.addEventListener('click', async () => {
+    const wanted = !following;
+    try {
+      const result = await client.callService(FOLLOW_VIEW_SERVICE, { data: wanted });
+      // success=false é o caminho útil aqui: o nó responde assim quando não
+      // conseguiu escrever a pose. Sem esta ramificação o botão fica silencioso
+      // justamente quando tem algo a dizer.
+      if (result?.success === false) {
+        onNotice?.(`o simulador recusou seguir=${wanted}: ${result.message ?? ''}`);
+      }
+    } catch (error) {
+      onNotice?.(`falha ao alternar o seguimento da câmera: ${error.message}`);
+    }
+    // Nada de `following = wanted` aqui: o valor pintado é o que o nó publicar.
+  });
+
+  paintFollow();
+
   // O pad se apaga com o link. Um botão que publica no vazio não deve parecer
   // vivo — e este é o único painel cujo efeito não aparece em lugar nenhum da
   // tela quando falha, porque o resultado dele É a imagem que continua igual.
@@ -136,9 +200,15 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
       active = name;
     },
 
+    /** Exposto para teste: o botão pintado tem de refletir o nó, não o clique. */
+    isFollowing() {
+      return following;
+    },
+
     destroy() {
       stopHold();
       unregister();
+      offFollowing();
     },
   };
 }

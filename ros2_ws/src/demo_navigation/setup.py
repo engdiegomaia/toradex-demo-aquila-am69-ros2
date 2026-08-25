@@ -41,6 +41,11 @@ setup(
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
-        'console_scripts': [],
+        'console_scripts': [
+            # Fachada std_srvs sobre o ciclo de vida do Nav2: o "resetar meta"
+            # do cockpit. Mora aqui, e nao em demo_bringup, porque roda no mesmo
+            # container que o Nav2 e e a pilha dele que reinicia.
+            'nav_control_relay = demo_navigation.nav_control_relay:main',
+        ],
     },
 )

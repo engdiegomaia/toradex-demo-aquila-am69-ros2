@@ -226,16 +226,77 @@ Canto inferior direito do painel azul. Três fileiras:
  ↺  ▲  ▼  ↻      girar e inclinar
  ◀  △  ▽  ▶      mover
  +  −  recentrar  aproximar / afastar / voltar ao enquadramento inicial
+ seguir robô      liga/desliga o acompanhamento (vale para as DUAS vistas)
 ```
 
 Segurar o botão repete. Os comandos agem sobre **a câmera que está na tela** —
-trocar entre `iso` e `topo` troca o alvo junto.
+trocar entre `iso` e `topo` troca o alvo junto. O `seguir robô` é a exceção: ele
+vale para as duas de uma vez, porque o que ele muda é o **alvo da órbita**, e não
+há versão disso que faça sentido para uma câmera só.
 
 O navegador publica **deltas** em `/demo/cockpit/scene/cmd_view`
 (`geometry_msgs/TwistStamped`, com o `header.frame_id` escolhendo a câmera). Quem
 guarda a órbita, satura os limites e escreve a pose no Gazebo é o nó
 `scene_view_controller`. Por isso recarregar a página **não** mexe no
 enquadramento, e dois cockpits abertos não brigam pela pose.
+
+### Seguir o robô
+
+Ligado por default. As duas câmeras acompanham `/demo/odom` a 10 Hz, e o que se
+move é só o **alvo** da órbita — azimute, elevação e distância ficam onde
+estavam. Consequência prática: o enquadramento medido do armazém (a diagonal de
+`(-3, +3, 2,4)` na iso, os 6 m de altura na topo) continua valendo enquanto o
+robô caminha, em vez de o robô sair do quadro em quinze segundos.
+
+Os botões de mover (`◀ △ ▽ ▶`) continuam úteis com o seguimento ligado: com ele
+ligado o pan vira um **deslocamento relativo ao robô**, saturado em 15 m, e não
+um ponto fixo do mundo. Serve para olhar o robô de lado, ou um pouco à frente
+dele, sem perder o acompanhamento. `recentrar` zera esse deslocamento junto com
+o resto.
+
+O estado do botão vem de `/demo/cockpit/scene/following`
+(`std_msgs/Bool`, latched), publicado pelo nó, e **não do próprio clique** — o
+mesmo raciocínio do rótulo de simulação, e pelos mesmos três casos: F5, segundo
+cockpit aberto, e alguém que desligou o seguimento por `ros2 service call`.
+
+Desligar (`follow:=false` no launch, ou o botão) devolve a vista larga do
+cenário, que é o que se quer para conferir o mundo inteiro ou para comparar com
+um enquadramento anterior.
+
+### Reiniciar a navegação
+
+**reiniciar nav**, no cabeçalho do painel verde. Chama `/demo/nav/reset`
+(`std_srvs/Trigger`), servido pelo `nav_control_relay` **dentro do container que
+roda o Nav2** — no `hil` isso é o Aquila.
+
+Como o reset da simulação, **exige dois cliques** (o primeiro arma por 4 s). Não
+por simetria: ele descarta a meta em andamento, e um clique por engano no meio de
+uma demo custa a demo.
+
+A sequência, na ordem, e cada passo existe:
+
+1. `CancelGoal` em `/navigate_to_pose` com `goal_info` zerado — cancela **todas**
+   as metas, inclusive a que o cockpit não sabe que existe (mandada pelo
+   `patrol_commander`, ou por outra aba);
+2. `ClearEntireCostmap` no global e no local, **com os servidores ainda ativos**
+   — um nó desativado não responde serviço, então limpar depois de pausar não
+   limparia nada e não daria erro;
+3. `PAUSE` no `lifecycle_manager_navigation`;
+4. `RESUME`.
+
+Medido em 6,6 s no host. A meta interrompida termina `CANCELED`, os servidores
+voltam `active [3]`, e uma meta nova é aceita em seguida.
+
+O HUD do painel mostra `reiniciando…` durante a sequência e `reiniciado` no fim.
+Sem timeout do lado do navegador: quem tem o timeout é o nó (60 s por transição),
+e fechar a aba no meio **não** interrompe o reset.
+
+**Por que não `RESET` + `STARTUP`**, que é o caminho óbvio: ele derruba o
+container. Ver a armadilha 8.
+
+A localização **não** é tocada. `lifecycle_manager_localization` fica fora da
+sequência de propósito: no caminho de mapa estático, reciclar o AMCL joga a pose
+fora e o robô "se perde" num reset que era só para descartar a meta.
 
 ### Controle manual: desligado de propósito
 
@@ -481,6 +542,19 @@ docker compose -f compose.host.yml exec -T sim \
   grep update_rate /ws/install/demo_simulation/share/demo_simulation/models/cockpit_scene_iso.sdf
 ```
 
+**A variante pior é rodar a suíte de testes de um pacote dentro do container.**
+`/ws/src` é uma cópia da imagem, não um bind mount do seu diretório de trabalho:
+uma imagem de antes da sua edição roda os testes **antigos** e passa. Um teste que
+você acabou de escrever simplesmente não é coletado, e a saída é verde. Aconteceu
+em 25/08: `32 passed` na imagem reconstruída contra `22 passed` na anterior, com o
+arquivo novo ausente da lista de coleta. Confira a contagem, ou confira a
+coleta:
+
+```bash
+docker compose -f compose.host.yml run --rm -T tools \
+  bash -lc 'ls /ws/src/demo_simulation/test/'
+```
+
 ### 5. Buildx não enxerga imagens locais
 
 `docker compose build` com o builder `armbuilder` ativo falha com
@@ -512,6 +586,36 @@ cenário.
 Ao testar comando de órbita pela linha de comando, use `ros2 topic pub -t 1 -w 1`
 e não `-r 3`: seis segundos a 3 Hz aplicam ~18 passos de 0,35 rad ≈ 2π, a câmera
 volta ao ponto de partida, e parece que nada aconteceu.
+
+### 8. `RESET` + `STARTUP` no Nav2 mata o container (segfault no `route_server`)
+
+Este era o desenho natural do "reiniciar nav": o `lifecycle_manager` do Nav2 tem
+`RESET` (desativa e desconfigura tudo) e `STARTUP` (configura e ativa tudo), e
+nenhuma outra dupla de transições descreve tão bem "reinicie a pilha".
+
+Medido em 24/08/2026, no host, modo `learn`, o `nav2_container` morre:
+
+```
+[component_container_isolated-4] [INFO] [route_server]: Configuring Rerouting service operation.
+[ERROR] [component_container_isolated-4]: process has died [exit code -11]
+```
+
+`-11` é `SIGSEGV`. Reproduzido **duas** vezes — com meta ativa e sem meta ativa.
+Não é o "aconteceu uma vez" que este guia registrava antes: é determinístico, e
+está no caminho do `CONFIGURE`, que é justamente o que `STARTUP` faz.
+
+O `route_server` está na lista de `lifecycle_nodes` do `navigation_launch.py`
+vendorizado — que tem de seguir **idêntico ao upstream** (ver
+`launch/nav2_vendored/README.md`), então tirá-lo da lista não é opção. Esta demo
+não usa roteamento, e ele não tem seção em `nav2_params_go2.yaml`; a hipótese é
+que ele reconfigure sobre estado que não sobrevive ao `CLEANUP`, mas isso não foi
+confirmado no fonte do Nav2. **Candidato a issue upstream.**
+
+O que o `nav_control_relay` faz em vez disso — cancelar, limpar costmaps,
+`PAUSE`, `RESUME` — nunca passa por `CONFIGURE`, e por isso nunca chega perto
+disso. Se algum dia alguém "simplificar" a sequência para `RESET`+`STARTUP`, o
+sintoma será o container `nav` reiniciando e o cockpit perdendo o link no meio da
+demo. Existe um guarda estrutural em `tests/` exatamente para isso.
 
 ---
 
@@ -558,6 +662,12 @@ hmi/
 | `demo_simulation/launch/sim_control.launch.py` | ponte de serviços gz + fachada | host |
 | `demo_simulation/scene_view_controller.py` | órbita das câmeras de cena | host |
 | `demo_simulation/sim_control_relay.py` | fachada `std_srvs` para play/pause/reset | host |
+| `demo_navigation/launch/nav_control.launch.py` | sobe a fachada de reset do Nav2 | host ou Aquila |
+| `demo_navigation/nav_control_relay.py` | fachada `std_srvs` para reiniciar o Nav2 | onde o Nav2 roda |
+
+As duas últimas linhas são o único par desta tabela que **roda no módulo** no
+modo `hil`: elas moram no container `nav`, junto da pilha que reiniciam. A
+fachada de simulação fica presa ao host porque o Gazebo fica.
 
 ### Um detalhe que parece bug e não é
 
@@ -575,8 +685,8 @@ para voltar quando o TIDL substituir o stub.
 ### Testes
 
 ```bash
-cd hmi && node --test "test/**/*.test.js"    # 131 — lógica do bundle
-cd .. && python3 -m pytest tests/ -q          # 29 — guardas estruturais
+cd hmi && node --test "test/**/*.test.js"    # 138 — lógica do bundle
+cd .. && python3 -m pytest tests/ -q          # 36 — guardas estruturais
 ```
 
 Os guardas estruturais são checagens estáticas em arquivos commitados, não
@@ -602,6 +712,29 @@ no Aquila, semanas depois.
 
 Evidência do conjunto: [`results/cockpit-web-f3b.md`](results/cockpit-web-f3b.md).
 
+### Ajustes de UI (25/08/2026, só no host)
+
+Três pedidos de bancada, fora da numeração de fases:
+
+- **Marca Toradex ao dobro** (34 → 68 px de altura; a do ROS, 22 → 44). A altura
+  mínima da faixa saiu de 48 para 80 px **pelo mesmo token** (`--bar-min-height`
+  em `tokens.css`) — a barra tem `overflow-x`, não `-y`, então as duas medidas
+  divergirem cortaria a marca sem avisar.
+- **Seguir o robô** nas duas vistas de cena. Verificado no host: `scene_top` em
+  `(-1,552 ; 0,151 ; 6,0)` contra robô em `(-1,598 ; 0,130)` — acompanhamento
+  dentro de ~5 cm com o `z` preservado; `scene_iso` em `(-4,551 ; 3,15 ; 2,4)`,
+  isto é, o deslocamento medido `(-3, +3, 2,4)` mantido enquanto desliza com o
+  robô. Desligar congelou a pose por 6 s; religar recentrou.
+- **Reiniciar a navegação** pelo cockpit, em 6,6 s, com a meta interrompida
+  terminando `CANCELED` e os servidores voltando `active [3]`.
+
+Nada disso foi visto num navegador com captura de tela: o Chrome não está
+instalado nesta máquina e o Firefox snap em modo headless não respondeu. O que
+existe é a página servida com o HTML e o CSS corretos (`curl` 200, tokens e os
+dois botões presentes no que o nginx entrega) mais a verificação pelo lado do
+ROS. **Nada disso rodou no Aquila AM69** (regra 7 do `CLAUDE.md`); as medidas são
+todas do host x86 em `learn`.
+
 ### Falta
 
 - **F4 — controle manual.** `twist_mux` arbitrando contra o Nav2. É a única
@@ -616,9 +749,10 @@ Evidência do conjunto: [`results/cockpit-web-f3b.md`](results/cockpit-web-f3b.m
 
 ### Uma pendência conhecida, sem relação com o cockpit
 
-O `nav2_container` deu segfault (`exit code -11`) uma vez ao configurar o
-`route_server`. Reiniciar o serviço `nav` resolveu. Se voltar, é candidato a
-issue própria — não é regressão do cockpit.
+O segfault do `route_server` ao configurar, agora caracterizado e
+determinístico — ver a [armadilha 8](#8-reset--startup-no-nav2-mata-o-container-segfault-no-route_server).
+Não é regressão do cockpit; é o motivo pelo qual o reset de navegação usa
+`PAUSE`/`RESUME` em vez de `RESET`/`STARTUP`.
 
 ---
 

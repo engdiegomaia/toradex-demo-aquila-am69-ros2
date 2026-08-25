@@ -14,8 +14,11 @@
   <depend>launch</depend>
   <depend>launch_ros</depend>
   <depend>geometry_msgs</depend>
-  <!-- scene_view_controller: Trigger para recentrar, SetEntityPose para mover
-       as câmeras através da ponte ros_gz. -->
+  <!-- scene_view_controller: a pose do robô que as vistas de cena seguem. -->
+  <depend>nav_msgs</depend>
+  <!-- scene_view_controller: Trigger para recentrar, SetBool para ligar e
+       desligar o seguimento, SetEntityPose para mover as câmeras através da
+       ponte ros_gz. -->
   <depend>std_srvs</depend>
   <depend>ros_gz_interfaces</depend>
   <exec_depend>demo_description</exec_depend>
