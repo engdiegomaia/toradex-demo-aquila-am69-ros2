@@ -132,6 +132,17 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   pelo seletor acoplado `ROBOT_TYPE=quadruped|diffdrive`. O HIL Ethernet foi
   executado em 24/08 com Nav2 + perception no AM69: câmera e LiDAR exigiram
   correções de QoS para amostras fragmentadas, e uma meta curta fechou em 28 s.
+  Em 25/08 o portão **funcional** passou de novo no AM69 (Nav2 arm64 sem
+  segfault, percepção produzindo detecções, contrato atravessando a fronteira),
+  e três falhas silenciosas foram corrigidas: `docker/.env` sobrescrevendo o
+  ambiente explícito em `module.sh`, `host.rendered.xml` que nunca havia sido
+  renderizado, e o DDS do módulo fixado em `ethernet1` quando a rota do kernel
+  usa `ethernet0` (as duas portas estão na mesma /24, métricas 101/102).
+  **Use `MODULE_IP` explícito e `ethernet0`.** O portão de estabilidade continua
+  aberto e é inexecutável pelo Wi-Fi: a mesma câmera deu 1,716 / 9,994 / 2,692 Hz
+  em três corridas idênticas. Falta enlace cabeado — `enp0s31f6` tem falha de PHY
+  na retomada, não problema de cabo. Ver `docs/results/ml35-hil-rota-ethernet0.md`
+  e a seção "Sessão 25/08" de `docs/ml35/estado-fases.md`.
 - **Cockpit web** — trilha paralela, plano em `docs/ml35/plano-cockpit-web.md`.
   **F1 e F3b fechados em 24/08/2026**: as cinco regiões da tela ao vivo, clique
   no mapa vira meta aceita pelo Nav2, play/pause/reset da simulação e controle
