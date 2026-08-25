@@ -5,6 +5,61 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-25 — HIL no AM69: rota do DDS, precedência de `.env`, limite do Wi-Fi
+
+Sessão de transição para o hardware. **Portão funcional passa no Aquila AM69
+real**; o portão de estabilidade não foi executado porque no caminho disponível
+(Wi-Fi) ele é inexecutável, não apenas inválido. Nada de desempenho, latência,
+térmica, FPS ou quedas foi medido ou é reivindicado (regra 7). Evidência em
+`docs/results/ml35-hil-rota-ethernet0.md`.
+
+Premissa derrubada: **o módulo estava acessível todo o tempo.** O bloqueio era
+resolução de nome — `MODULE_HOST` usa o nome mDNS, mDNS não resolve neste host e
+`docker/.env` não define `MODULE_IP`. O dongle ponto a ponto e a varredura da LAN
+por um "décimo MAC Toradex" eram caminhos desnecessários; o segundo não podia
+funcionar, porque o módulo publica em duas portas na mesma /24 e já estava no
+baseline.
+
+Três falhas silenciosas encontradas:
+
+1. **`docker/.env` sobrescrevia o ambiente explícito.** `set -a; source` atribui
+   incondicionalmente, então os guardas `${VAR:-}` nunca distinguiam "não
+   definido" de ".env venceu" — ao contrário do que o cabeçalho do script
+   promete. Um `HOST_IP` obsoleto venceu o da linha de comando e renderizou os
+   dois XMLs do CycloneDDS para uma interface **sem portadora**. Corrigido.
+2. **`host.rendered.xml` era byte-idêntico ao template**, com `autodetermine` e
+   só o peer localhost. `learn` funciona por causa disso; o HIL não teria caminho
+   até o módulo, sem erro em lugar nenhum. `module.sh sync` é o passo que
+   renderiza e não é opcional.
+3. **O DDS do módulo estava fixado na interface errada.** As duas portas estão na
+   mesma /24 e o kernel roteia por `ethernet0` (métrica 101 contra 102), mas o
+   `module.xml` fixava `ethernet1` desde 24/08 — bind e envio divergentes por
+   construção. Com `ethernet0`, o teste de alcance passou a `OK (de 10.22.1.67)`.
+
+Uma hipótese implementada e **revertida**: `MaxAutoParticipantIndex` = 32. O
+rastreamento de descoberta no host mostrou que o SPDP do módulo **é recebido**,
+refutando a hipótese; e o valor 32 amplificava o anúncio para 33 portas por peer
+por período, justamente onde as escritas falhavam
+(`ddsi_udp_conn_write ... retcode -3`). Revertida pelo mesmo critério que o
+projeto aplicou à resolução das câmeras: evidência contrária, e não desfazer
+decisão validada com base em n=1.
+
+O que falhava no `verify` 3/3 era o instrumento: sob `AllowMulticast=false` a
+descoberta unicast é periódica, e o teste conclui ausência antes de ela assentar.
+O participante mais novo é o menos provável de ter sido descoberto — a ferramenta
+de investigação é a que não vê.
+
+Dois itens abertos fecharam como "não é problema": o colapso de RTF para ~0,5
+**não reproduz** (medido RTF ≈ 0,99 com `learn` e RViz2 em pé, `nproc` = 22), e a
+`enp0s31f6` não é cabo — `carrier_up_count` = 0 e o PHY anuncia só `10baseT` num
+I219, falha de inicialização na retomada de suspend.
+
+Hipótese aberta para o protocolo de 8 m que falha desde 24/08: a divergência
+`ethernet1`/`ethernet0` também existia naquele dia, e `/demo/cmd_vel` corre
+módulo→host, exatamente a direção degradada. Por descartar, não afirmada.
+
+---
+
 ## 2026-08-25 — cockpit web: ajustes de UI de bancada
 
 Três pedidos do operador, fora da numeração de fases do `plano-cockpit-web.md`:

@@ -28,8 +28,65 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 24/08/2026 | Ethernet HIL e meta curta `SUCCEEDED`; protocolo de 8 m ainda falha |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 25/08/2026 | portão funcional passa no AM69; portão de estabilidade bloqueado por enlace — ver "Sessão 25/08" |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
+
+### Sessão 25/08 — onde retomar (leia isto antes de tocar em qualquer coisa)
+
+Evidência completa: `docs/results/ml35-hil-rota-ethernet0.md`.
+
+**O módulo está acessível e sempre esteve.** `10.22.1.67` (`ethernet0`) e
+`10.22.1.130` (`ethernet1`), Torizon OS 7.7.0. O bloqueio era resolução de nome:
+`MODULE_HOST` tem por padrão o nome mDNS, mDNS não resolve neste host, e
+`docker/.env` não define `MODULE_IP`. **Sempre passe `MODULE_IP` explícito.**
+
+**Use `ethernet0`, não `ethernet1`.** O módulo tem as duas portas na mesma /24 e
+o kernel roteia tudo dessa sub-rede por `ethernet0` (métrica 101 contra 102).
+O `ethernet1` fixado desde 24/08 divergia do caminho real de envio. Comando que
+funciona hoje:
+
+```bash
+MODULE_HOST=10.22.1.67 MODULE_IP=10.22.1.67 HOST_IP=<host> scripts/module.sh sync
+```
+
+**Não meça nada pelo Wi-Fi.** A mesma câmera deu 1,716 / 9,994 / 2,692 Hz em três
+corridas idênticas. O portão de estabilidade é inexecutável neste caminho, não
+apenas inválido. O que falta é físico e precisa das mãos do operador:
+
+1. `sudo modprobe -r e1000e && sudo modprobe e1000e` — critério: `1000baseT/Full`
+   aparecer em "Supported link modes" do `ethtool enp0s31f6`. Se não aparecer,
+   **power off de verdade** (o estado do PHY sobrevive a reboot morno).
+2. Cabo no **switch**, não ponto a ponto — a `ethernet2` sem pilha IP deixa de
+   importar e o dongle de 100 Mb deixa de ser necessário.
+3. Refazer `sync` / `up` / `verify`, e só então o protocolo n≥3 com RTF
+   registrado por corrida.
+
+**Duas coisas que NÃO são problema, para não gastar sessão de novo:**
+
+- **O colapso de RTF para ~0,5 não reproduz.** Medido RTF ≈ 0,99 com a pilha
+  `learn` e o RViz2 em pé (`nproc` = 22). O desligamento pendente serve ao PHY da
+  NIC, não ao estado da bancada.
+- **`enp0s31f6` não é cabo nem porta de switch.** `carrier_up_count` = 0 e o
+  PHY anuncia só `10baseT` num I219; falha de inicialização na retomada.
+
+**Duas armadilhas de método, caras e repetíveis:**
+
+- Sob `AllowMulticast=false`, a descoberta unicast é periódica. `ros2 topic list`
+  e o teste 3/3 do `verify` concluem ausência antes de ela assentar — e o
+  participante mais novo é o menos provável de já ter sido descoberto, então a
+  ferramenta de investigação é a que não vê. O 3/3 do `verify` precisa de tempo
+  de assentamento; hoje ele dá falso negativo.
+- Identificar o módulo por varredura da LAN esperando um MAC Toradex *novo*
+  nunca dispara: ele publica em duas portas na mesma /24 e já está no baseline.
+  Identifique por identidade (hostname, chave de host, IP registrado).
+
+**Hipótese aberta, testável, para o protocolo de 8 m que falha:** a divergência
+`ethernet1`/`ethernet0` existia em 24/08 também, e `/demo/cmd_vel` corre
+módulo→host, exatamente a direção degradada. Entrega intermitente explicaria
+"meta curta passou, 8 m estourou" sem invocar a marcha. Não está afirmado como
+causa — está por descartar.
+
+---
 
 **Decisão tomada: alvo trocado de A1 para Go2** (ver "F2 — verificação
 executada"; a justificativa de licença dada em F2 estava incompleta e foi
