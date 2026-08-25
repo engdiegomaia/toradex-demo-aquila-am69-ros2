@@ -29,8 +29,19 @@ USER root
 # The base image resolved demo_perception's dependencies already, so this is
 # thin by design. It stays a separate image rather than reusing base directly so
 # the TIDL swap has an obvious place to land.
+#
+# image-transport + compressed-image-transport chegaram em 25/08/2026 para o
+# camera_decompressor de demo_bringup/launch/perception.launch.py. Esta imagem
+# nao tinha NENHUM dos dois: `ls /opt/ros/jazzy/lib/image_transport/` vinha
+# vazio. Sem o plugin o `republish` sobe e nao publica nada, sem erro legivel.
+#
+# Isto puxa OpenCV por cv_bridge, o que engorda a imagem. Nao viola a regra 1:
+# OpenCV e CPU, nao e stack de renderizacao -- mas a verificacao de regra 1 do
+# `module.sh build` continua sendo o que decide isso, e nao este comentario.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-vision-msgs \
+        ros-${ROS_DISTRO}-image-transport \
+        ros-${ROS_DISTRO}-compressed-image-transport \
     && rm -rf /var/lib/apt/lists/*
 
 # Must carry the same value as the base build that produced the parent image.
