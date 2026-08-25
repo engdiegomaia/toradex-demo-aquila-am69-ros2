@@ -56,6 +56,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-ros2-control \
         ros-${ROS_DISTRO}-ros2-controllers \
         ros-${ROS_DISTRO}-imu-sensor-broadcaster \
+        ros-${ROS_DISTRO}-image-transport \
+        ros-${ROS_DISTRO}-compressed-image-transport \
     && rm -rf /var/lib/apt/lists/*
 
 # Rebuild the overlay now that the simulation dependencies resolve. The base

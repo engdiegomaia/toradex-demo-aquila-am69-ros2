@@ -37,6 +37,7 @@ from launch.actions import (
 )
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 # Each entry maps to exactly one launch file in demo_simulation. Adding a plant
@@ -132,10 +133,81 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    # O MESMO QUADRO, COMPRIMIDO, PARA QUEM ESTIVER DO OUTRO LADO DO FIO.
+    #
+    # Medido em 25/08/2026 no HIL cabeado: a imagem RAW e 640x480 rgb8 a 10 Hz,
+    # 0,92 MB por mensagem, 9,3 MB/s -- cerca de 75 Mbit/s atravessando a rede
+    # para o Aquila. O enlace de 1 Gbit/s da conta da banda; o que NAO da conta
+    # e o custo de CPU de remontar esse fluxo no modulo. Com Nav2 (600-727% de
+    # 800%) e percepcao (~187%) no ar, o AM69 satura, a frescura do sensor
+    # colapsa, o collision_monitor recusa a nuvem do LiDAR com 1,0-1,2 s de
+    # defasagem, e a velocidade media cai 2,8x (0,0429 -> 0,0155 m/s).
+    # Evidencia: docs/results/ml35-f5-ethernet0-repeticao.md.
+    #
+    # ESTE NO NAO SUBSTITUI O TOPICO RAW. O contrato do CLAUDE.md continua sendo
+    # /demo/camera/image_raw em sensor_msgs/Image, e ele continua publicado aqui,
+    # que e onde o RViz e o web_video_server do cockpit o consomem -- de graca,
+    # porque e a mesma maquina. O que este no acrescenta e a transported
+    # /demo/camera/image_raw/compressed, e quem paga fio assina essa.
+    #
+    # Roda nos DOIS modos, de proposito. Em learn ele custa um pouco de CPU do
+    # host sem beneficio, e essa e a troca certa: uma pilha que so comprime em
+    # hil seria codigo diferente por modo, que e exatamente o que o CLAUDE.md
+    # proibe. O caminho medido e o caminho executado.
+    #
+    # `republish` e do image_transport upstream: nada aqui e escrito a mao.
+    # O plugin vem de ros-${ROS_DISTRO}-compressed-image-transport, instalado no
+    # docker/sim/Dockerfile. Sem o plugin este no sobe e publica NADA, sem erro
+    # que alguem leia -- confira com `ros2 run image_transport list_transports`,
+    # que precisa declarar image_transport/compressed alem de /raw.
+    # in_transport/out_transport SAO PARAMETROS, NAO ARGUMENTOS POSICIONAIS.
+    #
+    # ISTO CUSTOU UM CICLO DE BUILD EM 25/08/2026 e falha do pior jeito. Escrito
+    # como arguments=['raw', 'compressed'], o Jazzy consome o primeiro como
+    # in_transport e deixa out_transport VAZIO. O no sobe, nao acusa erro, e o
+    # log diz literalmente:
+    #
+    #     The 'out_transport' parameter is set to:
+    #
+    # com o valor em branco depois dos dois pontos -- que ninguem le como falha.
+    #
+    # O ESTRAGO NO LADO DO HOST e pior que "nao publica": com out_transport vazio
+    # o republish vira raw->raw sobre o MESMO topico de entrada, e o no aparece
+    # como publicador E assinante de /demo/camera/image_raw ao mesmo tempo.
+    # Medido: a camera do contrato foi de 10 Hz para 118 Hz por realimentacao, com
+    # `Publisher count: 2`, e o detection_stub do modulo passou a receber esse
+    # fluxo inflado pelo fio. Confira com:
+    #
+    #     ros2 topic info -v /demo/camera/image_raw   # Publisher count deve ser 1
+    camera_compressor = Node(
+        package='image_transport',
+        executable='republish',
+        name='camera_compressor',
+        parameters=[{'in_transport': 'raw', 'out_transport': 'compressed'}],
+        # O REMAP PRECISA CARREGAR O SUFIXO DO TRANSPORTE.
+        #
+        # SEGUNDA ARMADILHA DO MESMO NO, 25/08/2026. O image_transport cria o
+        # topico ja com o sufixo -- `out/compressed`, nao `out` -- entao uma
+        # regra de remap para `out` NAO casa e e simplesmente ignorada. O lado
+        # `in` aqui engana, porque `raw` nao tem sufixo e o remap simples pega.
+        #
+        # Sintoma: o no sobe, loga os dois transportes certos, assina a camera
+        # (Subscription count 1 no topico do contrato) e publica em
+        # `/out/compressed` -- um topico no namespace raiz que ninguem procura.
+        # `ros2 topic list | grep camera` nao mostra nada de errado; so
+        # `ros2 node info /camera_compressor` denuncia, na lista de Publishers.
+        remappings=[
+            ('in', '/demo/camera/image_raw'),
+            ('out/compressed', '/demo/camera/image_raw/compressed'),
+        ],
+        output='screen',
+    )
+
     return LaunchDescription([
         world_arg,
         gui_arg,
         robot_type_arg,
         OpaqueFunction(function=_check_robot_type),
         OpaqueFunction(function=_launch_plant),
+        camera_compressor,
     ])

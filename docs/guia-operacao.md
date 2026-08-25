@@ -836,6 +836,59 @@ IDs diferentes = container obsoleto. É a mesma família da armadilha 4: ali o
 
 ---
 
+### 16. O builder multi-arch não enxerga as imagens locais, e o build "não existe"
+
+O `CLAUDE.md` manda criar o builder multi-arch uma vez por host:
+
+```bash
+docker buildx create --use --name multiarch
+```
+
+O `--use` deixa esse builder **ativo para tudo**, e ele usa o driver
+`docker-container`. Esse driver tem um store de imagens próprio e **não lê o
+store local do Docker**. Consequência: qualquer imagem deste projeto cujo pai
+seja outra imagem local para de construir, porque o builder tenta *puxar* o pai
+do Docker Hub:
+
+```text
+failed to solve: local/demo-aquila-base:dev: failed to resolve source metadata
+for docker.io/local/demo-aquila-base:dev: pull access denied, repository does
+not exist or may require authorization
+```
+
+A mensagem fala em autorização e repositório inexistente, então ela **manda o
+leitor procurar credencial, VPN ou registry** — e o problema não é nenhum dos
+três. A imagem existe, na máquina, construída minutos antes.
+
+A `base` engana porque **ela continua funcionando**: o pai dela é
+`ros:jazzy-ros-base`, que de fato é puxável. Só `sim`, `nav`, `perception`,
+`tools`, `viz`, `cockpit` e `hmi` quebram — o que faz parecer defeito dos
+Dockerfiles dessas imagens.
+
+Como conferir e como resolver:
+
+```bash
+docker buildx ls          # o builder com * e o ativo; driver docker-container e o problema
+
+docker buildx use default                                   # driver `docker`, le o store local
+docker compose -f compose.host.yml build base               # em SERIE: os filhos
+docker compose -f compose.host.yml build sim                # precisam do pai ja construido
+docker buildx use armbuilder                                # restaure, o multi-arch depende dele
+```
+
+Duas notas que economizam tempo:
+
+- **`docker compose ... --builder default` não existe** nesta versão do Compose;
+  ele responde `unknown flag: --builder`. Trocar o builder ativo é o caminho.
+- **Construir `base sim perception` num comando só falha por corrida**, não pelo
+  builder: o Compose dispara os três em paralelo e os filhos não encontram o pai
+  que ainda está sendo construído. Em série sempre.
+
+O build **nativo no módulo** não passa por nada disso: ele roda `docker build`
+no próprio Aquila, com o daemon local.
+
+---
+
 ## 10. O módulo Aquila AM69
 
 Tudo aqui é `arm64` sobre Torizon OS, e **nada gráfico** (regra 1: o AM69 expõe

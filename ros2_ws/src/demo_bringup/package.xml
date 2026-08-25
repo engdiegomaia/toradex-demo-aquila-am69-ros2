@@ -31,6 +31,10 @@
   <exec_depend>demo_simulation</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>ros2launch</exec_depend>
+  <!-- republish (raw->compressed no host, compressed->raw no modulo) e o plugin
+       que o registra. Sem o plugin o no sobe e publica nada, sem erro legivel. -->
+  <exec_depend>image_transport</exec_depend>
+  <exec_depend>compressed_image_transport</exec_depend>
   <exec_depend>rviz2</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
