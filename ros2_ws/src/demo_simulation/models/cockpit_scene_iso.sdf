@@ -27,11 +27,46 @@
   A pose vem do `create` (-x -y -z -R -P -Y), nao daqui. Ver
   launch/scene_cameras.launch.py para os valores e a conta do enquadramento.
 
-  1600x1200 a 10 Hz. A primeira versao era 800x600 a 5 Hz "porque o painel nao
-  precisa de mais", e precisava: o painel de cena ocupa cerca de 1200 px de
-  largura na tela, entao 800 px de sensor eram esticados e as paredes do
-  labirinto — superficies grandes e de cor quase uniforme, o pior caso do JPEG —
-  chegavam sujas nas bordas.
+  1600x1200 a 10 Hz.
+
+  ATENCAO: 1200x900 foi tentado em 25/08/2026 e REVERTIDO sem conclusao. O
+  raciocinio continua valendo e esta registrado abaixo, mas as corridas feitas
+  com ele terminaram com o robo CAINDO (inclinacao 31,6 graus em t=62 s, e uma
+  segunda queda na partida com 26 RECOVER do supervisor), e "zero quedas" e
+  criterio do portao V3. A queda NAO foi atribuida a este parametro: o fator de
+  tempo real da bancada havia desabado para ~0,5 e continuou em 0,54 com a
+  percepcao parada, o que aponta para estado acumulado da bancada. Como nao deu
+  para separar, o valor validado foi restaurado. Quem retomar isto: meca com a
+  bancada recem-reiniciada, n >= 3, e registre o RTF de cada corrida.
+
+  A primeira versao era 800x600 a 5 Hz "porque o painel nao precisa de mais", e
+  precisava: o painel de cena ocupa cerca de 1200 px de largura na tela, entao
+  800 px de sensor eram esticados e as paredes do labirinto — superficies grandes
+  e de cor quase uniforme, o pior caso do JPEG — chegavam sujas nas bordas. A
+  resposta foi 1600x1200, que resolveu o visual e passou de largo do necessario:
+  1600 px num painel de 1200 px e reducao, nao nitidez.
+
+  1200x900 casaria o sensor com o painel EXATAMENTE, atendendo o mesmo criterio
+  que reprovou 800x600 (nada de esticar) com 44% menos pixels que 1600x1200, e
+  e por ai que uma proxima tentativa deve ir. A regra util e "sensor = largura do
+  painel", nao um valor decorado.
+
+  POR QUE OS PIXELS IMPORTAM, E POR QUE O FATOR DE TEMPO REAL NAO CONTA A
+  HISTORIA. Medido na bancada em 25/08/2026, host x86, maze11, protocolo do
+  nav_trial (180 s, prazo de meta 90 s), com a percepcao parada nas duas pontas:
+
+      cameras de cena LIGADAS  ->  0,0155 m/s,  cmd_vx pico 0,012 m/s
+      cameras de cena DESLIGADAS -> 0,0515 m/s,  cmd_vx pico 0,139 m/s
+
+  Mais de 3x na velocidade media da navegacao, com FATOR DE TEMPO REAL EM 0,96
+  NAS DUAS. Foi por isso que este cabecalho antes concluia que 10 Hz "custava
+  quase nada": o RTF media a fisica e nao a fila de sensores. Os dois numeros de
+  RTF abaixo continuam validos e continuam insuficientes como criterio.
+
+  Ao medir navegacao, desligue as cameras (scene_cameras:=false) ou compare
+  sempre com as cameras no MESMO estado. Comparar entre estados diferentes da
+  regressao onde nao houve nenhuma — foi o que aconteceu em 25/08/2026, com a
+  sintonia V3 intacta no repositorio parecendo ter piorado 15x.
 
   A proporcao continua 4:3 DE PROPOSITO. O horizontal_fov e o enquadramento das
   duas cameras foram medidos nesta proporcao (ver scene_cameras.launch.py); ir
@@ -42,8 +77,8 @@
   mesmo processo do Gazebo do operador, e nesta resolucao a workstation nao
   entrega 15 Hz de qualquer jeito. Medido na bancada, mesmo mundo (maze11):
 
-      update_rate 15  ->  9,4 Hz entregues,  fator de tempo real 0,59
-      update_rate 10  ->  9,8 Hz entregues,  fator de tempo real 0,97
+      update_rate 15  ->  9,4 Hz entregues,  fator de tempo real 0,59  (a 1600x1200)
+      update_rate 10  ->  9,8 Hz entregues,  fator de tempo real 0,97  (a 1600x1200)
 
   Ou seja: pedir 15 nao rendia um quadro a mais e custava 40% da velocidade da
   simulacao — o que estica cada meta do Nav2 na mesma proporcao. Antes de subir

@@ -671,8 +671,32 @@ cmd_shell() {
     "cd ${remote_dir} && docker compose -f compose.module.yml exec tools /usr/local/bin/entrypoint.sh bash"
 }
 
+cmd_render_local() {
+  # Renderiza a config de DDS para o modo LEARN, sem modulo nenhum.
+  #
+  # `sync` exige HOST_IP e MODULE_IP porque injeta o peer do Aquila e fixa a
+  # interface. Em learn nao existe modulo, e ainda assim o compose monta
+  # `host.rendered.xml` -- se o arquivo nao existir o Compose cria um DIRETORIO
+  # com esse nome e o CycloneDDS falha ao ler a config.
+  #
+  # Antes disto o unico caminho documentado era "rode module.sh sync antes do
+  # primeiro up", que em learn nao roda. O resultado era copiar o template a mao,
+  # e uma copia manual e a que fica velha: a correcao de loopback de 25/08/2026
+  # ficou commitada no template enquanto os containers rodavam a copia antiga.
+  local src dst
+  src="${repo_dir}/docker/cyclonedds/host.xml"
+  dst="${repo_dir}/docker/cyclonedds/host.rendered.xml"
+  cp "${src}" "${dst}"
+  python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('${dst}')" \
+    || die "host.rendered.xml nao e XML valido"
+  say "host.rendered.xml renderizado para LEARN (sem peer de modulo)."
+  say "Recrie os containers para que a config nova seja lida:"
+  say "  docker compose -f docker/compose.host.yml up -d --force-recreate"
+}
+
 case "${1:-}" in
-  inventory) cmd_inventory ;;
+  inventory)    cmd_inventory ;;
+  render-local) cmd_render_local ;;
   sync)      cmd_sync ;;
   build)     cmd_build ;;
   up)        cmd_up "$@" ;;

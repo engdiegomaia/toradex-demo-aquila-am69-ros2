@@ -569,9 +569,17 @@ local_costmap:
       # demo_perception's detections_to_cloud adapter, so detections steer
       # the robot instead of only decorating the HMI.
       #
-      # marking: true / clearing: false is deliberate. The stub's assumed-range
-      # projection is too coarse to trust for clearing — letting it clear cells
-      # would let a bad projection erase real lidar obstacles.
+      # `clearing: true` desde 25/08/2026. O texto anterior aqui dizia que
+      # `clearing: false` era deliberado, porque "deixar a projecao grosseira do
+      # stub limpar celulas apagaria obstaculos reais do lidar". O medo aponta
+      # para o mecanismo errado: cada ObstacleLayer tem grade PROPRIA e entra no
+      # mestre por `combination_method` = Max, que e o default do nav2
+      # (`cost_values.hpp`: "default to maximum", `Max = 1`). O mestre fica com
+      # `max(parede_do_obstacle_layer, 0)` = a parede. Uma projecao ruim aqui nao
+      # tem como apagar o que o lidar viu.
+      #
+      # O que `clearing: false` fazia de fato era tornar as marcas PERMANENTES --
+      # ver a medicao no bloco `detections` abaixo.
       perception_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
@@ -584,7 +592,34 @@ local_costmap:
           # suba este teto junto ou o topo da coluna e descartado em silencio.
           max_obstacle_height: 1.0
           min_obstacle_height: 0.0
-          clearing: false
+          # `clearing: true` desde 25/08/2026. Era `false`, e `false` faz as
+          # marcas desta camada serem PERMANENTES -- o `observation_persistence`
+          # abaixo esvazia o buffer de observacoes, e nao as celulas que ja foram
+          # escritas. O comentario que acompanhava o parametro descrevia a
+          # intencao certa ("expire them rather than accumulating") e o valor
+          # entregava o oposto.
+          #
+          # Medido na bancada, host x86, maze11, com a percepcao JA PARADA ha
+          # cerca de um minuto (`docker compose stop perception`):
+          #
+          #   sonda do costmap, antes de limpar : 169 celulas letais, faixa livre 0.10 m
+          #   depois de /demo/nav/reset          : 108 celulas letais, faixa livre 0.15 m
+          #
+          # Ou seja: 61 celulas letais que nenhuma observacao viva sustentava, e
+          # que so sairam por limpeza explicita. Num corredor de 1,20 m com
+          # `robot_radius: 0.38` isso e a diferenca entre ter e nao ter caminho.
+          # Numa demo longa, e uma degradacao monotonica: quanto mais tempo
+          # rodando, menos costmap navegavel, sem nenhum log dizendo isso.
+          #
+          # Cada ObstacleLayer tem costmap proprio e entra no mestre por Max
+          # (`combination_method` default), entao limpar aqui NAO apaga as
+          # paredes vistas pelo `obstacle_layer`.
+          #
+          # Vale igual para o TIDL: obstaculo detectado que saiu de campo tem de
+          # poder sair do costmap. Isto e sintonia de costmap, nao contrato de
+          # percepcao -- o topico e o tipo nao mudam (CLAUDE.md, contrato de
+          # topicos).
+          clearing: true
           marking: true
           data_type: "PointCloud2"
           obstacle_max_range: 5.0
@@ -679,7 +714,11 @@ global_costmap:
           # suba este teto junto ou o topo da coluna e descartado em silencio.
           max_obstacle_height: 1.0
           min_obstacle_height: 0.0
-          clearing: false
+          # Igual ao costmap global, e pelo mesmo motivo medido: `false` deixava
+          # marca permanente. Os dois costmaps tem de casar -- planejar num mapa
+          # que limpa e controlar num que nao limpa da rota valida com o
+          # controlador recusando segui-la, sem nenhum erro.
+          clearing: true
           marking: true
           data_type: "PointCloud2"
           obstacle_max_range: 5.0
@@ -771,6 +810,63 @@ planner_server:
       # Lets the planner traverse unknown cells it can still reach. It does not
       # help when the goal AND its whole neighbourhood are unknown.
       allow_unknown: true
+
+# =========================== route_server ============================
+#
+# Esta demo NAO usa roteamento por grafo. A secao existe por uma razao so:
+# impedir que o `ReroutingService` seja construido.
+#
+# O DEFEITO QUE ELA CONTORNA
+#
+# O `route_server` esta na lista `lifecycle_nodes` do `navigation_launch.py`
+# vendorizado, que tem de seguir identica ao upstream (proveniencia -- ver
+# launch/nav2_vendored/README.md), e essa lista chega ao lifecycle_manager como
+# parametro CRAVADO no launch: `{'node_names': lifecycle_nodes}`. Um valor
+# inline vence o arquivo de parametros, entao NAO da para tirar o route_server
+# da lista por aqui. Ele vai ser configurado, queiramos ou nao.
+#
+# E configurar `ReroutingService` derruba o processo INTEIRO com SIGSEGV:
+#
+#   [route_server]: Configuring Rerouting service operation.
+#   [ERROR] [component_container_isolated-4]: process has died
+#           [pid 40, exit code -11, ...]
+#
+# `-11` e SIGSEGV. Medido em 24 e 25/08/2026, em tres caminhos distintos:
+# RESET+STARTUP pelo lifecycle_manager, e **cold start normal** -- este ultimo
+# de forma INTERMITENTE, que e o pior caso: o mesmo comando sobe numa vez e
+# derruba a pilha na seguinte, e o sintoma e "o Nav2 nao subiu hoje".
+#
+# Quando isso acontece morre o `nav2_container` e com ele TODOS os servidores do
+# Nav2 de uma vez. O container `nav` fica com o processo `ros2` vivo e nenhum
+# filho, entao `docker compose ps` diz "running" e o robo nao navega. Nada no
+# estado do compose acusa.
+#
+# `operations` e a lista de plugins de operacao de rota. O default inclui
+# `ReroutingService`; listar apenas `AdjustSpeedLimit` faz o plugin problematico
+# nunca ser construido. NAO ponha `[]`: lista YAML vazia chega ao launch como
+# tupla Python e derruba tudo com "Expected 'value' to be one of [float, int,
+# str, bool, bytes], but got '()'" -- ver a armadilha 5 do guia-operacao.
+#
+# Isto e CONTORNO, nao correcao: a causa esta no nav2_route e e candidata a
+# issue upstream. Se um dia a demo precisar de roteamento, o plugin volta e o
+# defeito volta com ele.
+route_server:
+  ros__parameters:
+    # A lista precisa do TIPO de cada plugin declarado junto. Enquanto ela vem do
+    # default, o nav2_route conhece os tipos dos proprios defaults; no momento em
+    # que ela e sobreposta aqui, ele passa a exigir `<nome>.plugin` e reprova a
+    # transicao com uma mensagem que nao diz de onde falta o parametro:
+    #
+    #   [FATAL] [route_server]: Can not get 'plugin' param value for AdjustSpeedLimit
+    #   [FATAL] [route_server]: Failed to configure route server: No 'plugin' param for param ns!
+    #   [ERROR] [lifecycle_manager_navigation]: Failed to bring up all requested nodes.
+    #
+    # Isto e uma falha ALTA, e nisso ela e melhor que o segfault que substitui: o
+    # gerenciador aborta a subida, nenhum servidor fica meio vivo, e o container
+    # nao mente "running" com o Nav2 morto dentro.
+    operations: ["AdjustSpeedLimit"]
+    AdjustSpeedLimit:
+      plugin: "nav2_route::AdjustSpeedLimit"
 
 smoother_server:
   ros__parameters:

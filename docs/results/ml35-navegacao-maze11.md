@@ -277,3 +277,40 @@ Antes de reiniciar o Nav2, limpe órfãos da execução anterior — matar o
 `ros2 launch` deixa os nós filhos vivos segurando índice de participante do
 CycloneDDS, e a subida seguinte morre acusando o DDS. Ver
 `docs/guia-operacao.md` §9.12.
+
+---
+
+## Adendo de 25/08/2026: a carga faz parte do protocolo
+
+Os números deste documento foram medidos com a pilha **nativa de três
+terminais** — `run_quadruped_sim.sh`, `nav_quadruped.launch.py`, `nav_trial.py`.
+Nessa configuração **não rodavam** as duas câmeras de cena do cockpit nem o
+container de percepção; nenhum dos dois existia quando a V3 foi medida.
+
+Os dois custam, e muito. Mesmo protocolo, mesmo mundo, host x86:
+
+| câmeras de cena | percepção | velocidade média |
+| --- | --- | --- |
+| paradas | parada | **0,0515 m/s** ← comparável a este documento |
+| paradas | ligada | 0,0200 m/s |
+| ligadas | parada | 0,0155 m/s |
+| ligadas | ligada | 0,0139 m/s |
+
+E **nenhuma** métrica de saúde acusa: fator de tempo real 0,96 nas duas pontas,
+lidar 9,9 Hz com e sem as câmeras, odometria 49,7 Hz.
+
+Portanto: **comparar uma corrida com a tabela V3 acima só vale com as câmeras de
+cena e a percepção paradas.** Comparar com elas ligadas fabrica uma regressão de
+3–5× que não existe — foi o que aconteceu em 25/08/2026, com a sintonia V3 intacta
+byte a byte no repositório. Análise completa em
+`docs/results/ml35-regressao-navegacao.md`.
+
+Para medir navegação:
+
+```bash
+SIM_ARGS="scene_cameras:=false" docker compose -f compose.host.yml --profile learn up -d
+docker compose -f compose.host.yml --profile learn stop perception
+```
+
+Ou compare sempre corridas com a carga no **mesmo** estado, e declare esse estado
+junto do número.

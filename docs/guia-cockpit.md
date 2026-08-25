@@ -617,6 +617,37 @@ disso. Se algum dia alguém "simplificar" a sequência para `RESET`+`STARTUP`, o
 sintoma será o container `nav` reiniciando e o cockpit perdendo o link no meio da
 demo. Existe um guarda estrutural em `tests/` exatamente para isso.
 
+#### Não é só no reset: acontece no boot normal (25/08/2026)
+
+A frase acima, "está no caminho do `CONFIGURE`", estava certa e era estreita
+demais. O `CONFIGURE` do `route_server` também acontece na **subida normal** do
+`nav`, e lá o mesmo segfault aparece — de forma **intermitente**: o mesmo
+`docker compose up nav` subiu numa vez e derrubou a pilha na seguinte.
+
+O estado que ele deixa é o que faz isso caro:
+
+```
+$ docker compose ps
+nav   running                       <- e mentira
+
+$ docker exec docker-nav-1 ps -eo comm
+ros2                                <- so o pai
+odom_tf
+nav_control_rel
+cmd_vel_si_to_s                     <- nenhum servidor do Nav2
+```
+
+Morrem **todos** os servidores de uma vez, o container segue `running`, e de
+dentro dele `get_node_names()` lista só os nós do `sim`. Quem olha o Compose
+conclui "o Nav2 está de pé"; quem olha o robô conclui "a navegação piorou". Foi
+metade da regressão investigada em `docs/results/ml35-regressao-navegacao.md`.
+
+A correção vive em `nav2_params_go2.yaml`: `route_server.operations` lista só
+`AdjustSpeedLimit`, então o plugin que estoura nunca é construído. Sobrepor essa
+lista obriga a declarar também o **tipo** de cada plugin dela
+(`AdjustSpeedLimit.plugin`), senão a subida é reprovada com
+`Can not get 'plugin' param value` — falha alta, e nisso melhor que o segfault.
+
 ---
 
 ## 10. Como o cockpit é feito

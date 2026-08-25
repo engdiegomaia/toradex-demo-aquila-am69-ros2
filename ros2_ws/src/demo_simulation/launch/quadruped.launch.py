@@ -32,35 +32,107 @@ That is why sim is one container and cannot be split (guia-ml35-docker.md §1),
 and it is why ML3.5 reverses the ML2 decision against gz_ros2_control.
 """
 
+from demo_simulation.scenarios import missing_models, spawn_pose
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     IncludeLaunchDescription,
+    OpaqueFunction,
     RegisterEventHandler,
 )
 from launch.conditions import IfCondition, UnlessCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitution import Substitution
 from launch.substitutions import Command, LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
+class ScenarioPose(Substitution):
+    """
+    Um campo da pose de nascimento: o argumento, senao a tabela do cenario.
+
+    E uma Substituicao e nao um OpaqueFunction porque o destino e `arguments` de
+    um Node, que aceita substituicoes e NAO aceita acoes -- um OpaqueFunction ali
+    e aceito na montagem e falha na execucao, com erro que fala de tipos e nao do
+    argumento.
+
+    Resolver na hora da execucao tambem e o que permite `world:=` e `yaw:=`
+    chegarem de SIM_ARGS: nenhum dos dois existe quando a descricao e montada.
+    """
+
+    def __init__(self, field: str) -> None:
+        super().__init__()
+        self._field = field
+
+    def perform(self, context) -> str:
+        explicit = LaunchConfiguration(self._field).perform(context)
+        if explicit:
+            return explicit
+        world = LaunchConfiguration('world').perform(context)
+        return str(spawn_pose(world)[self._field])
+
+
+def _check_external_models(context, *args, **kwargs) -> list:
+    """
+    Falha ALTO quando o mundo pede uma malha que nao esta montada.
+
+    Sem esta checagem o modo de falha e o pior possivel: o Gazebo carrega o
+    mundo, o modelo do labirinto fica sem visual e sem colisao, e o resultado e
+    um plano vazio. O lidar nao ve parede nenhuma, o Nav2 planeja em linha reta,
+    e a meta termina SUCCEEDED -- com numeros MELHORES que os reais. O ensaio
+    passa e ninguem descobre que o labirinto nao estava la.
+
+    Mede-se aqui e nao no compose porque quem sabe de qual mundo se trata e o
+    launch, e porque o caminho default de `MAZE_MODELS:-./models-extra` faz o
+    Docker CRIAR um diretorio vazio em vez de recusar o mount.
+    """
+    world = LaunchConfiguration('world').perform(context)
+    faltando = missing_models(world)
+    if faltando:
+        raise RuntimeError(
+            'o mundo %s carrega modelo(s) externo(s) ao repositorio que nao '
+            'estao montados: %s.\n'
+            'A malha do labirinto tem licenca TODO no upstream '
+            '(github.com/cafemesa/ros_maze_worlds) e por isso NAO e vendorizada '
+            '-- mesmo bloqueio que fez o projeto trocar o A1 pelo Go2.\n'
+            'Aponte MAZE_MODELS para o diretorio models/ daquele repositorio:\n'
+            '  MAZE_MODELS=/caminho/ros_maze_worlds/models '
+            'docker compose -f compose.host.yml up -d sim\n'
+            'Sem isso o Gazebo sobe um plano VAZIO sem acusar nada, e qualquer '
+            'medicao de navegacao feita nele e ficcao.'
+            % (world, ', '.join(faltando))
+        )
+    return []
+
+
 def generate_launch_description() -> LaunchDescription:
-    # Keep the spike self-contained.  The official warehouse world is not in
-    # demo-sim:spike-go2; resolving it here would make even an explicit
-    # world:=empty.sdf fail while constructing the unused default substitution.
-    # The project-owned empty world includes the sensor system and is therefore
-    # the correct default for this image.  The official compose can pass an
-    # absolute warehouse.sdf path explicitly.
+    # O CENARIO OFICIAL do quadrupede e o labirinto, e nao o mundo vazio.
+    #
+    # Era `quadruped_empty.sdf` desde o spike do F2, quando a imagem de simulacao
+    # nao tinha nem Nav2: o mundo vazio era o unico que subia. Ficou como default
+    # por inercia, e o efeito colateral e que o comando mais curto que existe
+    # (`ros2 launch ... quadruped.launch.py`) subia um chao infinito sem nada
+    # para navegar -- entao TODA medicao de navegacao exigia passar `world:=` a
+    # mao, e uma medicao feita sem passar media navegacao em campo aberto.
+    #
+    # Os mundos pequenos continuam a um argumento de distancia:
+    #   ros2 launch demo_simulation quadruped.launch.py \
+    #     world:=$(ros2 pkg prefix demo_simulation)/share/demo_simulation/worlds/quadruped_empty.sdf
+    #
+    # A pose de nascimento e o enquadramento das cameras acompanham o mundo por
+    # `scenarios.py`; nao ha como trocar de mundo e esquecer os outros nove
+    # numeros. Ver o cabecalho daquele arquivo.
     world_arg = DeclareLaunchArgument(
         'world',
         default_value=PathJoinSubstitution([
             FindPackageShare('demo_simulation'), 'worlds',
-            'quadruped_empty.sdf',
+            'quadruped_maze11.sdf',
         ]),
-        description='Absolute path to the SDF world to load.',
+        description='Absolute path to the SDF world to load. O default e o '
+                    'cenario oficial (labirinto).',
     )
 
     robot_name_arg = DeclareLaunchArgument(
@@ -84,9 +156,14 @@ def generate_launch_description() -> LaunchDescription:
                     'unitree_guide_controller before it is configured.',
     )
 
-    x_arg = DeclareLaunchArgument('x', default_value='0.0')
-    y_arg = DeclareLaunchArgument('y', default_value='0.0')
-    yaw_arg = DeclareLaunchArgument('yaw', default_value='0.0')
+    # Vazio = pega de scenarios.py pelo mundo. Um default numerico aqui e
+    # indistinguivel de uma escolha do operador, e foi assim que o robo passou a
+    # nascer olhando para a parede quando o cenario virou o labirinto: yaw 0 e
+    # correto no armazem e errado no maze11, e nada acusa a diferenca -- o robo
+    # so gasta os primeiros segundos girando dentro de um corredor de 1,20 m.
+    x_arg = DeclareLaunchArgument('x', default_value='')
+    y_arg = DeclareLaunchArgument('y', default_value='')
+    yaw_arg = DeclareLaunchArgument('yaw', default_value='')
 
     # Spawn height. NOT cosmetic and NOT the same as the diff-drive's -z 0.1.
     # A quadruped spawned at floor level starts with its legs already
@@ -201,10 +278,10 @@ def generate_launch_description() -> LaunchDescription:
             '-topic', 'robot_description',
             '-name', LaunchConfiguration('robot_name'),
             '-allow_renaming', 'true',
-            '-x', LaunchConfiguration('x'),
-            '-y', LaunchConfiguration('y'),
             '-z', LaunchConfiguration('height'),
-            '-Y', LaunchConfiguration('yaw'),
+            '-x', ScenarioPose('x'),
+            '-y', ScenarioPose('y'),
+            '-Y', ScenarioPose('yaw'),
         ],
     )
 
@@ -304,6 +381,9 @@ def generate_launch_description() -> LaunchDescription:
         yaw_arg,
         height_arg,
         gui_arg,
+        # ANTES de qualquer no: se a malha externa nao esta la, nao ha ensaio
+        # valido a fazer, e o modo de falha silenciosa e caro (ver o docstring).
+        OpaqueFunction(function=_check_external_models),
         bridge,
         gz_sim,
         gz_sim_headless,

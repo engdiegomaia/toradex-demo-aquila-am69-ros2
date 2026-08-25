@@ -5,6 +5,28 @@
   Mounted read-only at /cfg/cyclonedds.xml and selected with
   CYCLONEDDS_URI=file:///cfg/cyclonedds.xml.
 
+  ESTE E O TEMPLATE. O compose monta `host.rendered.xml`, que
+  `scripts/module.sh sync` gera a partir daqui somando o endereco do modulo e a
+  interface deste host. O gerado nao e versionado porque endereco nao entra em
+  git (convencoes do CLAUDE.md).
+
+  CONSEQUENCIA QUE CUSTOU UMA SESSAO, 25/08/2026: editar este arquivo NAO surte
+  efeito nenhum nos containers ate rodar `module.sh sync`. O rendered daquela
+  bancada tinha sido gerado antes, era byte-identico a este, e ficou parado
+  enquanto este mudava. Depois de qualquer edicao aqui:
+
+      scripts/module.sh sync     # regenera host.rendered.xml
+      docker compose -f compose.host.yml up -d  (com force-recreate)
+
+  Ha um teste estrutural em tests/ que reprova um rendered mais antigo que este
+  arquivo, justamente para essa divergencia nao ficar silenciosa.
+
+  scripts/env.sh aponta para o rendered quando ele existe, e para este arquivo
+  quando nao, para que ferramenta nativa no host e container falem a MESMA
+  politica de descoberta. Duas politicas no mesmo
+  dominio funcionam enquanto a interface escolhida por acidente coincide, e param
+  sem avisar quando deixa de coincidir.
+
   NOTE ON INTERFACE SELECTION
   ===========================
   The ML3.5 guide (§5) shows <NetworkInterface name="eth0"/>. That is a
@@ -34,6 +56,40 @@
   <Domain id="any">
     <General>
       <Interfaces>
+        <!--
+          LOOPBACK PRIMEIRO, E ELE E A CORRECAO DE 25/08/2026.
+
+          Toda a pilha do modo learn roda com network_mode: host na MESMA
+          maquina, entao o caminho correto entre containers e `lo`. Antes desta
+          linha o trafego dependia do que o autodetermine abaixo escolhesse, e o
+          proprio aviso no cabecalho deste arquivo previa o problema: com
+          docker0, duas bridges e tailscale0 no ar, a escolha pode cair numa
+          interface que nao roteia para os outros participantes.
+
+          O QUE ISSO CAUSOU, MEDIDO
+          Entrega ASSIMETRICA entre containers. O `nav` recebia /demo/odom e
+          /demo/scan_cloud do `sim` (os locators do sim eram alcancaveis) e o
+          `sim` NAO recebia /demo/cmd_vel do `nav`. O resultado nao se parece com
+          um problema de rede: o Nav2 planeja, comanda guinada em 95,6% das
+          amostras, e o robo trota PARADO, isto e, `sticks=(lx=0.0000 ly=0.0000
+          rx=0.0000)` no log da marcha durante 180 s, com o yaw congelado. Nav2
+          entao acusa "Failed to make progress" e entra em recuperacao, que
+          tambem nao chega. Zero linhas mencionando DDS ou interface.
+
+          E o log enche de `ddsi_udp_conn_write ... failed with retcode -1` para
+          um endereco do proprio host, mas isso e milhoes de linhas de nivel
+          baixo no meio da saida do Gazebo, nao um erro que alguem le.
+
+          `lo` existe em qualquer maquina, entao isto NAO e o nome cravado que o
+          cabecalho acima condena, isto e, e o unico nome de interface que e seguro
+          cravar. Multicast ligado apenas aqui: em loopback ele nao atravessa
+          switch nenhum, entao a objecao de "morre no Wi-Fi" nao se aplica.
+
+          A interface real continua na lista, abaixo, para o modo hil alcancar o
+          modulo. NAO REMOVA NENHUMA DAS DUAS: sem `lo` volta a assimetria acima;
+          sem a real o host nao fala com o Aquila.
+        -->
+        <NetworkInterface name="lo" priority="10" multicast="true"/>
         <NetworkInterface autodetermine="true" priority="default"/>
       </Interfaces>
       <!--

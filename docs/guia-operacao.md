@@ -762,6 +762,41 @@ O container está criado em `nav_quadruped.launch.py`, no bloco `nav2_container`
 com o nome casando o default do argumento `container_name` do launch vendorizado.
 Se um dos dois nomes mudar, volta a falhar assim.
 
+### 15. `down` sem `--profile` deixa o `nav` vivo com a imagem antiga
+
+`nav` e `perception` estão atrás de `profiles: ["learn"]` no
+`compose.host.yml`. Compose **ignora serviços com perfil** em qualquer comando
+que não declare o perfil, e isso inclui o `down`:
+
+```bash
+docker compose -f compose.host.yml down --remove-orphans   # NAO derruba nav nem perception
+docker compose -f compose.host.yml --profile learn down     # derruba
+```
+
+O `down` sem perfil imprime uma lista de containers removidos que **parece
+completa** — ele lista o que removeu, nunca o que pulou. O `up -d sim` seguinte
+também não recria o `nav`, porque para o Compose ele já está no estado desejado.
+Resultado: o `nav` atravessa reconstruções de imagem indefinidamente rodando o
+código de quando subiu.
+
+O sintoma é o pior possível, porque não há sintoma: `docker compose ps` diz
+`running`, os tópicos existem, e o comportamento é o de uma versão antiga do
+código. Medido em 25/08/2026 — um `nav` de 10 horas antes sobreviveu a dois
+ciclos de build e continuou construindo o `ReroutingService` que a correção
+recém-compilada já não construía, o que fez a correção parecer não ter
+funcionado.
+
+Como conferir, quando um resultado não bate com o código:
+
+```bash
+# ID da imagem que o container esta rodando vs. ID da tag atual
+docker inspect docker-nav-1 --format '{{.Image}}'
+docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep nav:dev
+```
+
+IDs diferentes = container obsoleto. É a mesma família da armadilha 4: ali o
+`/ws/src` assado na imagem estava velho, aqui a imagem inteira está velha.
+
 ---
 
 ## 10. O módulo Aquila AM69
