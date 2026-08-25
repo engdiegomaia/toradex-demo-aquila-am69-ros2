@@ -46,12 +46,46 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${repo_dir}"
 
-# docker/.env is optional and, when present, must not override an explicit
-# environment variable — hence the ${VAR:-} guards after sourcing.
+# docker/.env is optional. The documented precedence is: environment, then
+# docker/.env, then the defaults below.
+#
+# `set -a; source "${env_file}"` CANNOT implement that, and the comment that
+# used to sit here claimed it did. `source` assigns unconditionally, so a value
+# in .env silently replaces one given on the command line; by the time the
+# ${VAR:-} guards below run, the variable is set either way and they cannot tell
+# the two apart. The guards defend against UNSET, never against .env winning.
+#
+# This bit for real: a stale `HOST_IP=` left in .env by an earlier wired session
+# overrode an explicit `HOST_IP=` on the command line, and both CycloneDDS
+# configs were rendered for an interface with no carrier. That fails as silent
+# non-discovery — the exact failure mode this script exists to prevent.
 env_file="${repo_dir}/docker/.env"
 if [[ -f "${env_file}" ]]; then
-  # shellcheck disable=SC1090
-  set -a; source "${env_file}"; set +a
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    line="${line#"${line%%[![:space:]]*}"}"          # strip leading blanks
+    if [[ -z "${line}" || "${line}" == '#'* ]]; then
+      continue
+    fi
+    line="${line#export }"
+    if [[ "${line}" != *=* ]]; then
+      continue
+    fi
+    env_key="${line%%=*}"
+    env_val="${line#*=}"
+    if [[ ! "${env_key}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      continue
+    fi
+    # An explicit environment variable wins over .env. This is the whole point.
+    if [[ -n "${!env_key:-}" ]]; then
+      continue
+    fi
+    # Strip one layer of matching quotes, as `source` would have.
+    if [[ "${env_val}" == \"*\" || "${env_val}" == \'*\' ]]; then
+      env_val="${env_val:1:${#env_val}-2}"
+    fi
+    export "${env_key}=${env_val}"
+  done < "${env_file}"
+  unset line env_key env_val
 fi
 
 MODULE_HOST="${MODULE_HOST:-aquila-am69-12593525.local}"
