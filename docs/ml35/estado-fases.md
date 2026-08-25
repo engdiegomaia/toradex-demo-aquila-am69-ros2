@@ -43,12 +43,43 @@ Plano de movimentação vigente: **`docs/ml35/plano-movimentacao.md`** (19/08/20
 Substitui `plano-proximos-passos.md`, cujas Fases 1-3 já foram executadas.
 
 Trabalho paralelo em aberto — **cockpit unificado**: plano aprovado em
-24/08/2026, **nenhum código escrito**. Eixo trocado de "capturar janelas X11"
-(quatro tentativas falhas) para "renderizar a partir de tópicos ROS 2", num
+24/08/2026 e **F1 concluído no mesmo dia**. Eixo trocado de "capturar janelas
+X11" (quatro tentativas falhas) para "renderizar a partir de tópicos ROS 2", num
 cockpit web que depois vira o HMI do M3. Decisões, evidências e fases em
-**`docs/ml35/plano-cockpit-web.md`**. O checkpoint anterior
+**`docs/ml35/plano-cockpit-web.md`**; evidência do F1 (capturas de tela, taxas,
+reconexão) em **`docs/results/cockpit-web-f1.md`**. O checkpoint anterior
 (`docs/results/cockpit-standalone-parcial.md`) está marcado como superado; não
 retomar a recomendação dele.
+
+Estado do cockpit por fase: **F1 e F3b fechados** (24/08/2026). O F1 subiu os
+serviços `cockpit` e `hmi` em `compose.host.yml`, o bundle em `hmi/`, a câmera ao
+vivo e a reconexão automática. O **F3b** fechou o painel azul (duas câmeras de
+cena estáticas, alternáveis) e o verde (costmap, plano, laser, pegada, e clique
+que manda meta), com o portão cumprido: uma meta clicada no canvas foi aceita e
+executada pelo Nav2. Evidência em **`docs/results/cockpit-web-f3b.md`**; como rodar e o que cada
+painel faz, em **`docs/guia-cockpit.md`**.
+
+Na mesma data entraram, a pedido do operador: controle da simulação pelo cockpit
+(play/pause/reset), controle de câmera (girar, inclinar, mover, zoom,
+recentrar), a identidade visual Toradex (fundo branco, `#00508c`, `#96c837`,
+`#ff5a00`, com as marcas Toradex e ROS na barra) e o aumento de qualidade das
+câmeras de cena. Três pontos que valem carregar para a próxima sessão:
+
+1. **"Iniciar a simulação no target" não é possível** e não foi feito. O Gazebo
+   é OGRE 2; o AM69 só tem OpenGL ES 3.2/Vulkan 1.2 (regra 1). O que existe é
+   play/pause/reset **a partir do** cockpit, agindo sobre o Gazebo do host.
+2. **O navegador não fala tipos do Gazebo.** Chamar `ControlWorld` direto pelo
+   rosbridge falha com `InvalidModuleException` — o container do cockpit não tem
+   `ros_gz_interfaces`, e no M3 ele roda no módulo. A fronteira é `std_srvs`, e a
+   tradução mora no nó `sim_control_relay`, do lado do simulador.
+3. **Resolução de câmera custa RTF.** Com as duas câmeras de cena a 1600x1200,
+   `update_rate 15` entrega 9,43 Hz com fator de tempo real **0,59**, e
+   `update_rate 10` entrega 9,77 Hz com **0,97** — pedir 15 não rende um quadro
+   a mais e custa 40% da velocidade da simulação. Adotado 10. Ver a seção 5 de
+   `cockpit-web-f3b.md`.
+
+Nada disso foi executado em arm64 nem no Aquila. **F2 e F4 do cockpit seguem
+abertos** (kiosk no módulo e controle manual com `twist_mux`).
 
 ### 21/08/2026 — qualidade de navegação no maze11 (dentro de F5)
 

@@ -1,0 +1,46 @@
+# nginx site for the cockpit bundle.
+#
+# Rendered at container start by nginx:alpine's own entrypoint
+# (/docker-entrypoint.d/20-envsubst-on-templates.sh), which runs envsubst over
+# every file in /etc/nginx/templates and writes the result to /etc/nginx/conf.d.
+#
+# NGINX_ENVSUBST_FILTER=^COCKPIT_ is set in the Dockerfile and is load-bearing:
+# without it envsubst would also try to expand nginx's own runtime variables
+# ($uri, $host, $document_root ...). They are not in the environment, so they
+# would be replaced by EMPTY STRINGS and the site would 404 everything while
+# nginx reported a valid configuration.
+
+server {
+    listen ${COCKPIT_HMI_PORT};
+    server_name _;
+
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Runtime configuration surface. AGENTS.md §5.7 forbids hard-coded
+    # hostnames and asks for a development configuration for localhost; this is
+    # both. An empty "host" means "use the hostname the page was loaded from",
+    # which is correct for the workstation today and for the module kiosk in M3
+    # without editing the bundle.
+    location = /config.json {
+        default_type application/json;
+        add_header Cache-Control "no-store" always;
+        return 200 '{"host":"${COCKPIT_BACKEND_HOST}","rosbridgePort":${COCKPIT_ROSBRIDGE_PORT},"videoPort":${COCKPIT_VIDEO_PORT},"build":"${COCKPIT_BUILD}"}';
+    }
+
+    # The bundle is plain ES modules with no build step (plano-cockpit-web.md
+    # Decisão 5), so the browser fetches every module by URL. Serving a stale
+    # .js after an edit is the classic "my change did nothing" of this setup —
+    # cheap to prevent here, and the payload is a few tens of kB.
+    location / {
+        add_header Cache-Control "no-store" always;
+        try_files $uri $uri/ =404;
+    }
+
+    # Liveness probe that does not depend on the bundle being correct.
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+}

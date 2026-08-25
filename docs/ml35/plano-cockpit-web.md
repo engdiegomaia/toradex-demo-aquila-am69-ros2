@@ -1,7 +1,8 @@
 # Cockpit web — plano aprovado e registro de decisões
 
 **Data:** 24/08/2026
-**Estado:** plano aprovado, **nenhuma linha de código escrita**
+**Estado:** plano aprovado. **F1 concluído em 24/08/2026** — evidência em
+`docs/results/cockpit-web-f1.md`. Próxima fase: F3b.
 **Substitui:** a seção "Próxima metodologia recomendada" de
 `docs/results/cockpit-standalone-parcial.md`, que recomendava Qt/`rviz_common`
 e foi descartada — ver Decisão 3.
@@ -226,6 +227,20 @@ e reconexão (§5.7 do AGENTS); host/porta por configuração.
 > de câmera mostra `/demo/camera/image_raw` ao vivo; derrubar o rosbridge muda o
 > estado visual para "desconectado" e ele reconecta sozinho.
 
+**CONCLUÍDO em 24/08/2026, modo learn na workstation.** Portão atendido nos três
+itens, com capturas de tela e logs em `docs/results/cockpit-web-f1.md`.
+
+O que ficou de pé: serviços `cockpit` (rosbridge 2.7.0 + web_video_server 3.1.0,
+imagem própria multi-arch por construção) e `hmi` (`nginx:alpine`) em
+`compose.host.yml`; `cockpit.launch.py` em `demo_bringup`; bundle em `hmi/` com
+cliente rosbridge próprio, rastreamento de frescor never/live/stale, painel de
+câmera e painel de logs funcionais; 52 testes de bundle sob `node --test` e 7
+guardas estruturais sob pytest.
+
+Duas coisas custaram tempo e estão travadas por teste — ver o documento de
+evidência: `web_video_server` não faz percent-decode de `topic`, e um `<img>`
+com MJPEG não dispara `load` no Firefox.
+
 ### F3b — Painéis azul e verde por dados
 
 - **Azul:** duas câmeras estáticas (isométrica e topo) nos `worlds/*.sdf`
@@ -302,22 +317,77 @@ deste trabalho (regra 7 do CLAUDE.md).
 
 ## 8. Pontos abertos, a confirmar na implementação
 
-1. `rosbridge_suite` 2.x expõe ações ROS 2 (`send_action_goal`)? Se sim, o relay
-   do F4 fica menor.
+1. ~~`rosbridge_suite` 2.x expõe ações ROS 2 (`send_action_goal`)?~~
+   **RESPONDIDO no F1: sim.** A versão 2.7.0 registra `SendActionGoal`,
+   `ActionFeedback`, `ActionResult` e `AdvertiseAction` no startup. O relay do
+   F4 pode encolher — mas confirmar com uma meta longa de verdade antes de
+   apagar o plano B: registrar capacidade não é entregar feedback.
 2. Compressão PNG do rosbridge é suficiente para o `/map` do maze11?
-3. `web_video_server` aceita QoS reliable no `/demo/camera/image_raw` sem
-   reconfiguração? (o tópico é reliable de propósito — ver §3)
+   (ainda aberto; `png_compression: true` já está ligado em `cockpit.launch.py`)
+3. ~~`web_video_server` aceita QoS reliable no `/demo/camera/image_raw`?~~
+   **RESPONDIDO no F1: sim, sem reconfiguração.** 6,4 MB em 6 s de MJPEG e
+   `/snapshot` devolvendo JPEG 640x480.
 4. Enquadramento das duas câmeras estáticas contra a pegada de 11,6 m.
+5. **Novo:** o bundle foi verificado no Firefox. O kiosk do M3 é Chromium; a
+   ressalva de cache do `<img>` em `config.js` vem da literatura e não foi
+   medida.
 
 ---
 
 ## 9. Onde retomar
 
-Nada foi implementado. A árvore está limpa exceto por `cockpit-division-view.png`
-(untracked, a imagem de referência do layout — versionar junto com o F1).
+F1 e **F3b** estão fechados (24/08/2026). Evidência do F3b, incluindo o controle
+de simulação, o controle de câmera, a identidade Toradex e os números de
+qualidade de imagem: **`docs/results/cockpit-web-f3b.md`**. Guia operacional
+(rodar, painéis, controles, cenários, armadilhas): **`docs/guia-cockpit.md`**.
 
-Próximo passo: **F1**, começando por `docker/compose.host.yml` (serviços
-`rosbridge`, `web_video_server`, `hmi`) e pelo esqueleto de `hmi/`.
+O que existe hoje, na tela:
 
-Antes de escrever qualquer coisa, reler:
-`.ai/AGENTS.md` §5.7 (requisitos do HMI) e §4 (árvore reservada).
+| Região | Fonte | Controles |
+| --- | --- | --- |
+| azul, cena | duas câmeras estáticas do mundo | iso/topo; girar, inclinar, mover, zoom, recentrar |
+| verde, navegação | costmap, plano, laser, pegada, TF | clique manda meta; cancelar meta |
+| rosa, logs | `/rosout` + telemetria de `cmd_vel`/odom | — |
+| rosa claro, câmera | `/demo/camera/image_raw` | — |
+| barra | estado do link | play/pause/reset da simulação |
+
+### Próximo passo: F4 — controle manual
+
+É a única região da tela que ainda mente: os botões de seta e o E-STOP estão
+desenhados, alcançáveis por teclado, e **desligados**, com o motivo no `title`.
+Hoje o Nav2 é o único publicador em `/demo/cmd_vel`; um botão de teleop que
+também publicasse ali daria dois escritores não arbitrados no mesmo tópico, com
+o último a escrever ganhando e nenhum dos dois sabendo que perdeu. Fecha com
+`twist_mux` (Decisão 7), não com um mux escrito à mão no navegador.
+
+### Depois: F2 — kiosk no módulo
+
+Chromium em modo kiosk no Aquila, com aceleração de GPU, servindo este mesmo
+bundle. Três coisas ainda não medidas e que só o módulo responde:
+
+1. o bundle foi verificado no **Firefox**; o kiosk é Chromium, e a ressalva de
+   cache do `<img>` em `config.js` vem da literatura, não de medição;
+2. o MJPEG das câmeras de cena a 1600x1200 atravessando a Ethernet — o
+   parâmetro a baixar primeiro é a qualidade JPEG em `hmi/js/config.js`, que
+   degrada suavemente, e não a resolução do sensor, que desloca o
+   enquadramento em pixels;
+3. os serviços de simulação **não** existem no modo `deploy`: sem Gazebo, os
+   botões de play/pause/reset precisam sumir ou dizer por que não valem. Isso
+   ainda não foi tratado.
+
+### Restrições que não mudam
+
+- **O simulador nunca vai para o módulo.** O Gazebo é OGRE 2 e o AM69 só expõe
+  OpenGL ES 3.2 e Vulkan 1.2 (regra 1). "Controlar a simulação pelo cockpit"
+  é suportado; "rodar a simulação no módulo" não é, e nenhuma quantidade de
+  código na UI muda isso.
+- **O navegador não fala tipos do Gazebo.** O rosbridge monta o pedido
+  importando o pacote de interfaces dentro do container do cockpit, que não tem
+  `ros_gz_interfaces` — e no modo `deploy` nem faria sentido ter. A fronteira é
+  `std_srvs`; a tradução mora no `sim_control_relay`, do lado do simulador.
+- **`go2_description` é vendorizado e não se toca**, nem para pendurar uma
+  câmera no tronco.
+
+Antes de escrever qualquer coisa, reler `.ai/AGENTS.md` §5.7 (requisitos do HMI)
+e §4 (árvore reservada), e `docs/results/cockpit-web-f3b.md` (as armadilhas
+medidas).

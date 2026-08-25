@@ -1,0 +1,86 @@
+/*
+ * The five-region grid.
+ *
+ * Contract: docs/ml35/cockpit-division-view.png. The ratios below are measured
+ * from that image (left column 637 px of 848, rows 347 / 144 / 50 of 594), not
+ * chosen by eye — the image is the approved layout and this file is where it
+ * becomes real.
+ *
+ *   +---------------------------+--------+
+ *   |          scene            |  nav   |
+ *   +---------------------------+--------+
+ *   |           log             | camera |
+ *   +---------------------------+--------+
+ *   |            control bar             |
+ *   +------------------------------------+
+ *
+ * 100dvh, not 100vh: on the kiosk the viewport is fixed, but on the developer
+ * workstation a browser chrome bar would otherwise push the control bar off the
+ * bottom edge, and the bar is where the operator looks for connection state.
+ */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg-root);
+  color: var(--text);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  overflow: hidden;
+}
+
+.cockpit {
+  display: grid;
+  height: 100dvh;
+  padding: var(--gap);
+  gap: var(--gap);
+  grid-template-columns: 3.35fr 1fr;
+  grid-template-rows: 2.4fr 1fr minmax(48px, 0.36fr);
+  grid-template-areas:
+    "scene  nav"
+    "log    camera"
+    "bar    bar";
+}
+
+.cockpit > [data-area="scene"] {
+  grid-area: scene;
+}
+.cockpit > [data-area="nav"] {
+  grid-area: nav;
+}
+.cockpit > [data-area="log"] {
+  grid-area: log;
+}
+.cockpit > [data-area="camera"] {
+  grid-area: camera;
+}
+.cockpit > [data-area="bar"] {
+  grid-area: bar;
+}
+
+/*
+ * Below ~900 px the right column stops being usable as a video/canvas surface,
+ * so the layout stacks instead of shrinking every panel below legibility. The
+ * kiosk target is a landscape DisplayPort screen and never reaches this, but a
+ * developer opening the cockpit on half a laptop screen does.
+ */
+@media (max-width: 900px) {
+  .cockpit {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1.6fr 1fr 1fr 1fr minmax(48px, auto);
+    grid-template-areas:
+      "scene"
+      "nav"
+      "camera"
+      "log"
+      "bar";
+  }
+}

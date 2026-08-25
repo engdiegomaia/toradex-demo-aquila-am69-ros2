@@ -1,0 +1,20 @@
+{
+  "name": "demo-aquila-cockpit",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cockpit web bundle. Declares module format and the test command; it is NOT a dependency manifest — see the note below.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\""
+  },
+  "//": [
+    "'dependencies' is absent on purpose (plano-cockpit-web.md Decisao 5).",
+    "There is no npm install, no bundler and no node_modules: the bundle is",
+    "plain ES modules copied verbatim into an nginx image that also builds for",
+    "arm64, and the npm supply chain is exactly what should not travel to the",
+    "module. This file exists so that node treats .js as ESM when running the",
+    "tests, and so `npm test` has a meaning. Adding a dependency here means",
+    "reopening that decision, not just editing a line."
+  ]
+}

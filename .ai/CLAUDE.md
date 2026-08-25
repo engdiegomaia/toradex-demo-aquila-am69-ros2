@@ -132,6 +132,24 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   pelo seletor acoplado `ROBOT_TYPE=quadruped|diffdrive`. O HIL Ethernet foi
   executado em 24/08 com Nav2 + perception no AM69: câmera e LiDAR exigiram
   correções de QoS para amostras fragmentadas, e uma meta curta fechou em 28 s.
+- **Cockpit web** — trilha paralela, plano em `docs/ml35/plano-cockpit-web.md`.
+  **F1 e F3b fechados em 24/08/2026**: as cinco regiões da tela ao vivo, clique
+  no mapa vira meta aceita pelo Nav2, play/pause/reset da simulação e controle
+  das câmeras de cena a partir do cockpit, e a identidade Toradex aplicada
+  (fundo branco, `#00508c`, `#96c837`, `#ff5a00`). Evidência em
+  `docs/results/cockpit-web-f3b.md`. **Próximo: F4**, controle manual atrás do
+  `twist_mux` — as setas da barra estão desligadas de propósito até lá.
+  Duas invariantes que saíram do F3b, cada uma paga com uma sessão de
+  depuração: (a) o navegador **não** pode chamar serviço com tipo do Gazebo —
+  o rosbridge importa o pacote de interfaces dentro do container do cockpit,
+  que não tem `ros_gz_interfaces` e no módulo nunca terá; use a fachada
+  `std_srvs` do `sim_control_relay`; (b) "iniciar a simulação **no target**"
+  não existe sob a regra 1 — só "controlar do cockpit a simulação do host".
+  Em 24/08 o **cockpit web F1** fechou no host: serviços `cockpit`
+  (rosbridge + web_video_server) e `hmi` (nginx) em `compose.host.yml`, bundle em
+  `hmi/` sem etapa de build, câmera ao vivo e reconexão automática. Plano e
+  fases em `docs/ml35/plano-cockpit-web.md`; evidência em
+  `docs/results/cockpit-web-f1.md`. Próxima: F3b.
   O portão de 8 m segue aberto: 0 metas no protocolo 420/200 s, apesar de 8,31 m
   percorridos sem queda. Evidência em `docs/results/ml35-hil-ethernet.md` e
   estado exato em `docs/ml35/estado-fases.md`.

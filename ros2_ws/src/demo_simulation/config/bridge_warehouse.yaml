@@ -147,3 +147,44 @@
   ros_type_name: "sensor_msgs/msg/Imu"
   gz_type_name: "gz.msgs.IMU"
   direction: GZ_TO_ROS
+
+# --- Cameras de cena do cockpit (painel azul, ML3.5 F3b) ---------------------
+#
+# Duas vistas externas do mundo, spawnadas por launch/scene_cameras.launch.py.
+# Nao pertencem ao robo: sao a camera do OPERADOR, e existem para responder "o
+# robo se mexeu?" sem depender de nenhum no do stack.
+#
+# O camera_info de cada uma e bridged por um motivo que NAO e geometria: e o
+# batimento cardiaco do painel. Um <img> ligado a um multipart/x-mixed-replace
+# nunca dispara `load` e reporta complete=false enquanto o stream esta saudavel
+# (medido no Firefox em 24/08/2026), entao o painel nao consegue saber pelo
+# proprio elemento se ha video. Ele decide pela frescura do camera_info, que
+# chega no mesmo ritmo da imagem e custa alguns bytes. Sem estes dois topicos o
+# painel azul mostra "sem sinal" por cima de video que esta correndo.
+#
+# Sem qos_profile: SENSOR_DATA de proposito. Mesmo raciocinio da imagem da
+# camera do robo — no enlace Ethernet do HIL os fragmentos de 800x600 RGB se
+# perdiam por completo como best-effort. Confiavel e o padrao da bridge.
+- ros_topic_name: "/demo/cockpit/scene_iso/image_raw"
+  gz_topic_name: "/cockpit/scene_iso/image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/demo/cockpit/scene_iso/camera_info"
+  gz_topic_name: "/cockpit/scene_iso/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/demo/cockpit/scene_top/image_raw"
+  gz_topic_name: "/cockpit/scene_top/image"
+  ros_type_name: "sensor_msgs/msg/Image"
+  gz_type_name: "gz.msgs.Image"
+  direction: GZ_TO_ROS
+
+- ros_topic_name: "/demo/cockpit/scene_top/camera_info"
+  gz_topic_name: "/cockpit/scene_top/camera_info"
+  ros_type_name: "sensor_msgs/msg/CameraInfo"
+  gz_type_name: "gz.msgs.CameraInfo"
+  direction: GZ_TO_ROS

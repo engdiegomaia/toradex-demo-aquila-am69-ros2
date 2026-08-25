@@ -1,0 +1,679 @@
+/*
+ * Panel chrome, freshness dots, log list and control bar.
+ *
+ * Every panel carries the same header: a title, the ROS topic it draws from,
+ * and a freshness dot. The topic name is on screen on purpose — when a panel is
+ * blank during a demo the first question is always "is that topic arriving?",
+ * and the answer should not require a terminal.
+ */
+
+.panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  /* Sobre fundo branco a borda sozinha nao separa painel de pagina; a sombra e
+     o que faz cada bloco existir. No tema escuro anterior ela era invisivel e
+     por isso nao existia. */
+  box-shadow: var(--shadow-panel);
+}
+
+/* Panel identity stripe — the sketch's block colour, reduced to an edge. */
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--panel-hue, var(--border-strong));
+}
+
+.panel[data-panel="scene"] {
+  --panel-hue: var(--hue-scene);
+}
+.panel[data-panel="nav"] {
+  --panel-hue: var(--hue-nav);
+}
+.panel[data-panel="camera"] {
+  --panel-hue: var(--hue-camera);
+}
+.panel[data-panel="log"] {
+  --panel-hue: var(--hue-log);
+}
+
+.panel__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--pad);
+  padding: 6px var(--pad) 6px calc(var(--pad) + 4px);
+  background: var(--bg-panel-head);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel__title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.panel__source {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel__body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-inset);
+}
+
+/* --- freshness dot -------------------------------------------------------
+ * Three states, and the difference between them matters operationally:
+ *   never — the topic has produced nothing since the page loaded;
+ *   live  — a sample arrived within the panel's staleness window;
+ *   stale — samples arrived earlier and then stopped.
+ * "stale" is the one that catches a dead simulator, so it must not look like
+ * "never".
+ */
+.dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--idle);
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.dot[data-state="live"] {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.dot[data-state="stale"] {
+  background: var(--warn);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 22%, transparent);
+}
+.dot[data-state="never"] {
+  background: var(--idle);
+}
+
+/* --- image panels --------------------------------------------------------- */
+
+.stream {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--bg-inset);
+}
+
+.stream[hidden] {
+  display: none;
+}
+
+/* --- overlay: no-signal / pending notice ---------------------------------- */
+
+.notice {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  justify-content: center;
+  padding: var(--pad);
+  text-align: center;
+  color: var(--text-faint);
+  pointer-events: none;
+  /* Opaque enough to cover the <img> alt text underneath. An overlay that lets
+     the alt string show through reads as a broken page rather than a reported
+     state. */
+  background: color-mix(in srgb, var(--bg-inset) 92%, transparent);
+}
+
+.notice[hidden] {
+  display: none;
+}
+
+.notice__headline {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.notice__detail {
+  max-width: 46ch;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  /* The notice text carries a topic name on its own line. Without pre-line the
+     \n collapses and the topic runs into the explanation. */
+  white-space: pre-line;
+}
+
+/* --- canvas panels --------------------------------------------------------
+ * The nav map and the detection overlay are both canvases sized by CSS and
+ * given a device-pixel backing store in JS. They MUST have a definite CSS size
+ * here: a canvas with no layout size reports 0x0 to getBoundingClientRect, the
+ * backing store is set to 1x1, and everything draws into a pixel nobody sees —
+ * with no error anywhere.
+ */
+
+.canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.canvas--clickable {
+  cursor: crosshair;
+}
+
+/* Detection boxes, over the video. pointer-events: none so the canvas never
+   swallows a click meant for the panel underneath. */
+.overlay {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+/* --- nav HUD --------------------------------------------------------------
+ * Goal state as one line of text at the foot of the map. Deliberately not a
+ * toast: the operator needs the CURRENT state at a glance during a demo, not a
+ * history of notifications that have already faded.
+ */
+.hud {
+  position: absolute;
+  right: var(--pad);
+  bottom: var(--pad);
+  left: var(--pad);
+  margin: 0;
+  padding: 4px 8px;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  background: color-mix(in srgb, #ffffff 86%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.hud[data-state="sent"],
+.hud[data-state="running"] {
+  color: var(--accent);
+}
+.hud[data-state="ok"] {
+  color: var(--ok);
+}
+.hud[data-state="fail"],
+.hud[data-state="lost"] {
+  color: var(--bad);
+}
+.hud[data-state="cancelled"] {
+  color: var(--warn);
+}
+
+/* --- view pad (camera de cena) --------------------------------------------
+ * Sobreposto ao canto inferior direito da imagem. Grade de 4 colunas: girar e
+ * inclinar em cima, mover no meio, zoom e recentrar embaixo — agrupados pelo
+ * que fazem, nao pelo que cabe.
+ *
+ * A superficie e escura mesmo num cockpit claro, e de proposito: ela flutua
+ * sobre um render 3D cujo brilho muda com o cenario, e so uma placa escura
+ * mantem contraste tanto sobre o chao claro do armazem quanto sobre a sombra
+ * das paredes do labirinto.
+ */
+
+.viewpad {
+  position: absolute;
+  right: var(--pad);
+  bottom: var(--pad);
+  display: grid;
+  grid-template-columns: repeat(4, 26px);
+  gap: 3px;
+  padding: 5px;
+  background: color-mix(in srgb, #0d1b26 62%, transparent);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: var(--radius-sm);
+  backdrop-filter: blur(2px);
+}
+
+.viewpad__btn {
+  height: 24px;
+  padding: 0;
+  font: inherit;
+  font-size: var(--text-xs);
+  line-height: 1;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background var(--duration-fast) var(--ease-out);
+}
+
+.viewpad__btn:hover {
+  background: color-mix(in srgb, var(--brand-blue) 70%, white);
+}
+
+.viewpad__btn:active {
+  background: var(--brand-orange);
+  border-color: var(--brand-orange);
+}
+
+.viewpad__btn:focus-visible {
+  outline: 2px solid var(--brand-green);
+  outline-offset: 1px;
+}
+
+/* Sem simulador ouvindo, o pad diz isso em vez de aceitar cliques que somem. */
+.viewpad[data-enabled="false"] {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+.viewpad__btn--wide {
+  grid-column: span 2;
+  letter-spacing: 0.03em;
+}
+
+/* --- header switch (scene iso/topo, cancel goal) --------------------------- */
+
+.switch {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  align-self: center;
+}
+
+.switch__btn {
+  align-self: center;
+  padding: 2px 9px;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    color var(--duration-fast) var(--ease-out),
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out);
+}
+
+.switch__btn:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
+.switch__btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* aria-pressed is the source of truth for "which view is showing", so the
+   style keys off it rather than off a second class that could drift from it. */
+.switch__btn[aria-pressed="true"] {
+  color: var(--accent);
+  background: var(--accent-dim);
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.switch__btn--alert {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+
+.switch__btn[hidden] {
+  display: none;
+}
+
+/* --- log panel ------------------------------------------------------------ */
+
+.telemetry {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px var(--pad);
+  padding: 6px calc(var(--pad) + 4px);
+  background: var(--bg-panel-head);
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.telemetry__item {
+  display: flex;
+  gap: 5px;
+  align-items: baseline;
+}
+
+.telemetry__label {
+  color: var(--text-faint);
+}
+
+.telemetry__value {
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.log {
+  height: 100%;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  list-style: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+.log__row {
+  display: grid;
+  grid-template-columns: 8ch 5ch minmax(9ch, 18ch) 1fr;
+  gap: var(--pad);
+  padding: 1px calc(var(--pad) + 4px);
+  white-space: nowrap;
+}
+
+.log__row:nth-child(even) {
+  background: color-mix(in srgb, var(--bg-panel) 55%, transparent);
+}
+
+.log__time {
+  color: var(--text-faint);
+  font-variant-numeric: tabular-nums;
+}
+
+.log__level {
+  font-weight: 600;
+}
+
+.log__row[data-level="debug"] .log__level {
+  color: var(--text-faint);
+}
+.log__row[data-level="info"] .log__level {
+  color: var(--accent);
+}
+.log__row[data-level="warn"] .log__level {
+  color: var(--warn);
+}
+.log__row[data-level="error"] .log__level,
+.log__row[data-level="fatal"] .log__level {
+  color: var(--bad);
+}
+
+.log__node {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+}
+
+.log__msg {
+  overflow: hidden;
+  color: var(--text);
+  text-overflow: ellipsis;
+}
+
+/* --- control bar ---------------------------------------------------------- */
+
+/*
+ * A barra e a UNICA superficie escura do cockpit: as duas marcas sao PNG de
+ * tinta branca, e sobre branco elas sumiriam.
+ *
+ * Em vez de duplicar cada regra de botao e badge numa variante "na barra", os
+ * tokens sao redefinidos aqui dentro. Tudo que ja lia --text/--border/--accent
+ * passa a ler o valor de cima do azul sem nenhuma alteracao. Um --bad novo e
+ * necessario: #c0261b sobre #00508c e ilegivel, e o vermelho de falha e
+ * exatamente o que nao pode desaparecer.
+ */
+.bar {
+  --text: #ffffff;
+  --text-dim: rgba(255, 255, 255, 0.8);
+  --text-faint: rgba(255, 255, 255, 0.62);
+  --border: rgba(255, 255, 255, 0.24);
+  --border-strong: rgba(255, 255, 255, 0.4);
+  --bg-panel-head: rgba(255, 255, 255, 0.12);
+  --accent: #ffffff;
+  --accent-dim: rgba(255, 255, 255, 0.22);
+  --bad: #ff7062;
+
+  display: flex;
+  align-items: center;
+  gap: var(--pad);
+  padding: 0 var(--pad);
+  overflow-x: auto;
+  color: var(--text);
+  background: var(--bg-bar);
+  border: 1px solid var(--bg-bar);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-panel);
+}
+
+.brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px 5px 4px;
+  border-right: 1px solid var(--border);
+}
+
+/* Altura fixa, largura livre: as duas marcas tem proporcoes bem diferentes
+   (720x244 e 520x137) e travar a largura deformaria uma das duas.
+
+   As alturas sao diferentes de proposito. Igualar a caixa nao iguala a
+   presenca: a marca da Toradex tem descida e um ponto acima do texto, entao ao
+   mesmo numero de pixels ela LE menor que o ROS. Os 34/22 px abaixo foram
+   ajustados na tela ate as duas pesarem igual. */
+.brand__logo {
+  display: block;
+  width: auto;
+  height: 34px;
+}
+
+.brand__logo--ros {
+  height: 22px;
+}
+
+.brand__rule {
+  width: 1px;
+  height: 26px;
+  background: var(--border);
+}
+
+.brand__sub {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  letter-spacing: 0.04em;
+}
+
+.bar__group {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+}
+
+.bar__label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/*
+ * Estado da simulacao. Nao e o eco do ultimo clique: vem do /clock, e por isso
+ * pode discordar do botao que acabou de ser apertado — que e precisamente o
+ * caso em que o operador precisa saber.
+ */
+.bar__state {
+  min-width: 9ch;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+.bar__state[data-state="rodando"] {
+  color: var(--ok);
+}
+.bar__state[data-state="pausado"] {
+  color: var(--warn);
+}
+.bar__state[data-state="sem simulador"] {
+  color: var(--bad);
+}
+
+.bar__spacer {
+  flex: 1 1 auto;
+  min-width: var(--pad);
+}
+
+.btn {
+  min-width: 42px;
+  padding: 7px 12px;
+  font: inherit;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+  background: var(--bg-panel-head);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background var(--duration-fast) var(--ease-out),
+    border-color var(--duration-fast) var(--ease-out),
+    transform var(--duration-fast) var(--ease-out);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.btn:disabled {
+  color: var(--text-faint);
+  background: transparent;
+  border-color: var(--border);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+
+/* Reset do mundo. Laranja e nao vermelho: destroi o estado da simulacao, mas
+   nao e a parada de emergencia, e as duas nao podem parecer a mesma coisa. */
+.btn--warn {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 65%, transparent);
+}
+
+.btn--warn:hover:not(:disabled) {
+  color: #fff;
+  background: var(--warn);
+  border-color: var(--warn);
+}
+
+/* Armado: um clique de reset por engano no meio da demo custa a demo, entao o
+   primeiro clique so arma e o segundo executa. */
+.btn--warn[data-armed="true"] {
+  color: #fff;
+  background: var(--warn);
+  border-color: var(--warn);
+  min-width: 9ch;
+}
+
+.btn--stop {
+  color: #fff;
+  background: color-mix(in srgb, var(--bad) 82%, #000);
+  border-color: var(--bad);
+}
+
+.btn--stop:disabled {
+  color: var(--text-faint);
+  background: transparent;
+  border-color: var(--border);
+}
+
+/* --- connection badge ------------------------------------------------------ */
+
+.badge {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+}
+
+.badge[data-state="connected"] {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 55%, transparent);
+}
+.badge[data-state="connecting"] {
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 55%, transparent);
+}
+.badge[data-state="disconnected"] {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 55%, transparent);
+}
+
+.badge__detail {
+  color: var(--text-faint);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.build {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--text-faint);
+}
+
+/* A disconnected cockpit must be obvious from across the room, not from the
+   badge alone — the panels keep showing their last frame otherwise. */
+.cockpit[data-link="disconnected"] {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--bad) 60%, transparent);
+}
