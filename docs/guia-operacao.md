@@ -968,6 +968,29 @@ MODULE_IP=<ip real> HOST_IP=<ip real> ./scripts/module.sh sync
 Saída permanente: conserte o `.env`. Confira o valor real com
 `getent hosts <MODULE_HOST>` e `ip route get <ip do módulo>`.
 
+### 19. `/demo/sim/reset` num quadrúpede em marcha o derrubava
+
+`/demo/sim/reset` (`std_srvs/Trigger`, servido pelo `sim_control_relay`)
+teleporta o robô de volta à pose de nascimento do cenário. Chamado direto por
+`ros2 service call`, sem o cockpit, num quadrúpede que está andando: até
+26/08/2026 ele podia colapsar (a altura caía de 0,337 m para 0,162 m em 1 s) ou
+arrastar-se girando por dezenas de metros perseguindo a orientação de antes do
+reset — os dois defeitos são silenciosos, nada em log ou na resposta do serviço
+acusava.
+
+A causa e a correção estão detalhadas em `docs/guia-cockpit.md`, armadilha 9
+(`SetEntityPose` preserva velocidade; `StateTrotting` reancora sua postura uma
+única vez). O reset agora para o gait antes de teleportar e o retoma depois —
+por isso, num quadrúpede, a chamada leva alguns segundos a mais do que num
+diff-drive antes de responder. Se o `Trigger` voltar `success=True` mas a
+mensagem mencionar `NAO foi reancorado`, o robô ficou preso em pé sem aceitar
+comando: chame `ros2 service call /demo/gait/resume std_srvs/srv/Trigger`
+manualmente. Esse serviço só existe na planta quadrúpede — no diff-drive a
+mensagem do reset diz `sem /demo/gait/hold (planta sem gait)`, e isso não é
+falha.
+
+Evidência: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
+
 ## 10. O módulo Aquila AM69
 
 Tudo aqui é `arm64` sobre Torizon OS, e **nada gráfico** (regra 1: o AM69 expõe
