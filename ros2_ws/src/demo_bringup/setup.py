@@ -33,6 +33,7 @@ setup(
             # see the module docstring for why they do not survive a container
             # boundary.
             'wait_for_clock = demo_bringup.wait_for_clock:main',
+            'wait_for_tf = demo_bringup.wait_for_tf:main',
             # Exhibition loop. Stands in for Nav2 as the producer of
             # /demo/cmd_vel, so it lives with the commanders and not in
             # demo_simulation, which is part of the plant.

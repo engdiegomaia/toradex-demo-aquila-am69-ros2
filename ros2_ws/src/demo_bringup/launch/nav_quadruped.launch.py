@@ -50,6 +50,8 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.actions import LogInfo, RegisterEventHandler, Shutdown
+from launch.event_handlers import OnProcessExit
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import RewrittenYaml
@@ -297,16 +299,66 @@ def generate_launch_description() -> LaunchDescription:
         # intencao -- ver nav_control.launch.py.
     )
 
+    # Ultimo elo antes do Nav2, e o que faltava: a aresta odom -> base so
+    # existe quando a PRIMEIRA /demo/odom atravessa a fronteira de container.
+    # Sem este portao o Nav2 aposta na velocidade de descoberta do DDS -- e em
+    # 26/08 a aposta perdeu, o local_costmap nao ativou em 60 s e o gerenciador
+    # ABORTOU o bringup em definitivo. Ver o cabecalho de wait_for_tf.py.
+    wait_for_tf = Node(
+        package='demo_bringup',
+        executable='wait_for_tf',
+        name='wait_for_tf',
+        output='screen',
+        parameters=[{
+            'parent_frame': 'odom',
+            'child_frame': 'base',
+            'timeout_s': LaunchConfiguration('clock_timeout_s'),
+            # Consulta com Time() (instante comum mais recente), que nao usa o
+            # relogio do no -- entao ele nao precisa assinar /clock.
+            'use_sim_time': False,
+        }],
+    )
+
+    # Falha ALTO. Emitir o Nav2 mesmo assim reproduz exatamente o defeito que
+    # este portao existe para impedir, e o sintoma seria de novo "meta recusada"
+    # sem ninguem citar TF nem relogio.
+    def _gate(following, what):
+        def _on_exit(event, context):
+            if event.returncode == 0:
+                return following
+            return [
+                LogInfo(msg=f'[nav_quadruped] {what} falhou (codigo '
+                            f'{event.returncode}). Nav2 NAO sera iniciado.'),
+                Shutdown(reason=f'{what} nao satisfeito'),
+            ]
+        return _on_exit
+
+    # Cadeia de subida, cada elo condicionado ao anterior TERMINAR e nao a tempo
+    # decorrido -- mesma disciplina de quadruped.launch.py, que este arquivo nao
+    # seguia. Antes de 26/08/2026 os cinco nos abaixo eram emitidos JUNTOS, e
+    # `wait_for_clock` nao condicionava coisa alguma apesar do que o docstring
+    # dele promete. Era corrida, e ela foi perdida no AM69.
+    #
+    #   wait_for_clock  ->  wait_for_tf  ->  Nav2
+    #
+    # `odom_tf` e `cmd_vel_adapter` sobem de imediato, de proposito: e o odom_tf
+    # que PRODUZ a aresta que o wait_for_tf espera.
     return LaunchDescription([
         params_arg,
         use_sim_time_arg,
         clock_timeout_arg,
         map_identity_arg,
-        wait_for_clock,
         odom_tf,
         cmd_vel_adapter,
         target_monitor,
-        nav2_container,
-        navigation,
-        nav_control,
+        wait_for_clock,
+        RegisterEventHandler(event_handler=OnProcessExit(
+            target_action=wait_for_clock,
+            on_exit=_gate([wait_for_tf], 'wait_for_clock'),
+        )),
+        RegisterEventHandler(event_handler=OnProcessExit(
+            target_action=wait_for_tf,
+            on_exit=_gate([nav2_container, navigation, nav_control],
+                          'wait_for_tf'),
+        )),
     ])

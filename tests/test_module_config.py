@@ -145,3 +145,30 @@ def test_every_required_topic_survives_the_collection_filter() -> None:
             f'{topic} is required by verify but the collection filter '
             f'{patterns} drops it'
         )
+
+
+def test_verify_checks_that_nav2_is_active_and_not_merely_running() -> None:
+    """Topico existir nao e servico funcionar.
+
+    Em 26/08/2026 as tres etapas anteriores passaram inteiras contra um Nav2
+    cujo bringup havia ABORTADO: o `local_costmap` nao ativou porque a TF
+    `odom -> base` nao atravessou a fronteira em 60 s, e o gerenciador desistiu
+    em definitivo. `verify` retornou 0 e toda meta era recusada com
+    "Action server is inactive".
+    """
+    script = MODULE_SH.read_text(encoding='utf-8')
+
+    assert 'ros2 lifecycle get /bt_navigator' in script, (
+        'verify nao pergunta o estado de ciclo de vida do Nav2'
+    )
+
+    # A resposta tem de DECIDIR o resultado, nao so ser impressa.
+    tail = script[script.index('ros2 lifecycle get /bt_navigator'):]
+    decision = tail[:tail.index('return "${verify_failed}"')]
+    assert 'grep -q active' in decision
+    assert 'verify_failed=1' in decision
+
+    # E as etapas precisam estar renumeradas, senao o operador le "3/3" e
+    # conclui que a bateria acabou antes da etapa que importa.
+    for step in ('1/4', '2/4', '3/4', '4/4'):
+        assert f'say "{step}' in script, f'etapa {step} ausente'
