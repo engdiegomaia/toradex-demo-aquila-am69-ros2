@@ -161,6 +161,10 @@ export function createSimControls({ root, client, onNotice }) {
       // nascimento — o Nav2 perde a meta em curso e vê o robô saltar. Não é
       // destrutivo (o mundo e o relógio ficam), mas também não é algo que se
       // queira por clique acidental. Dois cliques.
+      //
+      // Num quadrúpede a chamada leva alguns segundos e é assim de propósito:
+      // o robô é PARADO antes do teleporte e reassentado depois. Teleportar um
+      // robô em marcha o derruba — ver GAIT_STOP_S em sim_control_relay.py.
       if (command === 'reset' && Date.now() > armedUntil) {
         armedUntil = Date.now() + RESET_ARM_MS;
         button.dataset.armed = 'true';

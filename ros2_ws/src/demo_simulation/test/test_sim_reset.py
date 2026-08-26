@@ -23,7 +23,15 @@ Dois guardas, e nenhum precisa de Gazebo:
      caminho, `_request('reset')` volta a existir e o teste cai;
   2. o launch resolve a pose de reposicao pela TABELA DO CENARIO, nao por (0,0).
      No labirinto (0,0) nao e a origem da area util, e repor ali devolveria o
-     robo para dentro de uma parede -- em silencio.
+     robo para dentro de uma parede -- em silencio;
+  3. o reset PARA o robo antes de teleportar e o reancora depois. Os dois
+     defeitos seguintes, medidos no mesmo dia, e os dois silenciosos:
+       - teleportar sem reancorar: o StateTrotting segue perseguindo a pose
+         anterior, o eixo de guinada satura em 100% dos ticks, o robo se
+         arrasta 0,87 m e COLAPSA a z=0,131 m contra 0,353 m de marcha;
+       - teleportar sem parar: `SetEntityPose` preserva a VELOCIDADE, e um robo
+         em marcha e solto de 0,15 m ainda viajando -- z de 0,337 m para
+         0,162 m em um segundo, com o fluxo de cmd_vel vivo.
 """
 
 import importlib.util
@@ -33,7 +41,6 @@ from demo_simulation.scenarios import spawn_pose
 from demo_simulation.sim_control_relay import _request
 
 from launch import LaunchContext
-from launch.actions import DeclareLaunchArgument
 
 import pytest
 
@@ -131,3 +138,69 @@ def test_planta_sem_height_cai_no_default_do_diffdrive(sim_control):
     params = sim_control._reset_pose(context)
     assert params['spawn_z'] == pytest.approx(sim_control.DEFAULT_RESET_Z)
     assert params['spawn_z'] == pytest.approx(0.1)
+
+
+# --- guarda 3: teleportar sem reancorar o gait ---------------------------
+
+RELAY = (
+    Path(__file__).resolve().parents[1]
+    / 'demo_simulation' / 'sim_control_relay.py'
+).read_text(encoding='utf-8')
+
+
+def test_o_robo_para_antes_do_teleporte_e_retoma_depois():
+    """
+    A ordem e o conteudo desta correcao, nao um detalhe de estilo.
+
+    Parar DEPOIS de teleportar nao serve: o teleporte preserva a velocidade, e
+    quem cai e o robo em marcha. Reancorar ANTES nao serve: o
+    StateTrotting::enter() le a pose corrente, que ainda e a velha.
+    """
+    assert 'HOLD_SERVICE' in RELAY
+    assert 'RESUME_SERVICE' in RELAY
+
+    parada = RELAY.index('gait = self._hold_gait()')
+    teleporte = RELAY.index('pose_request.entity.name')
+    retomada = RELAY.index('self._resume_gait(gait)}')
+    assert parada < teleporte < retomada
+
+
+def test_o_reset_espera_o_robo_parar_de_verdade():
+    """Sem espera, o hold e so uma chamada: o robo ainda esta em movimento."""
+    assert 'GAIT_STOP_S' in RELAY
+    assert 'time.sleep(GAIT_STOP_S)' in RELAY
+
+    parada = RELAY.index('gait = self._hold_gait()')
+    espera = RELAY.index('time.sleep(GAIT_STOP_S)')
+    teleporte = RELAY.index('pose_request.entity.name')
+    assert parada < espera < teleporte
+
+
+def test_a_ausencia_do_gait_nao_reprova_o_reset():
+    """
+    Na planta diferencial nao existe gait, e isso e caminho normal.
+
+    Se a reancoragem virar obrigatoria, o reset do diffdrive passa a falhar --
+    e o cockpit passa a mostrar erro num reset que funcionou.
+    """
+    assert 'GAIT_TIMEOUT_S' in RELAY
+    assert 'nada a parar' in RELAY
+
+
+def test_a_falha_de_teleporte_nao_deixa_o_robo_preso_em_fixed_stand():
+    """
+    Todo caminho de saida depois do hold tem de retomar.
+
+    Um robo deixado em FIXEDSTAND nao aceita comando nenhum, e nada em log diz
+    por que a demo parou de responder.
+    """
+    saidas = RELAY.count('self._resume_gait(gait)')
+    assert saidas == 3, (
+        f'esperados 3 caminhos de retomada (timeout, recusa, sucesso), '
+        f'encontrados {saidas}'
+    )
+
+
+def test_a_falha_de_reancoragem_nao_pode_ser_silenciosa():
+    """Um reset que teleporta e nao reancora deixa o robo se arrastando."""
+    assert 'o gait NAO foi reancorado' in RELAY
