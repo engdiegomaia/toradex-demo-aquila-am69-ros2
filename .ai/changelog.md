@@ -5,6 +5,49 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-26 (tarde) — o botão de reset do cockpit apagava o robô
+
+O reset da simulação usava `ControlWorld.reset.all`. Essa variante devolve o
+mundo ao SDF de origem — e o robô, mais as duas câmeras de cena, são INSERIDOS
+depois da carga por `ros_gz_sim create`, logo não estão nele. Um clique deletava
+a planta: `/joint_states` 999 Hz → morto, `/demo/imu` 996 Hz → morto,
+`/demo/odom` 49,6 Hz → morto, `gz model -m demo_robot` → `No model named`.
+
+**O que torna isto grave não é a perda, é a aparência.** O relógio seguia a
+999 Hz e o Gazebo deixava os sensores órfãos publicando a 10 Hz, então o cockpit
+ficava inteiro verde — relógio andando, câmera com imagem, cena com imagem —
+apontando para um robô que não existia mais. Nenhuma linha de log acusava.
+Recuperar exigia reiniciar o container `sim`.
+
+**A correção repõe em vez de resetar.** `/demo/sim/reset` teleporta o robô para
+a pose de nascimento do cenário, pelo mesmo `/demo/sim/set_entity_pose` que as
+câmeras de cena já usavam, e a pose vem da tabela de `scenarios.py` com a mesma
+precedência do `create`. O mundo não é tocado e o relógio **não** volta a zero:
+um salto de tempo para trás invalidaria o buffer de TF do Nav2 e o
+`controller_manager`, e "põe o robô no início" não pede isso. Verificado: robô
+volta de (2,0; −1,5) para (0,00003; −0,010), reassenta em 0,3507 m sozinho, e os
+cinco modelos seguem no mundo.
+
+**Telemetria do alvo no cockpit.** `target_monitor` publica CPU, memória,
+temperatura e load do AM69 em `/demo/target/status`, e os eixos comandados em
+`/demo/target/ops_log` — o painel de logs deixou de depender de `/rosout` bruto.
+Temperatura conferida contra o sensor (34,974 °C reportado, `thermal_zone1/6` em
+34498 milésimos no mesmo instante). Custo: 4,3% de um núcleo em 800%.
+
+**Protocolo antes de sintonia: `scripts/nav_campaign.py`.** Intercala `A B A B`
+em vez de blocar e repõe robô e costmap entre pernas — o elo que faltava entre
+`nav_trial.py` e `summarize_trials.py`. Só é possível por causa do conserto
+acima: com o reset antigo, a perna 2 mediria um mundo sem robô.
+
+**Hipótese descartada por medição:** religar o `<img>` do MJPEG quando o
+publicador volta. Através de um restart do `sim`, os bytes da mesma resposta HTTP
+crescem sem interrupção (1,01 → 4,61 MB). O `web_video_server` mantém inscrição
+e resposta abertas.
+
+Evidência: `docs/results/cockpit-reset-nao-destrutivo.md`.
+
+---
+
 ## 2026-08-26 (madrugada) — o piso ocioso de CPU do módulo: limite fechado, movimento não
 
 O gargalo de CPU do AM69, aberto desde 24/08, **está fechado e medido**. O robô
