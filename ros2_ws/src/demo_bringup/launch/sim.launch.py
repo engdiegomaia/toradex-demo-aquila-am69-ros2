@@ -95,6 +95,7 @@ def _launch_plant(context, *args, **kwargs):
         launch_arguments={
             'world': world,
             'gui': LaunchConfiguration('gui'),
+            'scene_cameras': LaunchConfiguration('scene_cameras'),
         }.items(),
     )]
 
@@ -121,6 +122,13 @@ def generate_launch_description() -> LaunchDescription:
         'gui',
         default_value='true',
         description='Run Gazebo with its GUI. Set false for headless runs.',
+    )
+
+    scene_cameras_arg = DeclareLaunchArgument(
+        'scene_cameras',
+        default_value='true',
+        description='Spawn cockpit scene cameras when the selected plant '
+                    'supports them.',
     )
 
     # F5 validated the quadruped plant with Nav2 on the host and the Aquila.
@@ -206,6 +214,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         world_arg,
         gui_arg,
+        scene_cameras_arg,
         robot_type_arg,
         OpaqueFunction(function=_check_robot_type),
         OpaqueFunction(function=_launch_plant),

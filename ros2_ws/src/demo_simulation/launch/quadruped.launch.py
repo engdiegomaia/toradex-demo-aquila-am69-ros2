@@ -186,6 +186,13 @@ def generate_launch_description() -> LaunchDescription:
         description='Run Gazebo with its GUI. Set false for headless runs.',
     )
 
+    scene_cameras_arg = DeclareLaunchArgument(
+        'scene_cameras',
+        default_value='true',
+        description='Spawn the cockpit scene cameras. Set false for navigation '
+                    'measurements without the extra render cost.',
+    )
+
     # GAZEBO:=true selects xacro/gazebo.xacro, which declares the
     # <ros2_control> block with the gz_quadruped_hardware/GazeboSimSystem
     # plugin and includes the foot force sensors. Without it the xacro expands
@@ -360,6 +367,10 @@ def generate_launch_description() -> LaunchDescription:
             FindPackageShare('demo_simulation'), 'launch',
             'scene_cameras.launch.py',
         ])),
+        launch_arguments={
+            'scene_cameras': LaunchConfiguration('scene_cameras'),
+            'world': LaunchConfiguration('world'),
+        }.items(),
     )
 
     # Ponte de serviços do Gazebo: play/pause/reset do cockpit, e o set_pose que
@@ -381,6 +392,7 @@ def generate_launch_description() -> LaunchDescription:
         yaw_arg,
         height_arg,
         gui_arg,
+        scene_cameras_arg,
         # ANTES de qualquer no: se a malha externa nao esta la, nao ha ensaio
         # valido a fazer, e o modo de falha silenciosa e caro (ver o docstring).
         OpaqueFunction(function=_check_external_models),
