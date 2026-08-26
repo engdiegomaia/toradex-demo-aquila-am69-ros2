@@ -88,6 +88,20 @@ robô continua girando em vez de transladar. Isso não era efeito colateral da C
 2. **Trocar a métrica primária** para razão de trabalho de `cmd_vx` e fração de
    `vx` ≈ 0. Deram 0,6% e 0,6% em duas corridas distintas, contra 2,4× de
    dispersão na velocidade média, e medem diretamente o sintoma.
+
+**Instrumentação entregue nesta retomada:** `scripts/nav_trial.py` agora
+imprime e grava o ensaio com as duas métricas, usando as bandas fixas
+`|cmd_vx| <= 0,005 m/s` (quase zero) e `cmd_vx > 0,05 m/s` (trabalho para
+frente). `scripts/summarize_trials.py` resume replicatas por condição sem
+agrupar amostras, mostrando `n`, mediana e faixa observada. O resumo reproduz
+os números históricos (RAW 5,8% de trabalho; comprimido 0,6%), portanto a
+definição nova não muda a linha de base.
+
+O rebuild nativo da imagem arm64 foi concluído no Aquila e os containers foram
+recriados. `module.sh verify` voltou a **3/3**, e o log do `route_server` da
+imagem nova contém somente `AdjustSpeedLimit` (não contém o antigo
+`ReroutingService`). O ensaio n≥3/A-B continua deliberadamente pendente de
+orçamento: cada perna dura até 420 s e a campanha completa exige seis pernas.
 3. **Só então MPPI** (`PathAlignCritic` 14,0 × `PathAngleCritic` 2,0), agora em
    ensaio limpo, com o costmap medido a cada condição.
 

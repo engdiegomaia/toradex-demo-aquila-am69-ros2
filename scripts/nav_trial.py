@@ -71,7 +71,7 @@ from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 
-from trial_timing import timing_spans
+from trial_timing import timing_spans, vx_metrics
 
 
 # Raio circunscrito do tronco do Go2. A folga do lidar até a parede menos isto é
@@ -385,6 +385,8 @@ def summarise(trial: NavTrial, verdict: str, stats: dict | None) -> None:
     net = float(math.hypot(xs[-1] - xs[0], ys[-1] - ys[0]))
     elapsed, wall_elapsed, rtf = timing_spans(rows)
     cmd_vx = np.array([r['cmd_vx'] for r in rows])
+    vx_zero, vx_duty = vx_metrics(rows, trial.args.vx_zero_threshold,
+                                   trial.args.vx_work_threshold)
     ranges = np.array([r['min_range_m'] for r in rows])
     ranges = ranges[np.isfinite(ranges)]
 
@@ -395,9 +397,11 @@ def summarise(trial: NavTrial, verdict: str, stats: dict | None) -> None:
     print(f'fator de tempo real      {rtf:.3f}')
     print(f'caminho percorrido       {path:.2f} m')
     print(f'deslocamento líquido     {net:.2f} m')
-    print(f'velocidade média         {path / elapsed:.4f} m/s'
-          '     <- o número que decide')
+    print(f'velocidade média         {path / elapsed:.4f} m/s')
     print(f'cmd_vx pico / médio      {cmd_vx.max():.3f} / {cmd_vx.mean():.4f} m/s')
+    print(f'cmd_vx ~ 0               {100.0 * vx_zero:.1f}% das amostras')
+    print(f'razão de trabalho vx     {100.0 * vx_duty:.1f}% '
+          f'(cmd_vx > {trial.args.vx_work_threshold:.3f} m/s)   <- métrica primária')
     print(f'cmd_vx negativo          {100.0 * (cmd_vx < 0).mean():.0f}% das amostras')
     print(f'tilt pico                {max(r["tilt_deg"] for r in rows):.2f} deg')
     if ranges.size:
@@ -458,6 +462,10 @@ def main(argv=None) -> int:
                              'a meta é cancelada e o ciclo segue')
     parser.add_argument('--wait-stack', type=float, default=120.0)
     parser.add_argument('--sample-rate', type=float, default=10.0)
+    parser.add_argument('--vx-zero-threshold', type=float, default=0.005,
+                        help='|cmd_vx| até este valor conta como zero (m/s)')
+    parser.add_argument('--vx-work-threshold', type=float, default=0.05,
+                        help='cmd_vx acima deste valor conta como trabalho para frente (m/s)')
     parser.add_argument('--sim-log',
                         help='log do container da simulação, para as '
                              'estatísticas do supervisor de marcha')
