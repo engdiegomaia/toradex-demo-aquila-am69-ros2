@@ -42,11 +42,14 @@ def generate_launch_description() -> LaunchDescription:
         description='Expor /demo/nav/{reset,cancel} para o cockpit.',
     )
 
-    use_sim_time_arg = DeclareLaunchArgument(
-        'use_sim_time',
-        default_value='true',
-        description='Seguir /clock. Verdadeiro sempre que o Gazebo comanda.',
-    )
+    # O argumento use_sim_time FOI REMOVIDO em 25/08/2026, de proposito.
+    #
+    # Manter um argumento declarado que ninguem consome e falha silenciosa: quem
+    # passasse use_sim_time:=true veria o valor aceito e ignorado, sem uma linha
+    # de log. Removido, a mesma chamada falha ALTO -- "is not a valid launch
+    # argument" -- e quem chamou descobre na hora, nao numa medicao de CPU.
+    #
+    # Por que ninguem consome: ver o bloco no `relay` abaixo.
 
     relay = Node(
         package='demo_navigation',
@@ -54,12 +57,23 @@ def generate_launch_description() -> LaunchDescription:
         name='nav_control_relay',
         output='screen',
         condition=IfCondition(LaunchConfiguration('nav_control')),
-        # use_sim_time SIM, para que o no viva no mesmo tempo que o resto da
-        # pilha. Os timeouts internos dele NAO usam esse relogio, e a razao esta
-        # no docstring de `_wait`: um Nav2 desativado no meio de um RESET
-        # coexiste com um /clock parado, e medir timeout ali seria esperar para
-        # sempre.
-        parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+        # use_sim_time NAO, e a inversao e de 25/08/2026.
+        #
+        # O comentario anterior dizia "SIM, para que o no viva no mesmo tempo que
+        # o resto da pilha" -- e admitia na frase seguinte que os timeouts internos
+        # NAO usam esse relogio (o docstring de `_wait` explica: um Nav2 desativado
+        # no meio de um RESET coexiste com um /clock parado, e medir timeout ali
+        # seria esperar para sempre). Isso continua verdade, e o resto tambem:
+        # este no nao tem UMA chamada a get_clock(), nem timer, nem stamp. Viver
+        # "no mesmo tempo" nao comprava nada, porque ele nunca pergunta as horas.
+        #
+        # O que comprava era custo: 35% de um nucleo no AM69 so recebendo /clock a
+        # ~870 Hz. Ver o bloco PISO OCIOSO DE CPU em
+        # demo_bringup/launch/nav_quadruped.launch.py para a medicao completa.
+        #
+        # Vale para os DOIS robos, porque este launch e compartilhado. Nao ha
+        # caminho por modo aqui, e nao deve haver.
+        parameters=[{'use_sim_time': False}],
     )
 
-    return LaunchDescription([enabled_arg, use_sim_time_arg, relay])
+    return LaunchDescription([enabled_arg, relay])

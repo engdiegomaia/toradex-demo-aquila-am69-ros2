@@ -119,7 +119,20 @@ def generate_launch_description() -> LaunchDescription:
             'odom_frame': 'odom',
             'map_frame': 'map',
             'publish_map_identity': LaunchConfiguration('publish_map_identity'),
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            # NAO segue LaunchConfiguration('use_sim_time'), e isso e deliberado.
+            # Ver o bloco PISO OCIOSO DE CPU abaixo do cmd_vel_adapter.
+            #
+            # O caminho quente deste no (`_on_odom`) COPIA o stamp da mensagem de
+            # odometria -- o cabecalho de odom_tf.py explica por que, e continua
+            # valendo. A unica chamada a get_clock() esta em `_identity()`, que
+            # carimba a aresta map -> odom publicada em /tf_static UMA vez. O
+            # buffer estatico do tf2 devolve transformada estatica para qualquer
+            # instante consultado: o stamp dela nao entra em lookup nenhum.
+            #
+            # Ou seja: nada que este no publica muda de valor por causa desta
+            # linha. O que muda e ele parar de receber ~870 mensagens de /clock
+            # por segundo para nao usar nenhuma.
+            'use_sim_time': False,
         }],
     )
 
@@ -131,7 +144,34 @@ def generate_launch_description() -> LaunchDescription:
         executable='cmd_vel_si_to_stick',
         name='cmd_vel_si_to_stick',
         output='screen',
-        parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+        # ================= PISO OCIOSO DE CPU DO MODULO =================
+        #
+        # Este no converte Twist em Twist. Nao tem header, nao tem timer, nao
+        # chama get_clock() em lugar nenhum -- verificavel por grep, e ha teste
+        # que trava isso. Com use_sim_time: true ele assinava /clock assim mesmo,
+        # porque quem cria a assinatura e o rclpy, nao o codigo do no.
+        #
+        # MEDIDO NO AQUILA AM69 EM 25/08/2026, pilha de pe e SEM META ATIVA,
+        # amostrando /proc/<tid>/stat por thread dentro do container `nav`:
+        #
+        #   piso ocioso total          367% de 800%
+        #   component_container (Nav2) 215%
+        #   odom_tf                     40%   <- republicador trivial
+        #   recvUC (recepcao Cyclone)   38%
+        #   cmd_vel_si_to_stick         36%   <- este no
+        #   nav_control_rel             35%   <- relay, tambem sem relogio
+        #
+        # Tres republicadores em Python gastando 111% de 800% -- 14% da maquina
+        # -- com o robo PARADO. O trabalho util deles cabe em ~1%; o resto e
+        # entrega de /clock a ~870 Hz, que o Gazebo publica nessa taxa porque o
+        # passo de fisica da marcha e 1 ms.
+        #
+        # Isto NAO e o estrangulamento de /clock que foi ensaiado e REPROVADO em
+        # 21/08 (ver demo_simulation/clock_throttle.py): la a taxa caia para
+        # TODO mundo, inclusive para o MPPI, e a navegacao morreu. Aqui a taxa
+        # nao muda para ninguem. Muda quem assina -- e sao tres nos que nao
+        # tinham o que fazer com a mensagem.
+        parameters=[{'use_sim_time': False}],
     )
 
     # O caminho da arvore de comportamento tem de ser ABSOLUTO, e nao pode ficar
@@ -241,9 +281,9 @@ def generate_launch_description() -> LaunchDescription:
             FindPackageShare('demo_navigation'),
             'launch', 'nav_control.launch.py',
         ])),
-        launch_arguments={
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-        }.items(),
+        # Sem launch_arguments: o relay nao declara mais use_sim_time, porque
+        # nao chama o relogio. Passar aqui agora e erro de launch, e essa e a
+        # intencao -- ver nav_control.launch.py.
     )
 
     return LaunchDescription([

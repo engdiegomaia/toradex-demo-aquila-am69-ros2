@@ -97,9 +97,9 @@ def generate_launch_description() -> LaunchDescription:
             FindPackageShare('demo_navigation'),
             'launch', 'nav_control.launch.py',
         ])),
-        launch_arguments={
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-        }.items(),
+        # Sem launch_arguments: o relay nao declara mais use_sim_time, porque
+        # nao chama o relogio. Passar aqui agora e erro de launch, e essa e a
+        # intencao -- ver nav_control.launch.py.
     )
 
     return LaunchDescription([
