@@ -21,7 +21,7 @@ image pull, a slower host, or a heavier world loses that bet with no diagnostic.
 The failure it prevents is specifically silent. Nav2 started before /clock is
 publishing brings its lifecycle nodes up against transforms that carry no
 timestamps; they stall waiting, and nothing in the logs names the clock as the
-cause. That trap is documented in learn.launch.py and in docs/guia-operacao.md.
+cause. That trap is documented in learn.launch.py and in docs/guia-completo.md.
 
 So the timer is replaced by the precondition it was standing in for: this node
 waits for /clock to exist AND to advance, then exits, letting the rest of the

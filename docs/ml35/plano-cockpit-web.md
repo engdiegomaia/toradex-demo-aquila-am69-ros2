@@ -339,7 +339,8 @@ deste trabalho (regra 7 do CLAUDE.md).
 F1 e **F3b** estão fechados (24/08/2026). Evidência do F3b, incluindo o controle
 de simulação, o controle de câmera, a identidade Toradex e os números de
 qualidade de imagem: **`docs/results/cockpit-web-f3b.md`**. Guia operacional
-(rodar, painéis, controles, cenários, armadilhas): **`docs/guia-cockpit.md`**.
+(rodar, painéis, controles, cenários, armadilhas): **`docs/guia-completo.md`**
+(Parte II).
 
 O que existe hoje, na tela:
 

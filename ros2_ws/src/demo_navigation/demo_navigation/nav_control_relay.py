@@ -87,7 +87,7 @@ aceitar meta. Se a localizacao e que estiver errada, este botao nao conserta.
 
 POR QUE O NAVEGADOR NAO CHAMA manage_nodes DIRETO
 
-NAO e o motivo da armadilha 2 do docs/guia-cockpit.md. Ali o navegador nao PODE
+NAO e o motivo da armadilha 2 do docs/guia-completo.md (Parte II). Ali o navegador nao PODE
 chamar o servico do Gazebo, porque o rosbridge monta o pedido importando o pacote
 de interfaces dentro do container `cockpit` e ali nao existe `ros_gz_interfaces`.
 Aqui existe: `demo_bringup` declara `<depend>nav2_msgs</depend>` e a chave nao

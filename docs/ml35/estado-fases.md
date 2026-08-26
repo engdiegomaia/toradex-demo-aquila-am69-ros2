@@ -330,7 +330,7 @@ vivo e a reconexão automática. O **F3b** fechou o painel azul (duas câmeras d
 cena estáticas, alternáveis) e o verde (costmap, plano, laser, pegada, e clique
 que manda meta), com o portão cumprido: uma meta clicada no canvas foi aceita e
 executada pelo Nav2. Evidência em **`docs/results/cockpit-web-f3b.md`**; como rodar e o que cada
-painel faz, em **`docs/guia-cockpit.md`**.
+painel faz, em **`docs/guia-completo.md`** (Parte II).
 
 Em 25/08/2026, três **ajustes de UI** pedidos na bancada, fora da numeração de
 fases e sem abrir fase nova: marca Toradex ao dobro, câmeras de cena seguindo o
@@ -338,8 +338,8 @@ robô nas duas vistas, e "reiniciar nav" a partir do cockpit. Evidência em
 **`docs/results/cockpit-web-ui-ajustes.md`**. Um achado com peso próprio saiu daí:
 `RESET`+`STARTUP` no `lifecycle_manager` do Nav2 **derruba o container** com
 `SIGSEGV` ao configurar o `route_server`, reproduzido duas vezes — por isso o
-reset usa `PAUSE`/`RESUME`. Candidato a issue upstream; ver a armadilha 8 do
-`guia-cockpit.md`. **Próximo do cockpit segue sendo o F4** (controle manual atrás
+reset usa `PAUSE`/`RESUME`. Candidato a issue upstream; ver a armadilha 8 da
+Parte II de `guia-completo.md`. **Próximo do cockpit segue sendo o F4** (controle manual atrás
 do `twist_mux`).
 
 Na mesma data entraram, a pedido do operador: controle da simulação pelo cockpit
