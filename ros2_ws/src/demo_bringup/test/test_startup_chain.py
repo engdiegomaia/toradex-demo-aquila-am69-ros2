@@ -21,6 +21,7 @@ import yaml
 SRC = Path(__file__).resolve().parents[2]
 LAUNCH = SRC / 'demo_bringup' / 'launch' / 'nav_quadruped.launch.py'
 PARAMS = SRC / 'demo_navigation' / 'config' / 'nav2_params_go2.yaml'
+WAIT_FOR_TF = SRC / 'demo_bringup' / 'demo_bringup' / 'wait_for_tf.py'
 
 # Emitir estes junto com o resto e exatamente o defeito medido.
 MUST_BE_GATED = ('nav2_container', 'navigation', 'nav_control')
@@ -109,6 +110,26 @@ def test_the_gate_watches_the_frames_the_costmap_demands() -> None:
 
     assert params['parent_frame'] == local['global_frame']
     assert params['child_frame'] == local['robot_base_frame']
+
+
+def test_tf_listener_and_polling_share_one_executor() -> None:
+    """O listener e o spin_once nao podem registrar o no em executores distintos."""
+    tree = ast.parse(WAIT_FOR_TF.read_text(encoding='utf-8'))
+    listener = next(
+        call for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == 'TransformListener'
+    )
+    keywords = {kw.arg: kw.value for kw in listener.keywords if kw.arg}
+
+    assert 'spin_thread' not in keywords
+    assert any(
+        isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == 'spin_once'
+        for call in ast.walk(tree)
+    )
 
 
 def test_the_gate_fails_loud_instead_of_starting_nav2_anyway() -> None:

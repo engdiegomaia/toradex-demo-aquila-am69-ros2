@@ -75,9 +75,9 @@ class WaitForTf(Node):
         self.timeout_s = float(self.get_parameter('timeout_s').value)
 
         self.buffer = tf2_ros.Buffer()
-        # spin_thread=True: este no gira o executor a mao no laco abaixo, e o
-        # listener precisa de uma thread propria para encher o buffer.
-        self.listener = tf2_ros.TransformListener(self.buffer, self, spin_thread=True)
+        # O spin_once do laco abaixo alimenta o listener e mantem este no sob um
+        # unico executor.
+        self.listener = tf2_ros.TransformListener(self.buffer, self)
 
     def available(self) -> bool:
         return self.buffer.can_transform(
