@@ -45,10 +45,45 @@ Teleporta o robo para a pose de nascimento do cenario, via o mesmo
     depois do teleporte:  /joint_states 999 Hz, /demo/imu 982 Hz, /demo/odom 50 Hz
     pose lida em /demo/odom: x=1.000 (comandado x=1.0)
 
-A planta sobrevive inteira e o robo reassenta na altura de marcha por conta
-propria. O relogio NAO volta a zero, e isso e deliberado: um salto de tempo
-para tras invalida o buffer de TF do Nav2 e o `controller_manager`, e nada no
-que o operador quer de um reset ("poe o robo no inicio") pede isso.
+A planta sobrevive inteira. O relogio NAO volta a zero, e isso e deliberado: um
+salto de tempo para tras invalida o buffer de TF do Nav2 e o
+`controller_manager`, e nada no que o operador quer de um reset ("poe o robo no
+inicio") pede isso.
+
+POR QUE O TELEPORTE SOZINHO NAO BASTA (quadrupede)
+
+"o robo reassenta na altura de marcha por conta propria" estava escrito aqui e
+esta FALSIFICADO. Medido em 26/08/2026 no `quadruped_maze11`, apos um reset:
+
+    ground truth /demo/odom   z=0,131 m   contra 0,353 m de altura de marcha
+    yaw                       141,7 deg   contra os 90 deg comandados
+    posicao                   (-0,015; -0,220)  comandado (0,000; 0,000)
+    Mz no rail                100% dos ticks, residuo de yaw constante
+
+O robo nao reassenta: ele COLAPSA e se arrasta. A causa nao esta no teleporte, e
+sim no StateTrotting -- a referencia de HOLD (pcd_ e yaw_cmd_) e capturada uma
+unica vez atras de um trinco que so um comando de caminhada limpa, entao depois
+do teleporte o controlador persegue a pose ANTERIOR num eixo de guinada que
+satura em ~5,3 N.m e "only drags the feet trying" (o comentario e do proprio
+captureBodyReference). O estimador piora o quadro sem ser a causa: e um KF de
+IMU + pes, sem posicao absoluta, e por isso NAO ve o teleporte em xy -- medido
+1,8 m de divergencia contra o ground truth.
+
+E ha uma SEGUNDA causa, que so aparece com o Nav2 conduzindo: `SetEntityPose`
+reposiciona o corpo e PRESERVA A VELOCIDADE. Medido no mesmo dia, reset durante
+um fluxo de /demo/cmd_vel vivo a 10 Hz -- z de 0,337 m para 0,162 m em um
+segundo, deslizando 0,27 m, e assim ficou pelos 40 s seguintes. Um robo andando
+a ~0,2 m/s com as pernas em balanco e solto de 0,15 m ainda viajando.
+
+Por isso o reset PARA O ROBO ANTES de teleportar, e nao reancora depois:
+
+    /demo/gait/hold     -> FIXEDSTAND, eixos centrados; o robo planta e para
+    espera GAIT_STOP_S
+    set_entity_pose     -> teleporte, com o robo imovel
+    /demo/gait/resume   -> assenta e volta a TROTTING, cujo enter() reancora
+                           pcd_ e yaw_cmd_ na pose nova
+
+Quem executa os dois e o twist_to_inputs, unico escritor de /control_input.
 
 O costmap acumulado NAO e limpo aqui. Quem limpa e /demo/nav/reset, que o
 cockpit expoe no proprio botao de reiniciar navegacao -- a granularidade
@@ -89,12 +124,36 @@ from std_srvs.srv import Trigger
 
 CONTROL_SERVICE = '/demo/sim/control'
 SET_POSE_SERVICE = '/demo/sim/set_entity_pose'
+# Servidos pelo twist_to_inputs, que existe so na planta de pernas. Ver o bloco
+# POR QUE O TELEPORTE SOZINHO NAO BASTA no cabecalho.
+HOLD_SERVICE = '/demo/gait/hold'
+RESUME_SERVICE = '/demo/gait/resume'
 
 # Quanto esperar a ponte responder. O Gazebo responde a ControlWorld em poucos
 # milissegundos; este limite existe para o caso em que o serviço não existe do
 # outro lado, e nele o que importa é falhar rápido o suficiente para que o botão
 # não pareça travado.
 CALL_TIMEOUT_S = 3.0
+
+# Espera pelos servicos de gait. Curta e separada de CALL_TIMEOUT_S de
+# proposito: na planta diferencial esses servicos NAO EXISTEM (nao ha gait), e a
+# ausencia deles e um caminho normal, nao uma falha. O reset nao pode ficar 3 s
+# parado por isso.
+GAIT_TIMEOUT_S = 1.0
+
+# Quanto esperar o robo PARAR antes de teleportar.
+#
+# LOAD-BEARING. `SetEntityPose` reposiciona o corpo e preserva a velocidade:
+# teleportar um quadrupede em marcha o solta de 0,15 m ainda viajando a ~0,2 m/s
+# com as pernas em balanco, e ele cai. Medido em 26/08/2026 com um fluxo de
+# /demo/cmd_vel vivo a 10 Hz -- z de 0,337 m para 0,162 m em um segundo, e assim
+# ficou pelos 40 s seguintes.
+#
+# 2 s cobre o portao do proprio FIXEDSTAND (percent_ >= 1.5, ~1,2 s) mais a
+# frenagem. Relogio de PAREDE, pelo mesmo motivo documentado em _wait: este
+# codigo pode estar rodando com a simulacao pausada, e o relogio simulado e
+# justamente o que nao vai avancar.
+GAIT_STOP_S = 2.0
 
 
 def _request(action: str) -> ControlWorld.Request:
@@ -132,6 +191,12 @@ class SimControlRelay(Node):
         )
         self._pose_client = self.create_client(
             SetEntityPose, SET_POSE_SERVICE, callback_group=self._group,
+        )
+        self._hold_client = self.create_client(
+            Trigger, HOLD_SERVICE, callback_group=self._group,
+        )
+        self._resume_client = self.create_client(
+            Trigger, RESUME_SERVICE, callback_group=self._group,
         )
 
         # Pose de nascimento e nome do modelo. Vêm de PARÂMETRO, e quem os
@@ -198,6 +263,12 @@ class SimControlRelay(Node):
         x, y, z, yaw = self._spawn()
         name = self._robot_name()
 
+        # PARAR ANTES DE TELEPORTAR, nunca depois. Ver GAIT_STOP_S: o teleporte
+        # preserva a velocidade, e um quadrúpede em marcha teleportado cai.
+        gait = self._hold_gait()
+        if gait is not None:
+            time.sleep(GAIT_STOP_S)
+
         pose_request = SetEntityPose.Request()
         pose_request.entity.name = name
         pose_request.pose.position.x = x
@@ -211,6 +282,9 @@ class SimControlRelay(Node):
         if not _wait(future, CALL_TIMEOUT_S):
             response.success = False
             response.message = f'{SET_POSE_SERVICE} expirou ao repor {name}'
+            # Sair daqui sem retomar deixaria o robô preso em FIXEDSTAND, sem
+            # aceitar comando nenhum e sem nada em log dizendo por quê.
+            self._resume_gait(gait)
             return response
 
         result = future.result()
@@ -218,14 +292,51 @@ class SimControlRelay(Node):
         # nome. É o caminho útil desta resposta: diz ao operador que o modelo
         # não está no mundo, em vez de deixar o botão silencioso.
         response.success = bool(result and result.success)
-        response.message = (
-            f'{name} reposto em x={x:.3f} y={y:.3f} yaw={yaw:.4f}'
-            if response.success
-            else f'o Gazebo recusou repor {name}: existe um modelo com esse nome?'
-        )
         if not response.success:
+            response.message = (
+                f'o Gazebo recusou repor {name}: existe um modelo com esse nome?'
+            )
             self.get_logger().warning(response.message)
+            self._resume_gait(gait)
+            return response
+
+        pose = f'{name} reposto em x={x:.3f} y={y:.3f} yaw={yaw:.4f}'
+        response.message = f'{pose}; {self._resume_gait(gait)}'
         return response
+
+    def _hold_gait(self):
+        """
+        Manda o gait parar e ficar imóvel. Devolve None se não houver gait.
+
+        Melhor esforço, por projeto: na planta diferencial não existe gait
+        nenhum para segurar, e essa ausência é caminho normal. Mas ela também
+        não pode ser silenciosa -- num quadrúpede, teleportar sem parar deixa o
+        robô colapsado, e foi assim que o defeito chegou até aqui. Por isso o
+        resultado entra na mensagem do próprio reset, que o cockpit mostra.
+        """
+        if not self._hold_client.wait_for_service(timeout_sec=GAIT_TIMEOUT_S):
+            return None
+        return self._call_gait(self._hold_client, HOLD_SERVICE)
+
+    def _resume_gait(self, held) -> str:
+        """Devolve o gait a TROTTING, reancorado. `held` vem de _hold_gait."""
+        if held is None:
+            return f'sem {HOLD_SERVICE} (planta sem gait): nada a parar'
+        return f'{held}; {self._call_gait(self._resume_client, RESUME_SERVICE)}'
+
+    def _call_gait(self, client, name: str) -> str:
+        future = client.call_async(Trigger.Request())
+        if not _wait(future, GAIT_TIMEOUT_S):
+            message = f'{name} expirou: o gait NAO foi reancorado'
+            self.get_logger().warning(message)
+            return message
+
+        result = future.result()
+        if not (result and result.success):
+            message = f'{name} recusou: o gait NAO foi reancorado'
+            self.get_logger().warning(message)
+            return message
+        return str(result.message)
 
     def _handler(self, action: str):
         def handle(request, response):

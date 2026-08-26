@@ -48,11 +48,13 @@ inexistente**, sem uma linha de log. Recuperar exigia reiniciar o `sim`.
 
 Agora o reset TELEPORTA o robô para a pose de nascimento do cenário, pelo mesmo
 `/demo/sim/set_entity_pose` que as câmeras já usavam. Verificado: robô volta de
-(2,0; −1,5) para (0,00003; −0,010), altura de marcha 0,3507 m reassentada
-sozinha, `/joint_states` 1000 Hz, `/demo/imu` 974 Hz, `/demo/odom` 49,9 Hz, e os
-cinco modelos seguem no mundo. O relógio **não** volta a zero, de propósito: um
-salto de tempo para trás invalidaria o buffer de TF do Nav2 e o
-`controller_manager`. Sete guardas em `demo_simulation/test/test_sim_reset.py`.
+(2,0; −1,5) para (0,00003; −0,010), `/joint_states` 1000 Hz, `/demo/imu` 974 Hz,
+`/demo/odom` 49,9 Hz, e os cinco modelos seguem no mundo. O relógio **não** volta
+a zero, de propósito: um salto de tempo para trás invalidaria o buffer de TF do
+Nav2 e o `controller_manager`.
+
+> "reassenta sozinho" estava escrito aqui e era falso — corrigido na sessão
+> seguinte, ver abaixo.
 
 **Telemetria do alvo no cockpit, medida no AM69 real.** `target_monitor` publica
 `/demo/target/status` (CPU, memória, temperatura, load) e
@@ -107,6 +109,45 @@ decidem nada.
 F4; (2) campanha A/B real com `nav_campaign.py`, n≥3 intercalado, começando por
 `PathAlignCritic` 14,0 — que é o crítico de maior peso e o suspeito nomeado no
 próprio YAML como quem torna girar melhor que avançar.
+
+### Sessão 26/08 (noite) — reset não reassentava sozinho: robô colapsava ou se arrastava
+
+Evidência completa: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
+
+Reportado pelo operador: depois do reset o robô fazia guinada de volta à
+orientação anterior. Investigado com o robô em movimento — não parado, o único
+caso testado na sessão da tarde — e achados DOIS defeitos, ambos silenciosos:
+
+- **teleportar sem reancorar o gait**: `StateTrotting` (controlador C++) captura
+  sua referência de postura (`pcd_`, `yaw_cmd_`) uma única vez, atrás de um
+  trinco que só um comando de caminhada limpa. Com `/demo/cmd_vel*` zerados e a
+  meta cancelada — para excluir o Nav2 como causa — o robô ainda assim se
+  arrastou 0,87 m e girou 135° em 26 s sem nenhum comando publicado;
+- **teleportar sem parar**: `SetEntityPose` preserva a velocidade. Com um fluxo
+  de `/demo/cmd_vel` vivo a 10 Hz durante o reset (o caso real, com o Nav2
+  conduzindo), o robô COLAPSA — `z` de 0,337 m para 0,162 m em 1 s — e fica
+  contorcendo-se 40 s.
+
+Corrigido com dois serviços novos no `twist_to_inputs` (único escritor de
+`/control_input`): `/demo/gait/hold` (trotting → fixed stand, robô imóvel,
+`GAIT_STOP_S = 2,0 s` de espera) chamado ANTES do teleporte, `/demo/gait/resume`
+(fixed stand → trotting, `StateTrotting::enter()` reancora `pcd_`/`yaw_cmd_` na
+pose nova) chamado DEPOIS. Melhor esforço: numa planta diferencial os dois
+serviços não existem e isso é caminho normal — mas a ausência entra na própria
+mensagem do `Trigger` de reset, nunca fica silenciosa.
+
+Verificado repetindo o caso que falhava (comando vivo a 10 Hz durante o reset):
+robô nunca sai de 0,35-0,36 m de altura, volta a obedecer o mesmo comando depois
+do reset, um segundo reset re-arma. **Verificado também com o robô CAÍDO**
+(tombado 180°, preso em `mode=RECOVER` com `tilt=131°` — esse modo não sai
+sozinho de cabeça para baixo): o reset o recupera de pé, `mode=HOLD`,
+`tilt=0,2°`, `yawSat=0%`, e ele volta a andar normalmente.
+
+Guardas novos em `test_sim_reset.py` e `test_twist_to_inputs.py`: a ordem
+parar→teleportar→retomar tem de estar nessa sequência no fonte, o comando de
+descida (`2`) sai exatamente uma vez, o hold não tem prazo próprio, e todo
+caminho de saída do handler de reset — inclusive os de erro — tem de retomar o
+gait.
 
 ### Sessão 26/08 (madrugada) — onde retomar
 

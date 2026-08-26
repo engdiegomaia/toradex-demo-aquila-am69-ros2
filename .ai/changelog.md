@@ -5,6 +5,42 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-26 (noite) — o reset teleportava o robô mas não o mantinha de pé
+
+Sequência à entrada de 2026-08-26 (tarde): o teleporte sozinho resolvia o robô
+apagado, mas não a marcha. Operador reportou guinada de retorno à orientação
+anterior depois do reset.
+
+**Dois defeitos, os dois silenciosos, os dois só visíveis com o robô em
+movimento** (a sessão da tarde só tinha testado com o robô parado):
+
+- teleportar sem reancorar o gait: `StateTrotting` (controlador C++) captura sua
+  referência de postura (`pcd_`, `yaw_cmd_`) uma única vez, atrás de um trinco
+  que só um comando de caminhada limpa. Com `/demo/cmd_vel*` zerados e a meta
+  cancelada, o robô ainda se arrastou 0,87 m e girou 135° em 26 s sem nenhum
+  comando publicado — o eixo de guinada persegue a pose ANTERIOR ao teleporte;
+- teleportar sem parar: `SetEntityPose` preserva a velocidade. Com o Nav2
+  conduzindo de verdade (`/demo/cmd_vel` vivo a 10 Hz durante o reset), o robô
+  COLAPSA — `z` de 0,337 m para 0,162 m em 1 s — e fica se contorcendo.
+
+**A correção para o robô antes de teleportar, e o reancora depois.** Dois
+serviços novos no `twist_to_inputs` (único escritor de `/control_input`):
+`/demo/gait/hold` (trotting → fixed stand, robô imóvel, 2,0 s de espera) ANTES
+do teleporte; `/demo/gait/resume` (fixed stand → trotting, cujo `enter()`
+reancora `pcd_`/`yaw_cmd_` na pose nova) DEPOIS. Melhor esforço: numa planta
+diferencial os dois serviços não existem — caminho normal, dito na própria
+mensagem do reset, nunca silencioso.
+
+Verificado repetindo o caso que falhava (comando vivo durante o reset): robô
+nunca sai de 0,35-0,36 m de altura e volta a obedecer o mesmo comando depois.
+**Verificado também com o robô CAÍDO** — tombado 180°, preso em `mode=RECOVER`
+com `tilt=131°`, um estado que não sai sozinho de cabeça para baixo: o reset o
+recupera de pé, `mode=HOLD`, `tilt=0,2°`, andando normalmente em seguida.
+
+Evidência: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
+
+---
+
 ## 2026-08-26 (tarde) — o botão de reset do cockpit apagava o robô
 
 O reset da simulação usava `ControlWorld.reset.all`. Essa variante devolve o
@@ -25,8 +61,10 @@ câmeras de cena já usavam, e a pose vem da tabela de `scenarios.py` com a mesm
 precedência do `create`. O mundo não é tocado e o relógio **não** volta a zero:
 um salto de tempo para trás invalidaria o buffer de TF do Nav2 e o
 `controller_manager`, e "põe o robô no início" não pede isso. Verificado: robô
-volta de (2,0; −1,5) para (0,00003; −0,010), reassenta em 0,3507 m sozinho, e os
-cinco modelos seguem no mundo.
+volta de (2,0; −1,5) para (0,00003; −0,010), e os cinco modelos seguem no mundo.
+
+> Correção do mesmo dia à noite: "reassenta sozinho" acima era falso num
+> quadrúpede em movimento. Ver a entrada seguinte.
 
 **Telemetria do alvo no cockpit.** `target_monitor` publica CPU, memória,
 temperatura e load do AM69 em `/demo/target/status`, e os eixos comandados em

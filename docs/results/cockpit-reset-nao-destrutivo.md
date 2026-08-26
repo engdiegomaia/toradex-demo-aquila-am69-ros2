@@ -85,14 +85,132 @@ $ gz model --list
     - cockpit_scene_iso
 ```
 
-A planta sobrevive inteira e o robô reassenta na altura de marcha (0,3507 m) por
-conta própria. O costmap acumulado **não** é limpo aqui — quem limpa é
-`/demo/nav/reset`, que tem botão próprio no cockpit. A granularidade separada é
-o que permite recolocar o robô sem derrubar o Nav2.
+A planta sobrevive inteira. O costmap acumulado **não** é limpo aqui — quem
+limpa é `/demo/nav/reset`, que tem botão próprio no cockpit. A granularidade
+separada é o que permite recolocar o robô sem derrubar o Nav2.
 
-Guardas em `demo_simulation/test/test_sim_reset.py` (7 testes, sem Gazebo):
-`_request('reset')` tem de levantar, `play`/`pause` não podem carregar nenhum
-campo de `reset`, e a pose de reposição tem de vir da tabela do cenário.
+Guardas em `demo_simulation/test/test_sim_reset.py`, sem Gazebo: `_request('reset')`
+tem de levantar, `play`/`pause` não podem carregar nenhum campo de `reset`, a
+pose de reposição tem de vir da tabela do cenário, e a ordem parar → teleportar
+→ retomar (ver §3.1) tem de estar nessa sequência no código-fonte.
+
+## 3.1. O robô não "reassenta sozinho": dois defeitos silenciosos, medidos depois
+
+A primeira versão deste arquivo dizia "o robô reassenta na altura de marcha por
+conta própria". **Estava errado** — não havia teste que exercitasse o robô em
+movimento no momento do reset, só o caso parado. Corrigido no mesmo dia depois
+de o operador reportar guinada pós-reset.
+
+**Defeito A — teleportar sem reancorar o gait.** `StateTrotting` (o controlador
+de marcha C++) captura sua referência de postura (`pcd_`, `yaw_cmd_`) uma única
+vez, atrás de um trinco que só um novo comando de caminhada limpa
+(`captureBodyReference()`, `hold_captured_`). Um teleporte muda a pose real sem
+passar por ali. Medido com `/demo/cmd_vel` e `/demo/cmd_vel_si` **zerados** (para
+excluir o Nav2 como causa), cancelando a meta e teleportando via
+`gz service .../set_pose`:
+
+```
+ t[s]  yaw[deg]       x       y
+  0.0     36.10  -0.025   0.023
+  9.0    167.48  -0.135   0.301
+ 26.0    -99.14  -0.210   0.866      <- 0,87 m de deslocamento, 135° de giro,
+                                        SEM UM COMANDO PUBLICADO em 26 s
+```
+
+O eixo de guinada do `StateTrotting` satura perto de 5,3 N·m e "only drags the
+feet trying" (comentário do próprio código-fonte) — não tem autoridade para
+zerar esse erro, e ainda por cima o robô estava colapsado no chão enquanto
+tentava (ver Defeito B).
+
+**Defeito B — teleportar sem parar.** `SetEntityPose` reposiciona o corpo e
+**preserva a velocidade**. Um robô em marcha teleportado é solto ainda viajando,
+com as pernas em balanço, e cai. Medido com um fluxo de `/demo/cmd_vel` **vivo**
+a 10 Hz durante o reset (o caso real, com o Nav2 conduzindo):
+
+```
+ t[s]      x        y       z   yaw[deg]
+  0,1   0,215    0,031   0,337     84,2     <- reset pedido
+  1,1   0,483   -0,024   0,162     90,6     <- COLAPSADO, desliza 0,27 m
+ 40,0   0,307   -0,084   0,159     82,7     <- ainda colapsado, se contorcendo
+```
+
+Ground truth do Gazebo (`/demo/odom`) confirmou o colapso de forma independente
+do estimador do controlador: `z=0,131 m` contra 0,353 m de altura de marcha.
+
+**A correção.** O reset agora chama dois serviços novos do `twist_to_inputs`
+(único escritor de `/control_input`, por isso a correção mora ali e não no
+controlador C++):
+
+```
+/demo/gait/hold    trotting -> fixed stand, eixos centrados, robô imóvel
+                   (o relay teleporta aqui, com GAIT_STOP_S = 2,0 s de espera)
+/demo/gait/resume  fixed stand -> trotting; StateTrotting::enter() reancora
+                   pcd_ e yaw_cmd_ na pose NOVA
+```
+
+Melhor esforço: numa planta diferencial os dois serviços não existem, e essa
+ausência é caminho normal (`GAIT_TIMEOUT_S = 1,0 s`, mensagem "nada a parar" em
+vez de erro). Na quadrúpede, a falta de resposta ou uma recusa não fica
+silenciosa — entra na própria mensagem do `Trigger` de `/demo/sim/reset`, que o
+cockpit mostra.
+
+**Verificado, repetindo exatamente o caso que falhava** (comando vivo a 10 Hz
+durante o reset):
+
+```
+resposta: 'demo_robot reposto em x=0.000 y=0.000 yaw=1.5708; gait: trotting ->
+           fixed stand, robô imóvel; gait: fixed stand -> trotting, pose
+           reancorada'
+
+ t[s]      x        y       z  yaw[deg]  nota
+  0,1   0,000   -0,010   0,350     90,07   <- pose comandada, robô em pé
+  4,5  -0,000   -0,010   0,350     90,11   <- ainda parado, hold segurando
+  5,5  -0,022    0,058   0,360     91,25   <- resume: volta a obedecer o cmd_vel
+ 39,4  -0,344    1,853   0,360   -158,61   <- z nunca sai de 0,35-0,36 m
+```
+
+Robô nunca sai da faixa de altura de marcha (0,35-0,36 m), e volta a andar sob o
+mesmo comando que estava recebendo antes do reset. Um segundo reset, imediato,
+re-arma normalmente.
+
+**Verificado também com o robô CAÍDO** (tombado, não só deslocado). Derrubado
+de propósito via `SetEntityPose` com `orientation=(x=1,y=0,z=0,w=0)` (giro de
+180° em roll):
+
+```
+mode=RECOVER tilt=131.3deg estPos=(2.442,0.922,0.192) ...  <- de cabeça para
+                                                                baixo, preso
+                                                                em RECOVER
+```
+
+`RECOVER` não sai sozinho enquanto `tilt` não cai abaixo de `TILT_OK` por
+`RECOVER_SETTLE_S` — um robô de cabeça para baixo fica ali indefinidamente. O
+reset foi chamado nesse estado:
+
+```
+resposta: 'demo_robot reposto em x=0.000 y=0.000 yaw=1.5708; gait: trotting ->
+           fixed stand, robô imóvel; gait: fixed stand -> trotting, pose
+           reancorada'
+
+ t[s]      x        y       z  yaw[deg]
+  0,1  -0,002   -0,021   0,338    90,94
+ 10,6  -0,009    0,013   0,349    90,71
+ 39,2  -0,009    0,013   0,350    91,42   <- em pé o resto do teste
+```
+
+Log do controlador depois: `mode=HOLD tilt=0.2deg ... yawSat=0%` — saiu de
+`RECOVER` para `HOLD` limpo, sem o eixo de guinada saturado. Andou normalmente
+sob um novo comando logo em seguida (0,75 m em 8 s). O reset recupera de um
+tombamento completo, não só de um deslocamento em marcha.
+
+Guardas novos em `test_sim_reset.py` e `test_twist_to_inputs.py`: a ordem
+parar→teleportar→retomar tem de aparecer nessa sequência no fonte do relay, o
+comando de descida (`2`) tem de sair exatamente uma vez (mantido, derruba o
+robô por outro caminho — `StateFixedStand::checkChange` case 2 leva a
+`FIXEDDOWN`), o hold não pode ter prazo próprio (só `resume` o encerra, senão é
+corrida contra a chamada do relay), e todo caminho de saída do handler de reset
+depois do hold tem de retomar o gait — inclusive nos ramos de erro, para não
+deixar o robô preso em `FIXEDSTAND` sem log nenhum explicando por quê.
 
 ## 4. Telas: o que sobrevive a um reinício
 

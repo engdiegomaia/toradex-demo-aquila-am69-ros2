@@ -194,6 +194,19 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   `hmi/` sem etapa de build, câmera ao vivo e reconexão automática. Plano e
   fases em `docs/ml35/plano-cockpit-web.md`; evidência em
   `docs/results/cockpit-web-f1.md`. Próxima: F3b.
+  Em 26/08 o **reset do cockpit** foi corrigido em duas voltas. Primeiro,
+  `/demo/sim/reset` usava `ControlWorld.reset.all`, que APAGA o robô (inserido
+  depois da carga do mundo por `ros_gz_sim create`, logo fora do SDF de
+  origem) — trocado por teleporte via `/demo/sim/set_entity_pose`. Depois,
+  reportado pelo operador que o robô voltava fazendo guinada: o teleporte
+  sozinho não bastava num quadrúpede em movimento — o `StateTrotting` persegue
+  a pose ANTERIOR (referência capturada uma única vez) e `SetEntityPose`
+  preserva a velocidade, o que o fazia colapsar com o Nav2 conduzindo de
+  verdade. Corrigido parando o gait ANTES de teleportar e reancorando DEPOIS,
+  por dois serviços novos (`/demo/gait/hold`, `/demo/gait/resume`) no
+  `twist_to_inputs`. Verificado inclusive com o robô CAÍDO (tombado, preso em
+  `mode=RECOVER`): o reset o recupera de pé. Evidência em
+  `docs/results/cockpit-reset-nao-destrutivo.md`.
   O portão de 8 m segue aberto: 0 metas no protocolo 420/200 s, apesar de 8,31 m
   percorridos sem queda. Evidência em `docs/results/ml35-hil-ethernet.md` e
   estado exato em `docs/ml35/estado-fases.md`.
