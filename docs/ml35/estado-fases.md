@@ -89,6 +89,24 @@ A variável dominante é a **presença** da percepção, não o formato do trans
 com percepção no módulo a razão fica em 2–6% em qualquer formato; sem ela, 16,8%.
 Não repita a fase 2 e não volte a discutir formato de imagem.
 
+**FASE 1 DO PLANO TAMBÉM JÁ FOI EXECUTADA (25/08, noite) E REPROVOU.**
+`time_steps` 96→64 com `model_dt` 0,10→0,15 (horizonte constante, 33% menos
+amostragem) **não reduziu CPU**: ~437% → ~439%. O custo do MPPI aqui não é
+dominado por `batch_size × time_steps`. Evidência:
+`docs/results/ml35-f5-mppi-amostragem.md`. Não adotada; YAML de volta ao
+baseline com o A/B fora do caminho default.
+
+**LEIA ISTO ANTES DE RODAR QUALQUER ENSAIO NOVO — o método atual não decide.**
+Duas corridas na configuração **idêntica** deram **0,0109 e 0,0265 m/s**,
+dispersão de **2,4×**. O ruído entre corridas é maior que os efeitos procurados,
+então **A/B de n=1 nesta bancada é ininterpretável**. Antes de sintonizar
+qualquer coisa: n ≥ 3 por condição, intercalado, mediana e faixa reportadas.
+
+**As quedas deixaram de ser variância:** 2 em 3 corridas depois da câmera
+comprimida, contra 0 em 2 antes. Sem mecanismo identificado e sem causa
+demonstrada, mas é item de investigação, não nota de rodapé — estabilidade é
+pré-requisito de qualquer meta.
+
 **Ordem sugerida pelos dados para a próxima sessão:** reduzir CPU do Nav2 no
 módulo → tirar a imagem RAW do fio (transporte comprimido até a percepção) →
 só então mexer no MPPI → repetir 420 s / 200 s com n=3.
