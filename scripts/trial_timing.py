@@ -17,3 +17,21 @@ def timing_spans(rows: Sequence[dict[str, Any]]) -> tuple[float, float, float]:
     if wall_span <= 0.0:
         raise ValueError('wall time did not advance')
     return sim_span, wall_span, sim_span / wall_span
+
+
+def vx_metrics(rows: Sequence[dict[str, Any]], zero_threshold: float = 0.005,
+               work_threshold: float = 0.05) -> tuple[float, float]:
+    """Return (near-zero fraction, forward-work fraction) for sampled cmd_vx.
+
+    The two thresholds are deliberate and explicit.  ``0.005`` m/s is the
+    historical near-zero band; ``0.05`` m/s is the forward-command band used
+    by the existing F5 reports (negative/turning commands are not work).
+    """
+    if zero_threshold < 0.0 or work_threshold < 0.0:
+        raise ValueError('thresholds must be non-negative')
+    if not rows:
+        raise ValueError('at least one sample is required')
+    values = [float(row['cmd_vx']) for row in rows]
+    zero = sum(abs(value) <= zero_threshold for value in values) / len(values)
+    duty = sum(value > work_threshold for value in values) / len(values)
+    return zero, duty
