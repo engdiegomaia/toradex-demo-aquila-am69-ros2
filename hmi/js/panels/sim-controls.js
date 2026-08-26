@@ -157,8 +157,10 @@ export function createSimControls({ root, client, onNotice }) {
     button.addEventListener('click', () => {
       const command = button.dataset.command;
 
-      // Reset é irreversível e cai no meio da demo: derruba a pose do robô e
-      // apaga o costmap que o Nav2 acumulou. Dois cliques.
+      // Reset cai no meio da demo e teleporta o robô para o ponto de
+      // nascimento — o Nav2 perde a meta em curso e vê o robô saltar. Não é
+      // destrutivo (o mundo e o relógio ficam), mas também não é algo que se
+      // queira por clique acidental. Dois cliques.
       if (command === 'reset' && Date.now() > armedUntil) {
         armedUntil = Date.now() + RESET_ARM_MS;
         button.dataset.armed = 'true';

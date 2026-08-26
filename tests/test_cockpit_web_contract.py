@@ -341,11 +341,42 @@ def test_sim_control_relay_ships_with_the_bridge():
 
 
 def test_sim_control_relay_serves_the_three_actions():
+    """Os três botões do cockpit precisam de serviço do outro lado."""
     relay = SIM_CONTROL_RELAY.read_text(encoding='utf-8')
-    for action in ('play', 'pause', 'reset'):
-        assert f"'{action}'" in relay, f'{action} não é servido pela fachada'
-    # reset.all e não time_only: só ele devolve o robô à pose inicial.
-    assert 'reset.all = True' in relay
+    # Os CAMINHOS, não os nomes: `play` e `pause` saem de um laço e `reset` tem
+    # handler próprio, e o navegador só conhece o caminho.
+    assert "f'/demo/sim/{action}'" in relay
+    assert "for action in ('play', 'pause')" in relay
+    assert "'/demo/sim/reset'" in relay, 'reset não é servido pela fachada'
+
+
+def test_o_reset_nao_pode_voltar_a_apagar_o_robo():
+    """
+    `reset.all` APAGA a planta, e o cockpit não tem como perceber.
+
+    O robô e as duas câmeras de cena são inseridos depois da carga do mundo
+    (`ros_gz_sim create`); `reset.all` devolve o mundo ao SDF de origem, que não
+    os contém. Medido em 26/08/2026: `/joint_states` 999 Hz -> morto,
+    `/demo/imu` 996 Hz -> morto, `/demo/odom` 49,6 Hz -> morto, e
+    `gz model -m demo_robot` respondendo `No model named <demo_robot>`.
+
+    O que torna isto digno de um guarda é a APARÊNCIA: o relógio segue a 999 Hz
+    e o Gazebo deixa os sensores órfãos publicando a 10 Hz, então todo painel do
+    cockpit fica verde apontando para uma planta que não existe. Nada em log
+    acusa. Evidência em `docs/results/cockpit-reset-nao-destrutivo.md`.
+    """
+    relay = SIM_CONTROL_RELAY.read_text(encoding='utf-8')
+    # O campo, não a palavra: o cabeçalho CITA `reset.all` de propósito, para
+    # que a próxima pessoa saiba por que ele não está sendo usado. O que não
+    # pode existir é a atribuição.
+    assert 'request.world_control.reset' not in relay, (
+        'a fachada não pode escrever em nenhum campo de reset do WorldControl; '
+        'reset.all apaga o robô e time_only salta o relógio para trás'
+    )
+    assert 'reset.all = True' not in relay
+    # O caminho novo: teleporta pela mesma fachada que as câmeras de cena usam.
+    assert 'SetEntityPose' in relay
+    assert "'/demo/sim/set_entity_pose'" in relay
 
 
 def test_sim_state_label_comes_from_the_clock():

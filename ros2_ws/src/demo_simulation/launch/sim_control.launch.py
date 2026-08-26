@@ -36,10 +36,19 @@ de entregar botões que não fazem nada.
 
 import xml.etree.ElementTree as ElementTree
 
+from demo_simulation.scenarios import spawn_pose
 from launch import LaunchDescription
 from launch.actions import OpaqueFunction
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
+
+# Altura de reposição quando a planta não declara `height`.
+#
+# Só o quadrúpede declara esse argumento; a planta diff-drive nasce com `-z 0.1`
+# cravado no `create`. Casar os dois valores importa: repor um diff-drive a
+# 0,5 m é uma queda gratuita, e repor um quadrúpede a 0,1 m mete as pernas no
+# chão — que é justamente o que `height_arg` existe para evitar.
+DEFAULT_RESET_Z = 0.1
 
 # Remapeamentos: o cockpit não deve conhecer o nome do mundo. Se conhecesse,
 # trocar de cenário exigiria editar o JavaScript, que é exatamente o que o
@@ -72,6 +81,37 @@ def world_name_of(path: str) -> str:
     return world.get('name')
 
 
+def _reset_pose(context) -> dict:
+    """
+    Pose a que o botão de reset devolve o robô.
+
+    Mesma precedência do `create` que o nasceu (ver `ScenarioPose` em
+    quadruped.launch.py): o argumento explícito vence, e vazio significa
+    "pergunte à tabela do cenário". Sem isso o reset devolveria o robô para a
+    origem em qualquer mundo cuja área útil não está na origem — o labirinto é
+    esse caso, e o robô reapareceria dentro de uma parede sem erro nenhum.
+
+    `context.launch_configurations` e não `LaunchConfiguration(...).perform`:
+    `height` só existe na planta do quadrúpede, e performar um argumento não
+    declarado levanta em vez de devolver o default.
+    """
+    world_path = LaunchConfiguration('world').perform(context)
+    table = spawn_pose(world_path)
+    declared = context.launch_configurations
+
+    def field(name):
+        explicit = declared.get(name, '')
+        return float(explicit) if explicit else float(table[name])
+
+    return {
+        'robot_name': declared.get('robot_name', 'demo_robot'),
+        'spawn_x': field('x'),
+        'spawn_y': field('y'),
+        'spawn_yaw': field('yaw'),
+        'spawn_z': float(declared.get('height') or DEFAULT_RESET_Z),
+    }
+
+
 def _bridge(context, *args, **kwargs):
     world = world_name_of(LaunchConfiguration('world').perform(context))
 
@@ -100,6 +140,10 @@ def _bridge(context, *args, **kwargs):
         executable='sim_control_relay',
         name='sim_control_relay',
         output='screen',
+        # O reset teleporta o robô em vez de resetar o mundo, e por isso precisa
+        # saber para ONDE. Ver o cabeçalho de sim_control_relay.py: `reset.all`
+        # apaga o robô, medido em 26/08/2026.
+        parameters=[_reset_pose(context)],
     )]
 
 

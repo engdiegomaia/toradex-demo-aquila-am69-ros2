@@ -28,8 +28,85 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 26/08/2026 | enlace gigabit comprovado, `verify` 3/3 e **limite de CPU fechado** (307% de folga, zero recusas do `collision_monitor`); portão de 8 m REPROVADO — resta **só** decisão de trajeto — ver "Sessão 26/08 (madrugada)" |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 26/08/2026 | CPU fechada (307% de folga, zero recusas); portão de 8 m REPROVADO — resta **só** decisão de trajeto, agora com protocolo intercalado (`nav_campaign.py`) para medi-la — ver "Sessão 26/08 (tarde)" |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
+
+### Sessão 26/08 (tarde) — reset do cockpit, telemetria do alvo, protocolo de campanha
+
+Evidência completa: `docs/results/cockpit-reset-nao-destrutivo.md`.
+
+**Defeito grave fechado: o botão de reset do cockpit apagava o robô.**
+`/demo/sim/reset` usava `ControlWorld.reset.all`, que devolve o mundo ao SDF de
+origem — e o robô e as duas câmeras de cena são INSERIDOS depois da carga
+(`ros_gz_sim create`), logo não estão nele. Medido: `/joint_states` 999 Hz →
+morto, `/demo/imu` 996 Hz → morto, `/demo/odom` 49,6 Hz → morto,
+`gz model -m demo_robot` → `No model named <demo_robot>`.
+
+O modo de falha era o pior deste projeto: relógio seguia a 999 Hz e os sensores
+órfãos a 10 Hz, então **o cockpit ficava inteiro verde apontando para uma planta
+inexistente**, sem uma linha de log. Recuperar exigia reiniciar o `sim`.
+
+Agora o reset TELEPORTA o robô para a pose de nascimento do cenário, pelo mesmo
+`/demo/sim/set_entity_pose` que as câmeras já usavam. Verificado: robô volta de
+(2,0; −1,5) para (0,00003; −0,010), altura de marcha 0,3507 m reassentada
+sozinha, `/joint_states` 1000 Hz, `/demo/imu` 974 Hz, `/demo/odom` 49,9 Hz, e os
+cinco modelos seguem no mundo. O relógio **não** volta a zero, de propósito: um
+salto de tempo para trás invalidaria o buffer de TF do Nav2 e o
+`controller_manager`. Sete guardas em `demo_simulation/test/test_sim_reset.py`.
+
+**Telemetria do alvo no cockpit, medida no AM69 real.** `target_monitor` publica
+`/demo/target/status` (CPU, memória, temperatura, load) e
+`/demo/target/ops_log` (eixos comandados em SI, manche e odom, em texto curto).
+O painel de logs deixou de depender de `/rosout` bruto — `/rosout` segue
+assinado só como reserva filtrada para avisos e erros. Temperatura conferida
+contra o sensor: 34,974 °C reportado contra `thermal_zone1/6` lendo 34498
+milésimos no mesmo instante; as sete zonas entre 32,1 e 34,5 °C. Custo do nó:
+**4,3% de um núcleo** em 800% disponíveis (`use_sim_time: False` mantém isso
+barato — ele não assina `/clock`).
+
+**As telas sobrevivem aos dois reinícios.** Sonda com o cliente rosbridge do
+próprio cockpit, um assinante por painel: restart do `sim` e restart da
+aplicação no alvo não perdem painel nenhum, e o WebSocket não cai (nesta
+topologia `cockpit` e `hmi` rodam no host). O único zero é `/demo/cmd_vel_si`
+sem meta ativa, que **não é defeito** — o Nav2 subiu `Managed nodes are active`
+e o `velocity_smoother` só publica depois da primeira meta; o canal novo diz
+isso em texto.
+
+Uma hipótese foi **testada e descartada**: religar o `<img>` do MJPEG depois que
+o publicador volta. Medido com `curl` na mesma resposta HTTP através de um
+restart do `sim`, os bytes crescem sem interrupção (1,01 MB → 4,61 MB). O
+`web_video_server` mantém inscrição e resposta abertas. Não gaste código nisso.
+
+**Protocolo de campanha entregue: `scripts/nav_campaign.py`.** É o elo que
+faltava entre `nav_trial.py` (uma corrida) e `summarize_trials.py` (resume
+replicatas): decide a ORDEM e o que acontece entre pernas. Intercala
+`A B A B A B` em vez de blocar, e repõe robô e costmap antes de cada perna.
+**Só é possível por causa do conserto do reset acima** — uma campanha que
+chamasse o reset antigo entre pernas mediria, da perna 2 em diante, um mundo sem
+robô e sem nada acusando. Dez guardas em `tests/test_nav_campaign.py`, incluindo
+o inverso (a ordem blocada tem de reprovar) e o fato de que `ros2 service call`
+sai 0 mesmo com `success=False`.
+
+Perna de fumaça de 45 s, para provar o laço: trabalho de `cmd_vx` **0,0%**,
+`vx`≈0 em **99,6%**, velocidade 0,0022 m/s. Reproduz o sintoma; n=1 e 45 s não
+decidem nada.
+
+**Duas coisas que esta sessão NÃO fez:**
+
+- **O cockpit não foi aberto num navegador.** Não há Chrome nesta máquina e o
+  MCP de automação não dirige o Firefox instalado. Tudo acima foi medido no
+  caminho de dados. O gate visual continua pendente de passada manual.
+- **Controle manual (F4) segue não implementado**, e há um bloqueio novo e
+  concreto: `twist_mux` **não está em nenhuma imagem** e o módulo **não tem rota
+  default** (só a `10.22.1.0/24`), então `apt` não resolve nada lá. O gateway da
+  LAN `10.22.1.1` responde em 0,337 ms e o módulo já tem DNS corporativo — falta
+  só `sudo ip route add default via 10.22.1.1 dev ethernet0`, que precisa ser
+  rodado por quem tem a permissão.
+
+**Próximo portão, na ordem pedida pelo operador:** (1) rota default no módulo e
+F4; (2) campanha A/B real com `nav_campaign.py`, n≥3 intercalado, começando por
+`PathAlignCritic` 14,0 — que é o crítico de maior peso e o suspeito nomeado no
+próprio YAML como quem torna girar melhor que avançar.
 
 ### Sessão 26/08 (madrugada) — onde retomar
 
