@@ -779,9 +779,9 @@ EOF
   local nav_state
   nav_state="$(remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
     /usr/local/bin/entrypoint.sh bash -c 'ros2 lifecycle get /bt_navigator'" 2>/dev/null \
-    | tr -d '\r' | tail -1)"
+    | tr -d '\r' | tail -1 || true)"
 
-  if printf '%s' "${nav_state}" | grep -q active; then
+  if printf '%s' "${nav_state}" | grep -Eq '^active([[:space:]]|$)'; then
     printf '    bt_navigator: %s\n' "${nav_state}"
   else
     printf '    bt_navigator NAO esta ativo: %s\n' "${nav_state:-<sem resposta>}"

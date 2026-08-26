@@ -165,10 +165,26 @@ def test_verify_checks_that_nav2_is_active_and_not_merely_running() -> None:
     # A resposta tem de DECIDIR o resultado, nao so ser impressa.
     tail = script[script.index('ros2 lifecycle get /bt_navigator'):]
     decision = tail[:tail.index('return "${verify_failed}"')]
-    assert 'grep -q active' in decision
+    assert "grep -Eq '^active([[:space:]]|$)'" in decision
+    assert 'grep -q active' not in decision
+    assert "tail -1 || true" in decision
     assert 'verify_failed=1' in decision
 
     # E as etapas precisam estar renumeradas, senao o operador le "3/3" e
     # conclui que a bateria acabou antes da etapa que importa.
     for step in ('1/4', '2/4', '3/4', '4/4'):
         assert f'say "{step}' in script, f'etapa {step} ausente'
+
+
+def test_nav2_lifecycle_match_rejects_inactive() -> None:
+    pattern = r'^active([[:space:]]|$)'
+
+    for state in ('active', 'active [3]'):
+        result = subprocess.run(
+            ['grep', '-Eq', pattern], input=state, text=True, check=False)
+        assert result.returncode == 0, f'{state!r} deveria ser aceito'
+
+    for state in ('inactive', 'inactive [2]', 'unconfigured [1]', ''):
+        result = subprocess.run(
+            ['grep', '-Eq', pattern], input=state, text=True, check=False)
+        assert result.returncode != 0, f'{state!r} nao deveria ser aceito'
