@@ -66,7 +66,7 @@ hmi/
 │   │   └── freshness.js          never / live / stale
 │   └── panels/
 │       ├── stream-panel.js       MJPEG + liveness por camera_info
-│       ├── log-panel.js          /rosout + telemetria
+│       ├── log-panel.js          logs/recursos do target + /rosout filtrado
 │       └── control-bar.js        badge de link, build, controles
 └── test/                   node --test
 ```
@@ -78,7 +78,7 @@ hmi/
 | Cena (azul) | **pendente — F3b** | câmera de cena do mundo SDF |
 | Navegação (verde) | **pendente — F3b** | canvas 2D via rosbridge |
 | Câmera (rosa claro) | funcional | `/demo/camera/image_raw` via web_video_server |
-| Logs (rosa) | funcional | `/rosout`, `/demo/cmd_vel`, `/demo/odom` |
+| Logs (rosa) | funcional | `/demo/target/ops_log`, `/demo/target/status`, `/demo/cmd_vel_si`, `/demo/odom`, `/rosout` filtrado |
 | Barra (cinza) | parcial | link/build funcionais; botões **inertes até o F4** |
 
 Os botões de controle manual estão desabilitados de propósito. Publicar em

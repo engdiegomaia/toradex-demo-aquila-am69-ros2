@@ -1,14 +1,12 @@
 /**
- * Movement log panel — /rosout plus a live telemetry strip.
+ * Movement log panel — target operations plus a live telemetry strip.
  *
- * The panel answers two different operator questions with one region:
- *
- *   "what is the stack saying?"  -> the /rosout list;
- *   "what is the robot doing?"   -> the cmd_vel / odom strip above it.
- *
- * In HIL mode /rosout carries lines from BOTH machines over DDS, so the node
- * column is not decoration: it is how you tell a message from Nav2 on the
- * Aquila apart from one from the bridge on the workstation.
+ * `/rosout` is intentionally not the primary feed. In HIL it mixes Gazebo,
+ * rosbridge, Nav2, the host and the module, which is useful for debugging and
+ * noisy for operating. The cockpit shows `/demo/target/ops_log` first: short
+ * lines generated on the target from `/demo/cmd_vel_si`, `/demo/cmd_vel` and
+ * `/demo/odom`. `/rosout` remains subscribed only as a filtered fallback for
+ * warnings/errors and selected navigation events.
  */
 
 import { TOPICS } from '../config.js';
@@ -25,6 +23,17 @@ const LEVEL_NAMES = Object.freeze({
   50: 'fatal',
 });
 
+const ROSOUT_IMPORTANT_NODES = new Set([
+  'bt_navigator',
+  'controller_server',
+  'planner_server',
+  'collision_monitor',
+  'lifecycle_manager_navigation',
+  'nav_control_relay',
+  'cmd_vel_si_to_stick',
+  'target_monitor',
+]);
+
 /** Pure: severity byte -> lowercase name. Exported for tests. */
 export function levelName(level) {
   return LEVEL_NAMES[level] ?? 'info';
@@ -37,6 +46,12 @@ export function formatStamp(stamp) {
   return date.toISOString().slice(11, 19);
 }
 
+/** Pure: UNIX seconds -> hh:mm:ss. Exported for tests. */
+export function formatWallStamp(seconds) {
+  if (!Number.isFinite(seconds)) return '--:--:--';
+  return new Date(seconds * 1000).toISOString().slice(11, 19);
+}
+
 /** Pure: quaternion -> yaw in radians. Exported for tests. */
 export function yawFromQuaternion(q) {
   if (!q) return 0;
@@ -47,6 +62,47 @@ export function yawFromQuaternion(q) {
 const fixed = (value, digits = 2) =>
   Number.isFinite(value) ? value.toFixed(digits) : '—';
 
+const percent = (value, digits = 0) =>
+  Number.isFinite(value) ? `${value.toFixed(digits)}%` : '—';
+
+const celsius = (value) =>
+  Number.isFinite(value) ? `${value.toFixed(1)}°C` : '—';
+
+const megabytes = (value) =>
+  Number.isFinite(value) ? `${value.toFixed(0)} MB` : '—';
+
+/** Pure: parse std_msgs/String JSON, returning null for old/plain publishers. */
+export function parseJsonString(message) {
+  const raw = message?.data;
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+/** Pure: resource payload -> compact memory label. Exported for tests. */
+export function formatMemory(status) {
+  const used = status?.mem_used_mb;
+  const total = status?.mem_total_mb;
+  const pct = status?.mem_percent;
+  if (Number.isFinite(used) && Number.isFinite(total)) {
+    return `${megabytes(used)} / ${megabytes(total)}`;
+  }
+  return percent(pct);
+}
+
+/** Pure: keep only /rosout lines that help an operator during HIL. */
+export function shouldAppendRosout(message) {
+  if (!message) return false;
+  if (message.level >= 30) return true;
+  const name = String(message.name ?? '').replace(/^\//, '');
+  if (!ROSOUT_IMPORTANT_NODES.has(name)) return false;
+  const text = String(message.msg ?? '').toLowerCase();
+  return /(goal|meta|reset|reinici|clear|costmap|saturad|active|inactive|fail|abort)/.test(text);
+}
+
 export function createLogPanel({ root, client, tracker }) {
   const list = root.querySelector('[data-role="log-list"]');
   const values = {
@@ -54,11 +110,14 @@ export function createLogPanel({ root, client, tracker }) {
     ang: root.querySelector('[data-role="tele-ang"]'),
     pose: root.querySelector('[data-role="tele-pose"]'),
     yaw: root.querySelector('[data-role="tele-yaw"]'),
+    cpu: root.querySelector('[data-role="tele-cpu"]'),
+    mem: root.querySelector('[data-role="tele-mem"]'),
+    temp: root.querySelector('[data-role="tele-temp"]'),
   };
 
   const unsubscribes = [];
 
-  const appendRow = (message) => {
+  const appendRow = ({ stampText, level = 'info', node = '', msg = '' }) => {
     // Auto-scroll only while the operator is already at the bottom. Yanking the
     // view down while someone is reading an error from ten seconds ago is the
     // fastest way to make a log panel useless during a demo.
@@ -67,29 +126,29 @@ export function createLogPanel({ root, client, tracker }) {
 
     const row = document.createElement('li');
     row.className = 'log__row';
-    row.dataset.level = levelName(message.level);
+    row.dataset.level = level;
 
     const time = document.createElement('span');
     time.className = 'log__time';
-    time.textContent = formatStamp(message.stamp);
+    time.textContent = stampText ?? '--:--:--';
 
-    const level = document.createElement('span');
-    level.className = 'log__level';
-    level.textContent = levelName(message.level).toUpperCase().slice(0, 4);
+    const levelCell = document.createElement('span');
+    levelCell.className = 'log__level';
+    levelCell.textContent = level.toUpperCase().slice(0, 4);
 
-    const node = document.createElement('span');
-    node.className = 'log__node';
-    node.textContent = message.name ?? '';
-    node.title = message.name ?? '';
+    const nodeCell = document.createElement('span');
+    nodeCell.className = 'log__node';
+    nodeCell.textContent = node;
+    nodeCell.title = node;
 
     const text = document.createElement('span');
     text.className = 'log__msg';
-    // textContent, never innerHTML: /rosout carries text from nodes we do not
-    // control, and in HIL mode from another machine entirely.
-    text.textContent = message.msg ?? '';
-    text.title = message.msg ?? '';
+    // textContent, never innerHTML: target logs are generated by us, but the
+    // filtered /rosout fallback can still carry text from another machine.
+    text.textContent = msg;
+    text.title = msg;
 
-    row.append(time, level, node, text);
+    row.append(time, levelCell, nodeCell, text);
     list.append(row);
 
     while (list.childElementCount > MAX_ROWS) list.firstElementChild.remove();
@@ -98,11 +157,17 @@ export function createLogPanel({ root, client, tracker }) {
 
   unsubscribes.push(
     client.subscribe(
-      TOPICS.rosout,
-      'rcl_interfaces/msg/Log',
+      TOPICS.targetOpsLog,
+      'std_msgs/msg/String',
       (message) => {
-        tracker.mark('rosout');
-        appendRow(message);
+        tracker.mark('targetOps');
+        const payload = parseJsonString(message);
+        appendRow({
+          stampText: formatWallStamp(payload?.stamp),
+          level: payload?.level ?? 'info',
+          node: payload?.node ?? 'target',
+          msg: payload?.msg ?? message?.data ?? '',
+        });
       },
       { queueLength: 100 },
     ),
@@ -110,14 +175,47 @@ export function createLogPanel({ root, client, tracker }) {
 
   unsubscribes.push(
     client.subscribe(
-      TOPICS.cmdVel,
+      TOPICS.rosout,
+      'rcl_interfaces/msg/Log',
+      (message) => {
+        tracker.mark('rosout');
+        if (!shouldAppendRosout(message)) return;
+        appendRow({
+          stampText: formatStamp(message.stamp),
+          level: levelName(message.level),
+          node: message.name ?? '',
+          msg: message.msg ?? '',
+        });
+      },
+      { queueLength: 100 },
+    ),
+  );
+
+  unsubscribes.push(
+    client.subscribe(
+      TOPICS.cmdVelSi,
       'geometry_msgs/msg/Twist',
       (message) => {
-        tracker.mark('cmdVel');
+        tracker.mark('cmdVelSi');
         values.lin.textContent = fixed(message?.linear?.x);
         values.ang.textContent = fixed(message?.angular?.z);
       },
       { throttleRate: 100 },
+    ),
+  );
+
+  unsubscribes.push(
+    client.subscribe(
+      TOPICS.targetStatus,
+      'std_msgs/msg/String',
+      (message) => {
+        tracker.mark('targetStatus');
+        const status = parseJsonString(message);
+        values.cpu.textContent = percent(status?.cpu_percent);
+        values.mem.textContent = formatMemory(status);
+        values.temp.textContent = celsius(status?.temp_c);
+      },
+      { throttleRate: 1000 },
     ),
   );
 
@@ -142,8 +240,10 @@ export function createLogPanel({ root, client, tracker }) {
 
   return {
     onLinkDown() {
+      tracker.clear('targetOps');
+      tracker.clear('targetStatus');
       tracker.clear('rosout');
-      tracker.clear('cmdVel');
+      tracker.clear('cmdVelSi');
       tracker.clear('odom');
       for (const value of Object.values(values)) value.textContent = '—';
     },

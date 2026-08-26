@@ -204,10 +204,10 @@
       >
         <header class="panel__head">
           <h2 class="panel__title" id="log-title">Logs de movimentação</h2>
-          <p class="panel__source">/rosout</p>
+          <p class="panel__source">/demo/target/ops_log · /demo/target/status</p>
           <span
             class="dot"
-            data-freshness="rosout"
+            data-freshness="targetOps"
             data-state="never"
             aria-hidden="true"
           ></span>
@@ -220,15 +220,15 @@
         -->
         <div class="telemetry">
           <span class="telemetry__item">
-            <span class="telemetry__label">cmd_vel lin.x</span>
+            <span class="telemetry__label">target vx</span>
             <span class="telemetry__value" data-role="tele-lin">—</span>
           </span>
           <span class="telemetry__item">
-            <span class="telemetry__label">ang.z</span>
+            <span class="telemetry__label">wz</span>
             <span class="telemetry__value" data-role="tele-ang">—</span>
           </span>
           <span class="telemetry__item">
-            <span class="dot" data-freshness="cmdVel" data-state="never"></span>
+            <span class="dot" data-freshness="cmdVelSi" data-state="never"></span>
           </span>
           <span class="telemetry__item">
             <span class="telemetry__label">odom x,y</span>
@@ -240,6 +240,21 @@
           </span>
           <span class="telemetry__item">
             <span class="dot" data-freshness="odom" data-state="never"></span>
+          </span>
+          <span class="telemetry__item">
+            <span class="telemetry__label">CPU</span>
+            <span class="telemetry__value" data-role="tele-cpu">—</span>
+          </span>
+          <span class="telemetry__item">
+            <span class="telemetry__label">mem</span>
+            <span class="telemetry__value" data-role="tele-mem">—</span>
+          </span>
+          <span class="telemetry__item">
+            <span class="telemetry__label">temp</span>
+            <span class="telemetry__value" data-role="tele-temp">—</span>
+          </span>
+          <span class="telemetry__item">
+            <span class="dot" data-freshness="targetStatus" data-state="never"></span>
           </span>
         </div>
 
@@ -324,7 +339,7 @@
           <span class="bar__label">simulação</span>
           <button class="btn" type="button" data-role="sim" data-command="play" title="retomar a simulação">&#9654;</button>
           <button class="btn" type="button" data-role="sim" data-command="pause" title="pausar a simulação">&#10073;&#10073;</button>
-          <button class="btn btn--warn" type="button" data-role="sim" data-command="reset" title="reiniciar o mundo: o robô volta à pose inicial e o Nav2 perde o costmap acumulado">&#8635;</button>
+          <button class="btn btn--warn" type="button" data-role="sim" data-command="reset" title="repor o robô na pose inicial de nascimento — não apaga o mundo, não zera o relógio e não limpa o costmap (para isso use reiniciar nav)">&#8635;</button>
           <span class="bar__state" data-role="sim-state">—</span>
         </div>
 

@@ -48,6 +48,9 @@ setup(
             # /demo/cmd_vel (manche). Ver o cabecalho do modulo: sem ele
             # o robo anda a 40% do pedido e nada acusa.
             'cmd_vel_si_to_stick = demo_bringup.cmd_vel_si_to_stick:main',
+            # Telemetria operacional do target para o cockpit: eixos comandados,
+            # CPU, memoria e temperatura sem depender de /rosout bruto.
+            'target_monitor = demo_bringup.target_monitor:main',
         ],
     },
 )
