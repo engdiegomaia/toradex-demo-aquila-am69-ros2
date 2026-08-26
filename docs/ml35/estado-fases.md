@@ -79,6 +79,16 @@ com `grep /demo/` e depois exigia `/clock`, que não está sob `/demo/`. O teste
 que existia passava o tempo todo porque só checava se a string aparecia no
 arquivo. Corrigido, com teste que falha por mutação.
 
+**FASE 2 DO PLANO JÁ FOI EXECUTADA (25/08, noite).** A câmera comprimida está
+implementada, validada e medida: `docs/results/ml35-f5-camera-comprimida.md`.
+Ela entrega a engenharia (~82× menos fio, CPU do módulo ~711% → ~600%) e **não
+move o portão** — velocidade não melhorou de forma confiável e a razão de
+trabalho piorou (2,1–2,7% contra 5,8%). O `collision_monitor` segue recusando a
+nuvem com ~1,0 s de defasagem e emitindo `Robot to stop due to invalid source`.
+A variável dominante é a **presença** da percepção, não o formato do transporte:
+com percepção no módulo a razão fica em 2–6% em qualquer formato; sem ela, 16,8%.
+Não repita a fase 2 e não volte a discutir formato de imagem.
+
 **Ordem sugerida pelos dados para a próxima sessão:** reduzir CPU do Nav2 no
 módulo → tirar a imagem RAW do fio (transporte comprimido até a percepção) →
 só então mexer no MPPI → repetir 420 s / 200 s com n=3.
