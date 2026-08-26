@@ -28,8 +28,68 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 25/08/2026 | enlace cabeado gigabit comprovado e `verify` 3/3; portão de 8 m REPROVADO por CPU do módulo e por decisão de trajeto — ver "Sessão 25/08 (noite)" |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 26/08/2026 | enlace gigabit comprovado, `verify` 3/3 e **limite de CPU fechado** (307% de folga, zero recusas do `collision_monitor`); portão de 8 m REPROVADO — resta **só** decisão de trajeto — ver "Sessão 26/08 (madrugada)" |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
+
+### Sessão 26/08 (madrugada) — onde retomar
+
+Evidência completa: `docs/results/ml35-f5-clock-fanout.md`.
+
+**O item 1 da sessão anterior (CPU do módulo) está FECHADO.** Não o reabra pelo
+caminho antigo: não é o laço do MPPI (refutado em `ml35-f5-mppi-amostragem.md`) e
+não é a taxa do `/clock` (refutado em 21/08 — estrangular matou a navegação).
+
+**Era fan-out de assinatura de `/clock`.** Perfilando `/proc/<tid>/stat` por
+thread, o container `nav` gastava **367% de 800% com o robô PARADO**, e 111%
+disso eram três republicadores em Python — `odom_tf`, `cmd_vel_si_to_stick` e
+`nav_control_relay` — que **não chamam o relógio uma única vez** e assinavam
+`/clock` a ~870 Hz só porque `use_sim_time: true` faz o rclpy criar a assinatura.
+
+Corrigido com `use_sim_time: False` nos três. Os três caíram de **111% para
+17,7%**, e `ros2 topic info /clock -v` confirma que nenhum deles assina mais.
+Quatro testes em `demo_bringup/test/test_sim_time_scope.py`, verificados por
+mutação, travam a invariante nos dois sentidos — inclusive o inverso, que é o
+que importa: **nó sem `use_sim_time` não pode chamar `get_clock()`**.
+
+**O que isso comprou, medido:**
+
+| | antes | depois |
+| --- | ---: | ---: |
+| recusas `Ignoring the source` | 16 | **0** |
+| `Robot to stop due to invalid source` | 4 | **0** |
+| descartes de costmap | — | **0** |
+| folga da máquina sob navegação | nenhuma | **307% de 800%** |
+
+**O que isso NÃO comprou: movimento.** A corrida de confirmação deu 0,0246 m/s,
+`vx` em zero em **90,7%** das amostras, girando em **90,3%**, e **0 de 2 metas de
+8 m**. Dentro da faixa de ruído já conhecida. Zero quedas.
+
+**Portanto o item 2 da sessão anterior — decisão de trajeto — está agora
+sozinho e sem confundidor.** Com CPU sobrando e sem uma única recusa de sensor, o
+robô continua girando em vez de transladar. Isso não era efeito colateral da CPU.
+
+**Duas armadilhas descobertas nesta sessão:**
+
+- `docker/.env` ainda carrega `MODULE_IP=192.0.2.5`, endereço antigo de
+  bancada, e ele **vence os defaults**. `ssh` funciona assim mesmo porque usa o
+  nome mDNS, então o erro só aparece em `sync`/`build` (`não identifiquei a
+  interface do módulo que carrega 192.0.2.5`). Passe `MODULE_IP=` e `HOST_IP=`
+  explícitos, ou conserte o `.env`.
+- Uma hipótese foi testada e **descartada**: `inflation_radius` 0,55 num corredor
+  de 1,20 m deixaria 10 cm de faixa livre e tornaria girar mais barato que
+  avançar. Medido no `local_costmap`: **64,1% das células com custo 0**, e o que
+  estava à frente era parede real. Não gaste sintonia nisso sem medir de novo.
+
+**Próximo portão, na ordem:**
+
+1. **Consertar o protocolo antes de sintonizar.** n ≥ 3 por condição,
+   intercalado, mediana e faixa. A dispersão de 2,4× em configuração idêntica
+   continua valendo e nenhuma corrida única decide — a desta sessão inclusive.
+2. **Trocar a métrica primária** para razão de trabalho de `cmd_vx` e fração de
+   `vx` ≈ 0. Deram 0,6% e 0,6% em duas corridas distintas, contra 2,4× de
+   dispersão na velocidade média, e medem diretamente o sintoma.
+3. **Só então MPPI** (`PathAlignCritic` 14,0 × `PathAngleCritic` 2,0), agora em
+   ensaio limpo, com o costmap medido a cada condição.
 
 ### Sessão 25/08 (noite) — onde retomar (leia isto antes de tocar em qualquer coisa)
 

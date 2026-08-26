@@ -151,6 +151,19 @@ Fase atual: **ML3.5, quadrúpede real e containerização.** L1, L2, L3 e ML3.1 
   Tirar a câmera do fio **não** faz a meta passar. Ver
   `docs/results/ml35-f5-ethernet0-repeticao.md` e a seção
   "Sessão 25/08 (noite)" de `docs/ml35/estado-fases.md`.
+  **Na madrugada de 26/08 a primeira dessas duas causas foi FECHADA.** Perfilando
+  por thread, o container `nav` gastava 367% de 800% **com o robô parado**, e
+  111% disso eram `odom_tf`, `cmd_vel_si_to_stick` e `nav_control_relay` — três
+  republicadores que **não chamam `get_clock()`** e assinavam `/clock` a ~870 Hz
+  só porque `use_sim_time: true` faz o rclpy criar a assinatura. Com
+  `use_sim_time: False` nos três: 111% → 17,7%, recusas do `collision_monitor` de
+  **16 para 0**, descartes de costmap zero e **307% de 800% ociosos** sob
+  navegação com percepção no ar. **O robô não anda melhor por isso** — 0,0246 m/s,
+  `vx` em zero em 90,7%, 0 de 2 metas, zero quedas —, e é justamente esse o
+  resultado: **decisão de trajeto ficou sozinha, sem o confundidor de CPU**. Não
+  reabra CPU pelo laço do MPPI nem pela taxa do `/clock`: os dois estão refutados.
+  Ver `docs/results/ml35-f5-clock-fanout.md` e a seção "Sessão 26/08 (madrugada)"
+  de `docs/ml35/estado-fases.md`.
 - **Cockpit web** — trilha paralela, plano em `docs/ml35/plano-cockpit-web.md`.
   **F1 e F3b fechados em 24/08/2026**: as cinco regiões da tela ao vivo, clique
   no mapa vira meta aceita pelo Nav2, play/pause/reset da simulação e controle

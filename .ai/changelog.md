@@ -5,6 +5,53 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-26 (madrugada) — o piso ocioso de CPU do módulo: limite fechado, movimento não
+
+O gargalo de CPU do AM69, aberto desde 24/08, **está fechado e medido**. O robô
+não anda melhor por isso, e essa distinção é o resultado.
+Evidência em `docs/results/ml35-f5-clock-fanout.md`. Sem térmica nem consumo
+(regra 7).
+
+**Perfilar em vez de supor.** O A/B anterior terminava mandando descobrir onde a
+CPU era gasta. Amostragem de `/proc/<tid>/stat` por thread mostrou o container
+`nav` em **367% de 800% com o robô PARADO**, e 111% disso em três republicadores
+em Python — `odom_tf`, `cmd_vel_si_to_stick`, `nav_control_relay`.
+
+**A causa:** os três **não chamam `get_clock()` uma única vez**, e mesmo assim
+assinavam `/clock` a ~870 Hz, porque quem cria a assinatura é o rclpy a partir de
+`use_sim_time: true`, não o código do nó. Não é o estrangulamento de `/clock`
+reprovado em 21/08: ali a taxa caía para todos, o MPPI incluso, e a navegação
+morria. Aqui a taxa não muda para ninguém — muda quem assina.
+
+**A mudança:** `use_sim_time: False` nos três, em `nav_quadruped.launch.py` e
+`nav_control.launch.py`. Vale para os dois robôs, sem caminho por modo. Junto
+saiu o argumento `use_sim_time` de `nav_control.launch.py` e as duas chamadas que
+o passavam — argumento declarado que ninguém consome é falha silenciosa.
+
+**Medido:** os três caíram de 111% para 17,7%, confirmado por dois métodos
+independentes (perfil por thread e lista de assinantes de `/clock`). Sob
+navegação: recusas do `collision_monitor` de **16 para 0**, descartes de costmap
+zero, e **307% de 800% ociosos** com percepção no ar. TF íntegra.
+
+**O que não mudou:** 0,0246 m/s, `vx` em zero em 90,7% das amostras, **0 de 2
+metas de 8 m**, zero quedas. Dentro da faixa de ruído. Com CPU sobrando e sem uma
+recusa de sensor, o robô continua girando em vez de transladar — **o limite de
+trajeto não era efeito colateral da CPU**, e agora está isolado.
+
+**Ressalva honesta:** o consumo total do container `nav` não caiu (367% → 377%);
+o Nav2 absorveu a capacidade liberada. Em máquina saturada, porcentagem por
+processo mede o que o processo conseguiu, não o que queria.
+
+**Hipótese testada e descartada:** `inflation_radius` 0,55 em corredor de 1,20 m
+não é a causa do giro — 64,1% do `local_costmap` com custo 0, e parede real à
+frente.
+
+Testes: quatro em `demo_bringup/test/test_sim_time_scope.py`, verificados por
+mutação, travando também o sentido inverso — nó sem `use_sim_time` não pode
+chamar `get_clock()`.
+
+---
+
 ## 2026-08-25 (noite) — HIL cabeado no AM69: enlace resolvido, portão de 8 m reprovado
 
 Primeira execução do protocolo de estabilidade em enlace cabeado gigabit real.
