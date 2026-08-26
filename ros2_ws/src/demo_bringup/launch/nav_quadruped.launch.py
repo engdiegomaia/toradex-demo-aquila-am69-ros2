@@ -174,6 +174,17 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{'use_sim_time': False}],
     )
 
+    # Canal operacional para o cockpit. Fica no target junto do Nav2: em HIL os
+    # recursos e a temperatura exibidos são do Aquila, e os logs de eixos vêm da
+    # fronteira real Nav2(SI) -> manche, não do /rosout bruto misturado ao host.
+    target_monitor = Node(
+        package='demo_bringup',
+        executable='target_monitor',
+        name='target_monitor',
+        output='screen',
+        parameters=[{'use_sim_time': False}],
+    )
+
     # O caminho da arvore de comportamento tem de ser ABSOLUTO, e nao pode ficar
     # cravado no YAML: quem sabe o prefixo de instalacao e o FindPackageShare.
     #
@@ -294,6 +305,7 @@ def generate_launch_description() -> LaunchDescription:
         wait_for_clock,
         odom_tf,
         cmd_vel_adapter,
+        target_monitor,
         nav2_container,
         navigation,
         nav_control,

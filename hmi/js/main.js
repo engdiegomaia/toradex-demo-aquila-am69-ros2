@@ -51,7 +51,10 @@ const SOURCES = Object.freeze({
   // budget is looser than the robot camera's.
   scene: { staleAfterMs: 3000 },
   rosout: { staleAfterMs: 15000 },
+  targetOps: { staleAfterMs: 3000 },
+  targetStatus: { staleAfterMs: 6000 },
   cmdVel: { staleAfterMs: 2000 },
+  cmdVelSi: { staleAfterMs: 2000 },
   odom: { staleAfterMs: 2000 },
   // Nav2 publishes the global costmap at 0,5 Hz and republishes the footprint
   // with it. Anything under ~4 s here would sit amber during normal operation.

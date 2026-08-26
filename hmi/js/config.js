@@ -39,9 +39,12 @@ export const TOPICS = Object.freeze({
   scan: '/demo/scan',
   odom: '/demo/odom',
   cmdVel: '/demo/cmd_vel',
+  cmdVelSi: '/demo/cmd_vel_si',
   detections: '/demo/perception/detections',
   navStatus: '/demo/navigation/status',
   rosout: '/rosout',
+  targetOpsLog: '/demo/target/ops_log',
+  targetStatus: '/demo/target/status',
 });
 
 const NUMERIC_KEYS = ['rosbridgePort', 'videoPort'];
