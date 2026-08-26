@@ -70,6 +70,7 @@ services:
       ros2 launch demo_bringup nav_select.launch.py
       robot_type:=${ROBOT_TYPE:-quadruped}
       use_sim_time:=true
+      params_file:=${NAV2_PARAMS:-}
 
   perception:
     <<: *common

@@ -52,8 +52,8 @@ Então a decisão fica com o operador, e a forma confiável é recriar a pilha c
 o YAML da condição. Exemplo, no módulo:
 
     --condition align8='ssh torizon@<modulo> "cd /home/torizon/demo &&
-        NAV2_PARAMS=params-align8.yaml docker compose -f compose.module.yml
-        up -d --force-recreate nav"'
+        NAV2_PARAMS=/ws/src/demo_navigation/config/params-align8.yaml \
+        docker compose -f compose.module.yml up -d --force-recreate nav"'
 
 `baseline` sem `=comando` não aplica nada — é a condição de referência tal como
 a pilha já está.
