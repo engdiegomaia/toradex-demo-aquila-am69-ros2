@@ -537,7 +537,7 @@ PYPORT
     verify_failed=1
   else
     [[ "${port}" == "${base_port}" ]] || busy=" (${base_port} ocupada: DDS vivo neste host)"
-    say "1/3 alcance UDP no dominio ${ROS_DOMAIN_ID}, porta ${port}${busy}"
+    say "1/4 alcance UDP no dominio ${ROS_DOMAIN_ID}, porta ${port}${busy}"
 
     python3 - "${port}" <<'PYLISTEN' &
 import socket, sys, time
@@ -578,7 +578,7 @@ PYLISTEN
     fi
   fi
 
-  say "2/3 contrato de topicos visto de dentro do modulo"
+  say "2/4 contrato de topicos visto de dentro do modulo"
   [[ -f "${host_cfg:-}" ]] || render_host_config
   remote "cd ${remote_dir} && docker compose -f compose.module.yml --profile tools up -d tools" >/dev/null
   # Discovery over unicast peers is not instant; a list taken immediately after
@@ -657,7 +657,7 @@ EOF
     fi
   fi
 
-  # --- 3/3: module -> host, the direction the demo actually needs -----------
+  # --- 3/4: module -> host, the direction the demo actually needs -----------
   # Step 2 only proves the module can SEE the host. This proves the module can
   # PUBLISH and the host receives it, which is the data path the demo is for.
   #
@@ -680,7 +680,7 @@ EOF
   # image-wide (it would double-prefix the absolute /demo/* names everywhere
   # else). Without the remap the topic is /system/heartbeat and a subscriber on
   # /demo/system/heartbeat waits forever on a name nobody publishes.
-  say "3/3 modulo publica, host recebe (/demo/system/heartbeat)"
+  say "3/4 modulo publica, host recebe (/demo/system/heartbeat)"
 
   if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
     printf '    ROS nativo ausente no host, etapa 3 nao executada\n'
@@ -756,6 +756,40 @@ EOF
     printf '    host recebeu do modulo: %s\n' "$(printf '%s' "${received}" | grep -m1 'count=')"
   else
     printf '    host NAO recebeu. Saida do echo:\n%s\n' "${received}"
+    verify_failed=1
+  fi
+
+  # --- 4/4: o Nav2 esta ATIVO, e nao apenas de pe --------------------------
+  #
+  # AS TRES ETAPAS ACIMA PASSAM COM O NAV2 MORTO. Medido em 26/08/2026: depois
+  # de um `up`, a aresta odom -> base demorou mais de 60 s para atravessar a
+  # fronteira, o local_costmap nao ativou, e o gerenciador de ciclo de vida
+  # ABORTOU o bringup em definitivo -- sem nova tentativa. O container ficou de
+  # pe, todos os topicos apareceram, `verify` retornou 0, e toda meta era
+  # recusada com "Action server is inactive. Rejecting the goal."
+  #
+  # Topico existir nao e servico funcionar. Esta etapa pergunta o estado de
+  # ciclo de vida, que e a unica coisa que separa os dois casos.
+  #
+  # `ros2 lifecycle get` e nao `service call`: a forma com service call precisa
+  # de "{}" como argumento, e este bloco esta dentro de remote "...", uma string
+  # entre aspas duplas que o shell de fora expande antes de o ssh ver. Chaves e
+  # aspas ali dentro ja quebraram este arquivo uma vez.
+  say "4/4 Nav2 ativo no modulo (bt_navigator)"
+  local nav_state
+  nav_state="$(remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
+    /usr/local/bin/entrypoint.sh bash -c 'ros2 lifecycle get /bt_navigator'" 2>/dev/null \
+    | tr -d '\r' | tail -1)"
+
+  if printf '%s' "${nav_state}" | grep -q active; then
+    printf '    bt_navigator: %s\n' "${nav_state}"
+  else
+    printf '    bt_navigator NAO esta ativo: %s\n' "${nav_state:-<sem resposta>}"
+    printf '    Toda meta sera recusada. Procure no log do nav:\n'
+    printf '      "Failed to bring up all requested nodes"  -> a subida abortou\n'
+    printf '      "did not become available before timeout" -> foi a TF odom -> base\n'
+    printf '    Destrave com STARTUP no gerenciador; conserte com o portao\n'
+    printf '    wait_for_tf em nav_quadruped.launch.py.\n'
     verify_failed=1
   fi
 
