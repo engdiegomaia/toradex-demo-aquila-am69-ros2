@@ -205,9 +205,14 @@ Clique perto demais do robô (< 0,25 m) é tratado como engano e ignorado.
 Na barra. Chamam `/demo/sim/{play,pause,reset}` (`std_srvs/Trigger`).
 
 O **reset exige dois cliques**: o primeiro arma o botão (ele vira `confirmar` em
-laranja por 4 s), o segundo executa. Ele devolve o robô à pose inicial **e**
-apaga o costmap que o Nav2 acumulou — um clique por engano no meio da demo custa
-a demo.
+laranja por 4 s), o segundo executa. Ele devolve o robô à pose inicial. **Não**
+apaga o costmap — quem limpa o costmap é [reiniciar a navegação](#reiniciar-a-navegação),
+botão separado, de propósito: repor o robô sem derrubar o que o Nav2 já sabe do
+mundo é o que permite os dois em sequência sem perder trabalho.
+
+No cenário quadrúpede o clique leva alguns segundos a mais do que no
+diff-drive, e isso é esperado: o robô é **parado** antes de ser reposicionado e
+só volta a andar depois — ver a [armadilha 9](#9-o-reset-derrubava-o-quadrúpede-em-marcha).
 
 O rótulo ao lado (`rodando` / `pausado` / `sem simulador`) **não é o eco do
 último clique**: ele vem do `/clock`. Um eco mentiria em todos os casos que
@@ -647,6 +652,35 @@ A correção vive em `nav2_params_go2.yaml`: `route_server.operations` lista só
 lista obriga a declarar também o **tipo** de cada plugin dela
 (`AdjustSpeedLimit.plugin`), senão a subida é reprovada com
 `Can not get 'plugin' param value` — falha alta, e nisso melhor que o segfault.
+
+### 9. O reset derrubava o quadrúpede em marcha
+
+O reset da simulação teleporta o robô de volta à pose inicial via
+`SetEntityPose` (ver armadilha 2 sobre por que não é uma chamada direta do
+Gazebo pelo navegador). Isso resolve um defeito pior — `reset.all` **apagava**
+o robô inteiro, ver `docs/results/cockpit-reset-nao-destrutivo.md` §1-2 — mas
+sozinho não bastava para o quadrúpede, e por dois motivos diferentes,
+descobertos em sequência:
+
+1. **teleportar sem reancorar o controlador de marcha.** O `StateTrotting`
+   (controlador C++ do gait) captura sua referência de postura uma única vez, e
+   um teleporte muda a pose sem passar por essa captura. Medido sem nenhum
+   comando de velocidade publicado por 26 s: mesmo assim o robô se arrastou
+   0,87 m e girou 135° sozinho, perseguindo a pose de ANTES do reset;
+2. **teleportar sem parar.** `SetEntityPose` reposiciona o corpo e **preserva a
+   velocidade**. Um robô em marcha, teleportado, é solto ainda viajando com as
+   pernas em balanço — e cai. Medido com o Nav2 conduzindo de verdade durante o
+   reset: a altura do robô caiu de 0,337 m para 0,162 m em 1 segundo.
+
+A correção para o robô ANTES de teleportar e o reancora DEPOIS — dois serviços
+internos (`/demo/gait/hold`, `/demo/gait/resume`), servidos pelo mesmo nó que já
+traduzia `/demo/cmd_vel` para os eixos do gait. Nenhum dos dois é exposto ao
+cockpit; o operador só vê o efeito, que é o clique de reset levar ~2-7 s a mais
+no quadrúpede do que no diff-drive. Verificado inclusive com o robô **caído**
+(tombado, preso no modo de recuperação do controlador — que não sai sozinho de
+cabeça para baixo): o reset o devolve de pé.
+
+Evidência completa: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
 
 ---
 
