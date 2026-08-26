@@ -889,6 +889,85 @@ no próprio Aquila, com o daemon local.
 
 ---
 
+### 17. `use_sim_time: true` custa CPU mesmo em nó que nunca olha o relógio
+
+O sintoma: o módulo fica com carga alta, o `collision_monitor` recusa a nuvem do
+LiDAR dizendo que a fonte está velha, e o robô para. Você olha o `top`, vê o
+Nav2 no topo e conclui que Nav2 é caro. **Pode não ser ele.**
+
+`use_sim_time: true` não é uma declaração de intenção. É o **rclpy** que cria uma
+assinatura de `/clock` por nó, independentemente de o código do nó chamar o
+relógio. No mundo do Go2 o Gazebo publica `/clock` a ~870 Hz, porque o passo de
+física da marcha é 1 ms. Cada nó que assina paga por mensagem, useando-a ou não.
+
+Medido em 26/08/2026 no AM69, pilha de pé e **sem meta ativa**: 367% de 800%, dos
+quais 111% em três republicadores em Python que não têm uma única chamada a
+`get_clock()`.
+
+Como conferir, em vez de supor. `top` mostra o processo; o que você quer é a
+thread, e num container composto o nome da thread é quem entrega o culpado:
+
+```bash
+# no módulo. Soma utime+stime por thread de todo o cgroup do container.
+CID=$(docker inspect -f '{{.Id}}' demo-nav-1)
+for p in $(cat /sys/fs/cgroup/system.slice/docker-$CID.scope/cgroup.procs); do
+  for t in /proc/$p/task/*; do
+    read -r comm < $t/comm
+    set -- $(cat $t/stat); echo "${t##*/} $comm $(( $14 + $15 ))"
+  done
+done
+```
+
+Rode duas vezes com ~20 s de intervalo e tire a diferença: `(ticks2 - ticks1) /
+100 / dt * 100` é a porcentagem de um núcleo. Um `component_container` espalhado
+em ~30 threads a ~7% cada **não** é custo algorítmico — é entrega de mensagem.
+
+E confirme de fora, sem inferir:
+
+```bash
+ros2 topic info /clock -v | grep 'Node name'   # quem realmente assina
+```
+
+**Antes de tirar `use_sim_time` de um nó, verifique que ele não lê o relógio:**
+
+```bash
+grep -n 'get_clock' <arquivo_do_no>.py
+```
+
+Se ele lê e você tira, o nó passa a ler **tempo de parede** achando que lê tempo
+simulado. Os carimbos saem anos no futuro, o costmap descarta a leitura com
+`message filter dropping message`, e nada nomeia a causa. `demo_bringup/test/`
+`test_sim_time_scope.py` trava essa invariante nos dois sentidos.
+
+**O que isto NÃO é:** estrangular `/clock` (`demo_simulation/clock_throttle.py`).
+Aquilo baixa a taxa para **todo mundo**, o MPPI incluso, foi ensaiado em 21/08 e
+**matou a navegação** (0,0039 m/s contra 0,0251). Aqui a taxa não muda para
+ninguém; muda quem assina.
+
+### 18. `docker/.env` tem endereço de bancada antigo, e `ssh` esconde isso
+
+O sintoma: `scripts/module.sh sync` ou `build` falha com
+
+```
+[module.sh] ERRO: nao identifiquei a interface do modulo que carrega 10.22.1.130
+```
+
+enquanto `ssh`, `verify` e `status` funcionam normalmente.
+
+A causa: a precedência é ambiente → `docker/.env` → defaults. O `.env` da bancada
+carrega um `MODULE_IP` de outra rede, e ele **vence os defaults**. O `ssh` não
+percebe porque usa `MODULE_HOST` (nome mDNS), não o IP — só os comandos que
+precisam casar o IP com uma interface é que quebram.
+
+Saída imediata:
+
+```bash
+MODULE_IP=<ip real> HOST_IP=<ip real> ./scripts/module.sh sync
+```
+
+Saída permanente: conserte o `.env`. Confira o valor real com
+`getent hosts <MODULE_HOST>` e `ip route get <ip do módulo>`.
+
 ## 10. O módulo Aquila AM69
 
 Tudo aqui é `arm64` sobre Torizon OS, e **nada gráfico** (regra 1: o AM69 expõe
