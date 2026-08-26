@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Usage: ./scripts/run_quadruped_sim.sh [world.sdf]
+# Usage: ./scripts/run_quadruped_sim.sh [world.sdf] [launch_arg:=value...]
 # The default is the image's built-in empty.sdf. Keep this terminal open.
 #
 # MAZE_MODELS=<dir> monta um diretorio de modelos EXTERNO ao repositorio em
@@ -24,6 +24,10 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 world_path="${1:-quadruped_empty.sdf}"
+if [ "$#" -gt 0 ]; then
+  shift
+fi
+launch_args=("$@")
 container_name="aquila-go2"
 
 maze_mount=()
@@ -140,6 +144,7 @@ docker run --rm --name "${container_name}" --network=host \
   -e DISPLAY="${DISPLAY:-:0}" -e QT_X11_NO_MITSHM=1 \
   -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -e ROS_DOMAIN_ID=69 \
   -e GO2_WORLD="${world_path}" -e GO2_SPAWN_YAW="${spawn_yaw}" \
+  -e LAUNCH_ARGS="${launch_args[*]}" \
   "${maze_env[@]}" "${maze_mount[@]}" \
   "${dds_env[@]}" "${dds_mount[@]}" \
   -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
@@ -165,5 +170,5 @@ docker run --rm --name "${container_name}" --network=host \
       *) world=/test/install/demo_simulation/share/demo_simulation/worlds/"${world}" ;;
     esac
     ros2 launch demo_simulation quadruped.launch.py gui:=true \
-        world:="${world}" yaw:="${GO2_SPAWN_YAW}"
+        world:="${world}" yaw:="${GO2_SPAWN_YAW}" ${LAUNCH_ARGS}
   '
