@@ -66,10 +66,11 @@ velocidade média: deram 0,6% e 0,6% em duas corridas distintas, contra 2,4× de
 dispersão na média. `summarize_trials.py` já reporta mediana e faixa por
 condição, sem agrupar amostras.
 
-## 3. Passo 0 — tornar uma condição aplicável de forma confiável
+## 3. Passo 0 — condição aplicável de forma confiável
 
-**Este passo vem antes da primeira campanha.** Hoje não há como trocar os
-parâmetros do Nav2 de fora, e as duas saídas óbvias falham:
+**Feito depois deste roteiro inicial.** A primeira campanha ainda depende deste
+contrato, então mantenha a invariável: condição é arquivo, não `ros2 param set`.
+As duas saídas óbvias falham:
 
 - `ros2 param set /controller_server FollowPath.PathAlignCritic.cost_weight 8.0`
   é **aceito e lê de volta o valor novo**, mas os pesos dos críticos são lidos no
@@ -77,9 +78,10 @@ parâmetros do Nav2 de fora, e as duas saídas óbvias falham:
   condição consigo mesma, com evidência de aparência perfeita. É por isso que
   `nav_campaign.py` **não** aplica condição por conta própria: quem aplica é um
   comando fornecido por quem roda.
-- `nav_select.launch.py` **não repassa `params_file`** (verificado: só repassa
-  `use_sim_time`), e é ele que o `compose.module.yml` invoca. Então passar
-  `params_file:=` no `command:` do compose não tem efeito.
+- `nav_select.launch.py` precisa repassar `params_file` **somente quando o valor
+  não está vazio**. Vazio quer dizer "use o default do launch do robô
+  selecionado"; repassar vazio ao filho esmagaria o default do Go2/TB4 com uma
+  string vazia. `tests/test_nav_params_override.py` trava esse contrato.
 
 O YAML instalado é symlink para dentro da imagem, não para o host:
 
@@ -89,20 +91,27 @@ O YAML instalado é symlink para dentro da imagem, não para o host:
   -> /ws/src/demo_navigation/config/nav2_params_go2.yaml     (COPY na imagem base)
 ```
 
-**A correção recomendada é de três linhas:** repassar `params_file` em
-`_launch_navigation` de `nav_select.launch.py`, e declarar o argumento com
-default vazio (vazio = "use o default da planta", para não criar um segundo
-default capaz de divergir). Aí uma condição passa a ser um ARQUIVO, e o comando
-de aplicação fica:
+O estado esperado agora é:
+
+- `nav_select.launch.py` declara `params_file` com default vazio;
+- `docker/compose.host.yml` e `docker/compose.module.yml` passam
+  `params_file:=${NAV2_PARAMS:-}`;
+- se `NAV2_PARAMS` estiver vazio, cada robô usa o próprio default;
+- se `NAV2_PARAMS` apontar para um YAML dentro da imagem, esse arquivo vira a
+  condição da perna.
+
+Com isso, o comando de aplicação fica:
 
 ```bash
 --condition align8='ssh torizon@<modulo> "cd /home/torizon/demo &&
+    NAV2_PARAMS=/ws/src/demo_navigation/config/params-align8.yaml \
     docker compose -f compose.module.yml up -d --force-recreate nav"'
 ```
 
-com o YAML da condição sincronizado por `module.sh sync` antes. Um teste que
-trave o repasse evita a variante silenciosa desta armadilha (argumento declarado
-mas não repassado, que é exatamente o estado de hoje).
+com o YAML da condição salvo em `ros2_ws/src/demo_navigation/config/`,
+sincronizado por `module.sh sync` e incorporado por `module.sh build` antes. O
+caminho é dentro da imagem (`/ws/src/...`), não no diretório remoto `~/demo`:
+`compose.module.yml` só monta o XML do CycloneDDS.
 
 ## 4. Passo 1 — a hipótese a testar primeiro, e por quê
 
