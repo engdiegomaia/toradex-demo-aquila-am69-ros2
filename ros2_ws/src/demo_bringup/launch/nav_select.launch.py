@@ -21,6 +21,7 @@ from launch_ros.substitutions import FindPackageShare
 
 
 SUPPORTED_ROBOTS = tuple(sorted(ROBOT_LAUNCH_FILES))
+ROBOT_DEFAULT_PARAMS = '__robot_default__'
 
 
 def _check_robot_type(context, *args, **kwargs):
@@ -36,12 +37,12 @@ def _check_robot_type(context, *args, **kwargs):
 def _launch_navigation(context, *args, **kwargs):
     """Include exactly one of the two explicit navigation entrypoints."""
     robot_type = LaunchConfiguration('robot_type').perform(context)
-    params_file = LaunchConfiguration('params_file').perform(context)
+    params_override = LaunchConfiguration('params_override').perform(context)
     launch_arguments = {
         'use_sim_time': LaunchConfiguration('use_sim_time'),
     }
-    if params_file:
-        launch_arguments['params_file'] = params_file
+    if params_override and params_override != ROBOT_DEFAULT_PARAMS:
+        launch_arguments['params_file'] = params_override
     return [IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_bringup'),
@@ -66,7 +67,7 @@ def generate_launch_description() -> LaunchDescription:
             description='Follow the Gazebo /clock in learn and HIL modes.',
         ),
         DeclareLaunchArgument(
-            'params_file',
+            'params_override',
             default_value='',
             description=(
                 'Optional Nav2 parameters file. Empty keeps the selected '
