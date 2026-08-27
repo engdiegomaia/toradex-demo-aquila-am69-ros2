@@ -31,7 +31,48 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 26/08/2026 | CPU fechada (307% de folga, zero recusas); portão de 8 m REPROVADO — resta **só** decisão de trajeto, agora com protocolo intercalado (`nav_campaign.py`) para medi-la — ver "Sessão 26/08 (tarde)" |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
 
-### Sessão 27/08 — as metas do ensaio estão atrás de parede; o plano global atravessa parede
+### Sessão 27/08 (parte 2) — PROVADO no HIL: 8 de 8 metas cumpridas, razão de trabalho 0,0% → 37,5%
+
+Evidência: **`docs/results/ml35-f5-rota-conectada.md`** + os dois CSVs ao lado.
+A/B com minutos de intervalo, **HIL real** (Nav2 no Aquila AM69), mesmas
+imagens, mesmos parâmetros, nada reconstruído. **Única variável: a geometria da
+meta.**
+
+| métrica | rota conectada | controle — patrulha (0; 8) |
+| --- | ---: | ---: |
+| **razão de trabalho `vx`** | **37,5%** | **0,0%** |
+| `cmd_vx` ≈ 0 | 12,9% | 98,6% |
+| deslocamento líquido | **7,11 m** | 0,19 m |
+| eficiência de trajeto | 57,2% | 16,2% |
+| **metas cumpridas** | **8 de 8** | 0 em 120 s |
+| deriva líquida de yaw | **+1,1°** em 240 s | **−186,8°** em 120 s |
+
+A razão de trabalho nunca passou de 8,6% em condição alguma testada neste
+projeto (CPU, `/clock`, amostragem do MPPI, câmera comprimida, Ethernet,
+correção da BT). Foi a 37,5% sem tocar em nada além da meta. Os 57,2% de
+eficiência reproduzem os 57% medidos no host em 21/08 — o módulo sempre foi
+capaz disso.
+
+**O giro unidirecional da §10 não é defeito de controlador.** Com plano válido o
+`cmd_wz` alterna 45,2% / 51,3% e a deriva é +1,1° em quatro minutos. Com meta
+atrás de parede volta a ser unidirecional — **e com o sinal invertido** em
+relação à §10, o que mata a família "assimetria de critic" / "erro de sinal na
+guinada": erro de sinal não troca de sinal.
+
+**Consequência para o portão.** "Goal Nav2 `SUCCEEDED` com o robô de pernas,
+Nav2 no módulo" foi cumprido **oito vezes numa corrida**. O que reprovava era o
+protocolo de 8 m sobre metas de patrulha. O portão do F5 tem de ser reescrito
+sobre rota conectada ou sobre mapa persistido antes de voltar a ser cobrado.
+
+**Resta déficit real, agora mensurável:** 37,5% e 0,0454 m/s médio ainda estão
+abaixo de `vx_max` 0,15 m/s. Sintonia de critic só faz sentido a partir daqui.
+
+**Armadilha nova:** toda meta do maze11 tem `x` negativo, e
+`--goals -1.50,...` é lido pelo argparse como flag — o script imprime `usage` e
+sai **0**. Com `2>/dev/null` vira corrida silenciosa que não faz nada. Use
+sempre `--goals=`. Documentado no próprio `nav_trial.py`.
+
+### Sessão 27/08 (parte 1) — as metas do ensaio estão atrás de parede; o plano global atravessa parede
 
 Evidência e números: `docs/ml35/proximos-passos-navegacao.md` §11. Medido
 **offline**, sem bancada, sem ROS e sem Gazebo — só leitura do STL do maze11,

@@ -543,37 +543,45 @@ não é frente nova: é ligar o que já está na árvore.**
    pacote de estoque disponível no apt do Jazzy (2.0.2), não instalado ainda em
    nenhuma imagem. Mesmo formato de solução do delta 3: usar a nuvem.
 
-### Ordem proposta para a próxima sessão
+### Passo 1 — EXECUTADO no mesmo dia, no HIL real, e a §11 está PROVADA
 
-O teste de desligar critic (§10) **desce de prioridade**: ele mede a reação do
-MPPI a uma entrada que já sabemos ser inválida. Consertar a entrada primeiro.
+Evidência completa: **`docs/results/ml35-f5-rota-conectada.md`** (CSVs ao lado).
+A/B com minutos de intervalo, mesma bancada, mesmas imagens, mesmos parâmetros,
+Nav2 no Aquila AM69. **Única variável: a geometria da meta.**
 
-1. **Barato e decisivo, no host, sem tocar em imagem** — mandar metas que NÃO
-   tenham parede na reta e ver se o sintoma some. `maze_route.py` já deriva a
-   rota conectada, com espaçamento de 1,4 m (= o horizonte do MPPI, e não por
-   acaso), e `maze_geodesic.py --chain` já a auditou perna a perna:
+| métrica | rota conectada | controle — meta de patrulha (0; 8) |
+| --- | ---: | ---: |
+| **razão de trabalho `vx`** | **37,5%** | **0,0%** |
+| `cmd_vx` ≈ 0 | 12,9% | 98,6% |
+| deslocamento líquido | **7,11 m** | 0,19 m |
+| eficiência de trajeto | 57,2% | 16,2% |
+| **metas cumpridas** | **8 de 8** | 0, nunca encerrou em 120 s |
+| `cmd_wz` > 0 / < 0 | 45,2% / 51,3% | 7,8% / 64,8% |
+| **deriva líquida de yaw** | **+1,1°** em 240 s | **−186,8°** em 120 s |
 
-   | | metas de patrulha (`MAZE11_GOALS`) | rota conectada (`maze_route.py`) |
-   | --- | --- | --- |
-   | pernas com parede na reta | **4 de 4** | **0 de 9** |
-   | pior razão geodésica/reta | **4,22×** | **1,12×** |
-   | rota visível da origem da perna | 10,6% – 63,5% | **100% em todas** |
+A razão de trabalho nunca passou de 8,6% em condição alguma já testada neste
+projeto. Foi a **37,5%** sem tocar em nada além da meta.
 
-   Comando pronto (as duas primeiras pernas já bastam para decidir):
+**O giro unidirecional da §10 está explicado e não é defeito de controlador.**
+Com plano válido o `cmd_wz` alterna quase igualmente e a deriva líquida é
++1,1° em quatro minutos — o MPPI corrige. Com meta atrás de parede o giro volta
+a ser unidirecional. **E o sinal inverteu** em relação à §10 (lá sempre
+positivo, aqui predominantemente negativo, na mesma meta): isso mata a família
+"assimetria de critic" / "erro de sinal na guinada" — erro de sinal não troca
+de sinal.
 
-   ```bash
-   python3 scripts/nav_trial.py --seconds 120 --goals \
-     "-1.50,0.05;-2.90,0.10;-3.30,1.40;-1.90,1.75;-1.70,2.95;-1.65,4.50;\
-   -1.70,5.75;-1.70,7.15;-2.60,8.05"
-   ```
+O passo 1 fica registrado como feito. Quem retomar começa no passo 2.
 
-   Se o robô anda com perna conectada e trava com meta atrás de parede, a §11
-   está provada em **uma corrida** e o giro unidirecional deixa de ser mistério.
-   **Faça isto antes de qualquer outra coisa.** Atenção ao usar a ferramenta:
-   sem `--chain` ela mede tudo a partir do spawn, o que descreve patrulha e
-   **mente** sobre rota sequencial; o modo errado produz tabela plausível e
-   falsa.
-2. **Persistir o mapa** (pedido do operador): `pointcloud_to_laserscan` no
+### Ordem para a próxima sessão
+
+O teste de desligar critic (§10) está **cancelado** como prioridade: mediria a
+reação do MPPI a uma entrada que agora se sabe inválida.
+
+1. ~~Rota conectada~~ — **feito**, ver acima.
+2. **Persistir o mapa** (pedido do operador), agora com o argumento correto: a
+   rota conectada funciona porque o operador resolveu a geometria FORA do Nav2.
+   O mapa resolve DENTRO — qualquer meta, inclusive as de patrulha a 8 m, passa
+   a ter plano válido. Receita: `pointcloud_to_laserscan` no
    `sim`, `slam_params_go2.yaml` com `base_frame: base`, corrida de mapeamento
    dirigida pela rota do `maze_route.py`, `map_saver_cli` para
    `demo_navigation/maps/maze11.{pgm,yaml}`, e então `static_layer` +
@@ -584,11 +592,24 @@ MPPI a uma entrada que já sabemos ser inválida. Consertar a entrada primeiro.
 3. **`track_unknown_space: true` no `local_costmap`** — uma linha, e tira o
    incentivo de o MPPI preferir o desconhecido. Testar sozinho, sob o protocolo
    intercalado da §2, e não junto com o item 2.
-4. Só então reabrir `PathAlignCritic` 14 × 8 (§4). Sintonizar critic contra um
-   plano que atravessa parede mede ruído.
+4. **Reescrever o portão do F5.** "Goal Nav2 `SUCCEEDED` com o robô de pernas,
+   Nav2 no módulo" foi cumprido **oito vezes numa corrida**. O que continuava
+   reprovando era o protocolo de 8 m sobre metas de patrulha, que pede ao
+   planejador uma coisa que a geometria do cenário não oferece. O portão tem de
+   ser reescrito sobre rota conectada ou sobre mapa persistido antes de voltar a
+   ser cobrado.
+5. Só então reabrir `PathAlignCritic` 14 × 8 (§4), com entrada válida e sob o
+   protocolo intercalado da §2. Resta déficit real a medir: 37,5% de razão de
+   trabalho e 0,0454 m/s médio ainda estão abaixo de `vx_max` 0,15 m/s.
 
-**O que a §11 NÃO afirma.** Não afirma que o MPPI está são: mesmo com plano
-válido pode restar o déficit de razão de trabalho já medido. Afirma que as dez
-seções anteriores mediram o controlador com uma entrada inválida, e que nenhuma
-conclusão sobre critics sobrevive a isso. As cinco hipóteses refutadas da §1
-continuam refutadas — nada aqui as reabre.
+**Uma armadilha de ferramenta, encontrada rodando o passo 1.** Toda meta do
+maze11 tem `x` negativo, e `--goals -1.50,...` é lido pelo argparse como uma
+flag: o script imprime `usage` e sai **0**. Num pipe com `2>/dev/null` isso vira
+uma corrida silenciosa que não faz nada. **Use sempre `--goals=`**, com o sinal
+de igual.
+
+**O que esta seção NÃO afirma.** Não afirma que o MPPI está perfeitamente
+sintonizado — resta o déficit do item 5. Afirma que as §§7–10 mediram o
+controlador com uma entrada inválida, e que nenhuma conclusão sobre critics
+sobrevive a isso. As cinco hipóteses refutadas da §1 continuam refutadas —
+nada aqui as reabre.
