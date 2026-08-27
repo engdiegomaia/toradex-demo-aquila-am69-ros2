@@ -31,6 +31,47 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 26/08/2026 | CPU fechada (307% de folga, zero recusas); portão de 8 m REPROVADO — resta **só** decisão de trajeto, agora com protocolo intercalado (`nav_campaign.py`) para medi-la — ver "Sessão 26/08 (tarde)" |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
 
+### Sessão 27/08 — as metas do ensaio estão atrás de parede; o plano global atravessa parede
+
+Evidência e números: `docs/ml35/proximos-passos-navegacao.md` §11. Medido
+**offline**, sem bancada, sem ROS e sem Gazebo — só leitura do STL do maze11,
+com a ferramenta nova `scripts/maze_geodesic.py` (6 guardas em
+`tests/test_maze_geodesic.py`, três verificadas por mutação).
+
+**As quatro `MAZE11_GOALS` têm parede na linha reta.** A geodésica pelo espaço
+navegável é 1,53× a 4,22× a reta, e do spawn o robô enxerga, com oclusão,
+**19,6%** do espaço livre dentro dos 8 m de `obstacle_max_range`.
+
+Com `global_costmap` rolante **sem `static_layer` e sem mapa** e o NavFn em
+`allow_unknown: true`, o plano dessas metas atravessa parede não observada —
+`SUCCEEDED`, caminho bonito no RViz e no cockpit, **zero erro ou log**.
+Corrobora com dado já no repositório: o caminho medido na §8 tinha ~7,0 m para
+uma meta cuja rota real é 12,23 m e cuja própria reta é 8,00 m.
+
+**Consequência de método:** as §§7–10 mediram o MPPI com uma entrada inválida.
+Isso não reabre as cinco hipóteses refutadas da §1, mas nenhuma conclusão sobre
+critics sobrevive — o teste de desligar critic desce de prioridade.
+
+**A ordenação que a §9 procurou por bearing e não achou** é por distância até a
+primeira parede na reta: 0,96 m → 0,00 m de deslocamento; 3,88 m → 0,07 m;
+3,90 m → 0,10 m. O corte cai no horizonte do MPPI (1,44 m).
+
+**Próximo passo, barato e decisivo, no host, sem tocar em imagem:** rodar a rota
+conectada do `maze_route.py` (0 de 9 pernas com parede na reta, 100% visível em
+todas, contra 4 de 4 bloqueadas na patrulha). Comando pronto na §11.
+
+**Persistir o mapa — pedido do operador — não é frente nova: é ligar o que já
+está na árvore.** O `static_layer` do Go2 já está definido e inerte com o
+procedimento ao lado, e o caminho diff-drive já navega sobre
+`maps/warehouse.{pgm,yaml}`. Os dois bloqueios reais: `slam_params.yaml` tem
+`base_frame: base_link` (parâmetro, não arquitetura) e o `slam_toolbox` consome
+`LaserScan`, enquanto o `/demo/scan` do Go2 é o anel degenerado que o delta 3 do
+`nav2_params_go2.yaml` já mediu como **zero obstáculos**. O dado bom é
+`/demo/scan_cloud`, e achatá-lo é `ros-jazzy-pointcloud-to-laserscan` (estoque,
+2.0.2 no apt do Jazzy, ainda não em imagem nenhuma). **Sem AMCL** nesta
+topologia: a odometria do Gazebo é verdade de terreno e `map`→`odom` já é a
+identidade do `odom_tf`.
+
 ### Sessão 26/08 (tarde) — reset do cockpit, telemetria do alvo, protocolo de campanha
 
 Evidência completa: `docs/results/cockpit-reset-nao-destrutivo.md`.
