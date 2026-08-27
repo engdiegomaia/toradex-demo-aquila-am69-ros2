@@ -3,7 +3,7 @@
 Conduz uma campanha A/B INTERCALADA de navegação e resume por mediana e faixa.
 
     python3 scripts/nav_campaign.py docs/results/campanha-align \
-        --condition baseline \
+        --condition baseline='<comando que reaplica o baseline>' \
         --condition align8='<comando que aplica a condição>' \
         --reps 3 --seconds 420
 
@@ -55,13 +55,19 @@ o YAML da condição. Exemplo, no módulo:
         NAV2_PARAMS=/ws/src/demo_navigation/config/params-align8.yaml \
         docker compose -f compose.module.yml up -d --force-recreate nav"'
 
-`baseline` sem `=comando` não aplica nada — é a condição de referência tal como
-a pilha já está.
+Em uma comparação, inclusive `baseline` precisa de comando. Sem isso, depois da
+primeira perna `align8` as pernas chamadas baseline continuariam usando align8.
+O script recusa esse protocolo em vez de produzir um A/B falso.
+
+O baseline deve passar `NAV2_PARAMS=__robot_default__` ao Compose. Valor vazio
+produz o argumento inválido `params_override:=` antes que o launch possa escolher o
+default do robô.
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import shlex
 import subprocess
@@ -76,6 +82,12 @@ HERE = Path(__file__).resolve().parent
 # robô sem derrubar o Nav2.
 SIM_RESET = '/demo/sim/reset'
 NAV_RESET = '/demo/nav/reset'
+
+# Os três managed nodes cujo estado de ciclo de vida decide se uma meta é
+# aceita ou recusada com "Action server is inactive". Mesmo conjunto que
+# `module.sh verify` checa para bt_navigator (ver aquele script para o
+# incidente de 26/08/2026 que motivou a checagem).
+READINESS_NODES = ('/bt_navigator', '/controller_server', '/planner_server')
 
 # Depois de teleportar, o quadrúpede reassenta na altura de marcha por conta
 # própria (0,5 m de nascimento -> ~0,35 m de marcha, medido). Começar a medir
@@ -103,6 +115,57 @@ def call_trigger(service: str, timeout: float = 30.0) -> tuple[bool, str]:
     # então o código de saída não basta: quem decide é o campo da resposta.
     accepted = code == 0 and 'success=True' in output
     return accepted, output.strip()
+
+
+def lifecycle_state(node: str, timeout: float = 10.0) -> str:
+    """Primeira palavra de `ros2 lifecycle get <node>` (`'active'`, `'inactive'`,
+    `'unconfigured'`...), ou `''` se a chamada falhar ou não responder."""
+    code, output = _run(['ros2', 'lifecycle', 'get', node], timeout)
+    if code != 0:
+        return ''
+    line = output.strip().splitlines()[0] if output.strip() else ''
+    return line.split()[0] if line else ''
+
+
+def wait_for_managed_nodes(
+    nodes: tuple[str, ...] = READINESS_NODES,
+    *,
+    timeout: float = 90.0,
+    poll_interval: float = 2.0,
+    verbose: bool = True,
+) -> tuple[bool, float]:
+    """
+    Espera até todo `node` em `nodes` responder `active`, ou até `timeout`.
+
+    Devolve (pronto, segundos_decorridos). O tempo decorrido é retornado
+    mesmo quando pronto=True: bring-up lento é sinal a registrar, não só
+    motivo de falha. Existe porque tópico existir não é serviço funcionar —
+    depois de um `up`, os três managed nodes podem ficar de pé com o
+    lifecycle manager abortado, e toda meta é recusada em silêncio até
+    alguém notar (ver `module.sh verify`, etapa 4/4).
+    """
+    start = time.monotonic()
+    deadline = start + timeout
+    pending = set(nodes)
+    while True:
+        for node in list(pending):
+            if lifecycle_state(node) == 'active':
+                pending.discard(node)
+        elapsed = time.monotonic() - start
+        if not pending:
+            return True, elapsed
+        if time.monotonic() >= deadline:
+            if verbose:
+                print(f'  managed nodes que nao ativaram: {", ".join(sorted(pending))}')
+            return False, elapsed
+        time.sleep(poll_interval)
+
+
+def _append_manifest(out_dir: Path, **record) -> None:
+    """Acrescenta uma linha ao manifesto da campanha; nunca sobrescreve uma
+    perna anterior, mesmo quando a campanha aborta na perna seguinte."""
+    with (out_dir / 'manifesto.jsonl').open('a', encoding='utf-8') as handle:
+        handle.write(json.dumps(record, ensure_ascii=False) + '\n')
 
 
 def reset_between_legs(*, skip_nav: bool, verbose: bool = True) -> bool:
@@ -141,6 +204,18 @@ def parse_condition(raw: str) -> tuple[str, str | None]:
     return name, (command if sep else None)
 
 
+def validate_conditions(conditions: list[tuple[str, str | None]]) -> None:
+    """Exige reaplicacao explicita de cada lado de uma comparacao."""
+    if len(conditions) < 2:
+        return
+    missing = [name for name, command in conditions if not command]
+    if missing:
+        raise ValueError(
+            'comparacao exige comando em toda condicao; sem reaplicar '
+            + ', '.join(missing)
+            + ', a perna herda a configuracao anterior')
+
+
 def leg_order(conditions: list[tuple[str, str | None]], reps: int):
     """
     A ordem intercalada, achatada: (rep, nome, comando).
@@ -169,6 +244,10 @@ def main(argv: list[str] | None = None) -> int:
                         help='não chamar /demo/nav/reset entre pernas')
     parser.add_argument('--apply-timeout', type=float, default=300.0,
                         help='teto para o comando de uma condição')
+    parser.add_argument('--readiness-timeout', type=float, default=90.0,
+                        help='teto para bt_navigator/controller_server/'
+                             'planner_server ficarem active depois de '
+                             'aplicar uma condição')
     parser.add_argument('--dry-run', action='store_true',
                         help='imprime a ordem das pernas e sai')
     args = parser.parse_args(argv)
@@ -184,6 +263,10 @@ def main(argv: list[str] | None = None) -> int:
               'a dispersão de 2,4x em configuração idêntica continua valendo.')
 
     conditions = [parse_condition(raw) for raw in args.condition]
+    try:
+        validate_conditions(conditions)
+    except ValueError as error:
+        parser.error(str(error))
     legs = list(leg_order(conditions, args.reps))
 
     print(f'campanha intercalada: {len(conditions)} condições x {args.reps} '
@@ -211,13 +294,31 @@ def main(argv: list[str] | None = None) -> int:
                       file=sys.stderr)
                 return 1
 
+        # `docker compose up -d --force-recreate` (o comando típico de uma
+        # condição) retorna antes de bt_navigator/controller_server/
+        # planner_server ficarem active. Uma perna que começa a coletar
+        # nesse meio-tempo mede "Action server is inactive" em vez do
+        # comportamento da condição.
+        ready, bringup_s = wait_for_managed_nodes(timeout=args.readiness_timeout)
+        print(f'  readiness dos managed nodes: {"ok" if ready else "TIMEOUT"} '
+              f'em {bringup_s:.1f}s')
+        _append_manifest(
+            out_dir, rep=rep, condition=name, command_applied=bool(command),
+            readiness_ready=ready, readiness_seconds=round(bringup_s, 1),
+        )
+        if not ready:
+            print(f'  managed nodes nao ficaram active em '
+                  f'{args.readiness_timeout:.0f}s; abortando a campanha',
+                  file=sys.stderr)
+            return 1
+
         if not reset_between_legs(skip_nav=args.skip_nav_reset):
             print('  reposição recusada; abortando a campanha', file=sys.stderr)
             return 1
 
         code, output = _run(
             [sys.executable, str(HERE / 'nav_trial.py'), str(csv_path),
-             '--seconds', str(args.seconds), '--goals', args.goals],
+             '--seconds', str(args.seconds), f'--goals={args.goals}'],
             timeout=args.seconds + 300.0,
         )
         print(output.strip()[-2000:])
