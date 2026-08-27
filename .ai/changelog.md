@@ -5,6 +5,60 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-27 — mapa vivo do Go2 implementado; rebuild headless pendente
+
+O próximo mecanismo do F5 saiu do papel: o Go2 passa a manter um mapa de
+ocupação vivo com `slam_toolbox`, em vez de depender apenas do
+`obstacle_layer`, que apaga junto espaço ocupado e livre durante o raytrace. É
+essa perda que fazia o NavFn alternar a rota real de 11,5 m com um atalho de
+8,6 m através de parede desconhecida, deixando o MPPI girar sem avançar.
+
+**Implementado e sincronizado para o Aquila:**
+
+- `pointcloud_to_laserscan` achata os 16 anéis de `/demo/scan_cloud` em
+  `/demo/scan_slam`; o `/demo/scan` antigo continua inadequado (zero obstáculos
+  úteis no cenário medido);
+- `slam_toolbox` usa `base`, assume sozinho `map→odom` e recebe transições de
+  lifecycle configure→activate encadeadas;
+- `odom_tf` continua dono de `odom→base`, mas deixa de publicar a identidade
+  `map→odom`, evitando dois autores na mesma aresta;
+- o costmap global deixa de ser rolante e ativa `static_layer` antes das camadas
+  vivas, com atualizações incrementais de `/map`;
+- `clearing: true` permanece nas camadas de obstáculo: persistência pertence ao
+  SLAM, que guarda **livre e ocupado**, não a uma marca de obstáculo congelada;
+- `scripts/costmap_probe.py` agora mede local/global, perfil em `+y` e as células
+  inscritas/letais mais próximas.
+
+**Rede recuperada antes da implementação:** Aquila `192.0.2.5/24` em
+`ethernet0`, host `192.0.2.6`, rota simétrica e RTT ~0,22 ms. O perfil
+NetworkManager `network0` havia ficado ativo sem endereço/rota; voltou a ser
+manual. A rota default via `192.0.2.2` também foi necessária para apt/DNS no
+build nativo.
+
+**Validação feita:** 123 testes de topo + 21 estruturais focados passaram; o HIL
+anterior à troca de imagem passou UDP, contrato de tópicos, heartbeat e
+`bt_navigator: active`. O primeiro rebuild arm64 compilou os 10 pacotes, mas o
+guardrail da regra 1 o reprovou corretamente: o `.deb` de `slam_toolbox` mistura
+o runtime headless e `libSlamToolboxPlugin.so`, arrastando RViz/OGRE. O
+Dockerfile foi corrigido para extrair apenas o runtime e excluir o plugin
+gráfico; essa correção está sincronizada, mas o **segundo build ainda não foi
+executado/confirmado**.
+
+**Limite explícito:** esta entrega persiste o mapa durante a execução e através
+de resets de meta/costmap, porque o processo SLAM permanece vivo e a
+`static_layer` repovoa o mestre. Persistência em disco através de restart do
+container/reboot ainda não existe. Depois de provar o mapa vivo, a próxima
+frente é serializar o pose-graph em volume persistente e testar a retomada; não
+confundir `map_saver` (PGM/YAML) com pose-graph retomável em modo mapping.
+
+**Retomada exata:** `scripts/module.sh build`; exigir
+`ok: demo-aquila-nav sem stack de renderizacao`; depois `module.sh up/verify`,
+validar `/demo/scan_slam`, lifecycle `active` de `/slam_toolbox`, `/map` com
+ocupado e livre, e repetir a meta com parede observando se `/plan` deixa de
+alternar. Só depois medir campanha e implementar persistência em disco.
+
+---
+
 ## 2026-08-26 (noite) — o reset teleportava o robô mas não o mantinha de pé
 
 Sequência à entrada de 2026-08-26 (tarde): o teleporte sozinho resolvia o robô

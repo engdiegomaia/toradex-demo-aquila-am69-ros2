@@ -63,6 +63,7 @@
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>nav2_waypoint_follower</exec_depend>
   <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>pointcloud_to_laserscan</exec_depend>
   <exec_depend>rclcpp_components</exec_depend>
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>

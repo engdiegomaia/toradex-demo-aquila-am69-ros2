@@ -1,6 +1,4 @@
-# slam_toolbox parameters — development-only, used to generate the static map.
-#
-# Runs on: x86 host. The module runs AMCL over the saved map and never runs SLAM.
+# slam_toolbox parameters for the live Go2 map used by the global costmap.
 #
 # This has to be a real params file, not an inline dict in the launch file:
 # slam_toolbox declares its parameters from a params-file load, so inline
@@ -18,8 +16,8 @@ slam_toolbox:
     # Project-specific — everything else on this list is upstream default.
     odom_frame: odom
     map_frame: map
-    base_frame: base_link
-    scan_topic: /demo/scan
+    base_frame: base
+    scan_topic: /demo/scan_slam
     mode: mapping
 
     solver_plugin: solver_plugins::CeresSolver
