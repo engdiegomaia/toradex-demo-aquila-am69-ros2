@@ -12,6 +12,7 @@ O que interessa e a faixa INSCRITA (253): o CostCritic do MPPI, com
 consider_footprint false, trata custo >= 253 como COLISAO. A largura da faixa
 que NAO e colisao e a largura util do corredor para o otimizador.
 """
+import argparse
 import math
 import sys
 
@@ -29,14 +30,14 @@ UNKNOWN = 255
 class Probe(Node):
     """Uma leitura do costmap local, mais a pose do robo por TF."""
 
-    def __init__(self):
+    def __init__(self, topic):
         super().__init__('costmap_probe')
         self.set_parameters([rclpy.parameter.Parameter(
             'use_sim_time', rclpy.Parameter.Type.BOOL, True)])
         self.grid = None
         qos = QoSProfile(depth=1, history=QoSHistoryPolicy.KEEP_LAST,
                          durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
-        self.create_subscription(Costmap, '/local_costmap/costmap_raw',
+        self.create_subscription(Costmap, topic,
                                  self._on_grid, qos)
         # O TransformListener NAO entra aqui. /tf e de alta taxa, e com
         # spin_once cada iteracao trata UM item: os callbacks de TF consomem
@@ -54,21 +55,29 @@ class Probe(Node):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--scope', choices=('local', 'global'), default='local',
+        help='costmap a sondar (default: local)')
+    args = parser.parse_args()
+    topic = f'/{args.scope}_costmap/costmap_raw'
+
     rclpy.init()
-    node = Probe()
+    node = Probe(topic)
     for _ in range(300):
         rclpy.spin_once(node, timeout_sec=0.1)
         if node.grid is not None:
             break
     if node.grid is None:
-        print('sem costmap em /local_costmap/costmap_raw')
+        print(f'sem costmap em {topic}')
         return 1
 
     node.start_tf()
     # `base`, nao `base_link`: o URDF do Go2 nao tem base_link.
     for _ in range(200):
         rclpy.spin_once(node, timeout_sec=0.05)
-        if node.buf.can_transform('odom', 'base', rclpy.time.Time()):
+        if node.buf.can_transform(node.grid.header.frame_id, 'base',
+                                  rclpy.time.Time()):
             break
 
     meta = node.grid.metadata
@@ -78,7 +87,8 @@ def main():
     data = node.grid.data
 
     try:
-        tf = node.buf.lookup_transform('odom', 'base', rclpy.time.Time())
+        frame = node.grid.header.frame_id
+        tf = node.buf.lookup_transform(frame, 'base', rclpy.time.Time())
     except Exception as exc:                                # noqa: BLE001
         print(f'sem TF odom->base: {exc}')
         return 1
@@ -95,7 +105,8 @@ def main():
             return None
         return data[cy * w + cx]
 
-    print(f'costmap {w}x{h} @ {res:.3f} m, origem ({ox:.2f}, {oy:.2f})')
+    print(f'{topic} frame={frame} {w}x{h} @ {res:.3f} m, '
+          f'origem ({ox:.2f}, {oy:.2f})')
     print(f'robo em ({rx:.2f}, {ry:.2f}) yaw {math.degrees(yaw):.1f} deg')
     print(f'custo na celula do robo: {cost_at(rx, ry)}')
 
@@ -130,6 +141,51 @@ def main():
     print(f'  >= 253 (colisao)       : {len(bad)}'
           f'  ({100.0 * len(bad) / max(1, len(known)):.1f}%)')
     print(f'  == 254 (letal)         : {len(lethal)}')
+
+    # O achado que abriu esta medicao foi uma celula inscrita a 0,55 m em +y
+    # do mundo, embora a geometria offline indique pista livre por 3,47 m.
+    # Imprimir apenas o perfil transversal ao rumo nao reproduz esse achado.
+    print('\nperfil em +y do frame do costmap, passo 0.05 m:')
+    last = object()
+    runs = []
+    first_collision = None
+    first_lethal = None
+    for i in range(81):
+        d = i * 0.05
+        c = cost_at(rx, ry + d)
+        if c != last:
+            runs.append((d, c))
+            last = c
+        if first_collision is None and c is not None and INSCRIBED <= c <= LETHAL:
+            first_collision = (d, c)
+        if first_lethal is None and c == LETHAL:
+            first_lethal = d
+    print('  mudancas: ' + '  '.join(f'{d:.2f}m:{c}' for d, c in runs))
+    print('  primeira >= 253: '
+          + (f'{first_collision[0]:.2f} m (custo {first_collision[1]})'
+             if first_collision else 'nenhuma ate 4.00 m'))
+    print('  primeira == 254: '
+          + (f'{first_lethal:.2f} m' if first_lethal is not None
+             else 'nenhuma ate 4.00 m'))
+
+    # Uma parede lateral produz muitas celulas >=253 alinhadas ao corredor; um
+    # retorno da propria perna produz um pequeno aglomerado junto ao robo. As
+    # celulas mais proximas tornam essa diferenca visivel sem depender do RViz.
+    nearest = []
+    for cy in range(h):
+        for cx in range(w):
+            c = data[cy * w + cx]
+            if INSCRIBED <= c <= LETHAL:
+                x = ox + (cx + 0.5) * res
+                y = oy + (cy + 0.5) * res
+                dx, dy = x - rx, y - ry
+                nearest.append((math.hypot(dx, dy), x, y, c,
+                                math.degrees(math.atan2(dy, dx))))
+    nearest.sort()
+    print('\n10 celulas >=253 mais proximas:')
+    for distance, x, y, cost, bearing in nearest[:10]:
+        print(f'  d={distance:.3f} m  ({x:+.2f},{y:+.2f})  '
+              f'rumo={bearing:+.1f} deg  custo={cost}')
     node.destroy_node()
     rclpy.shutdown()
     return 0

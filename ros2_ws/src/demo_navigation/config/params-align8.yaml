@@ -699,15 +699,16 @@ global_costmap:
       # rolling_window: false, suba o amcl e ponha publish_map_identity:=false no
       # odom_tf. O bloco static_layer: abaixo segue definido e fica inerte
       # enquanto nao estiver na lista.
-      rolling_window: true
+      rolling_window: false
       width: 20
       height: 20
       track_unknown_space: true
-      plugins: ["obstacle_layer", "perception_layer", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "perception_layer", "inflation_layer"]
 
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
+        subscribe_to_updates: true
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"

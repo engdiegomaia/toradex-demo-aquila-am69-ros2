@@ -603,85 +603,69 @@ razão de trabalho de **37,5%**.
 Evidência: `docs/results/ml35-f5-rota-conectada.md` e
 `docs/results/ml35-f5-memoria-costmap.md`.
 
-### Ordem para a próxima sessão
+### Ordem para a próxima sessão — atualização após implementar o mapa vivo
 
-**1. Medir a anomalia dos 0,55 m. Antes de qualquer outra coisa.**
+**1. Concluir o segundo build arm64.** A primeira tentativa compilou os dez
+pacotes, mas foi reprovada pelo guardrail da regra 1 porque o pacote Debian do
+`slam_toolbox` mistura o nó headless com um plugin RViz. O Dockerfile agora
+extrai o runtime e remove `libSlamToolboxPlugin.so`; está sincronizado no módulo,
+mas ainda não foi reconstruído após essa correção.
 
-O costmap global marca a primeira célula ≥ 253 (faixa inscrita) a **0,55 m em
-+y**, enquanto `maze_fit.py` mede **3,47 m de pista livre** nessa direção a
-partir do spawn. As duas leituras não se conciliam, e a folga de nascimento é
-justamente 0,55 m.
+```bash
+scripts/module.sh build
+```
 
-Isto é pré-requisito do item 2, não paralelo a ele: um mapa persistente
-**herdaria o erro em definitivo**. Hoje o raytrace apaga a marca no ciclo
-seguinte; com SLAM ela vira parede permanente e o robô fica cercado por uma
-parede que não existe.
+Não seguir se o fim não disser
+`ok: demo-aquila-nav sem stack de renderizacao`.
 
-Candidatos não testados, em ordem de suspeita:
-- inflação de 0,85 m do costmap global vinda das paredes laterais do corredor de
-  1,20 m — o mais provável, mas explica custo alto, **não** um valor ≥ 253, que
-  é a faixa inscrita e vem de `robot_radius`;
-- marca da própria perna em trote — `selfhit.py` foi rodado com o robô **parado**;
-- nuvem marcada em frame errado.
+**2. Subir e provar a tubulação do mapa, antes de mandar meta.**
 
-Ferramentas prontas: `scripts/costmap_probe.py` (costmap local),
-`scripts/selfhit.py`, e a sonda de custo global usada nesta sessão está descrita
-em `ml35-f5-memoria-costmap.md` §2.
+```bash
+scripts/module.sh up
+scripts/module.sh verify
+ssh torizon@10.22.1.130 'docker exec demo-nav-1 bash -lc '\''
+  source /opt/ros/jazzy/setup.bash
+  source /ws/install/setup.bash
+  ros2 lifecycle get /slam_toolbox
+  timeout 15 ros2 topic hz /demo/scan_slam
+  timeout 15 ros2 topic echo /map --once
+'\'''
+```
 
-**2. Persistir o mapa com `slam_toolbox` — o pedido do operador, na única camada
-que o sustenta.**
+Aceitação: `slam_toolbox` `active`, scan próximo dos 10 Hz do lidar, `/map`
+contendo células livres e ocupadas, `bt_navigator` ativo e nenhum segundo autor
+de `map→odom`. Se o global costmap não ativar, olhar primeiro a ordem
+`wait_for_tf → pointcloud_to_laserscan/slam/Nav2`, não aumentar timeout.
 
-Precisa persistir **ocupado _e_ livre**; a camada de obstáculo tem um botão só
-para os dois, e é por isso que o item reprovado acima não funcionou.
+**3. Provar que a memória elimina a oscilação.** Resetar o robô, mandar a mesma
+meta com parede na reta e amostrar `/plan` a 1 Hz. O portão desta etapa não é
+apenas `SUCCEEDED`: o comprimento/rumo do plano deve convergir, sem alternar
+entre ~11,5 m e ~8,6 m. Rodar `scripts/costmap_probe.py --scope global` para
+confirmar que a `static_layer` mantém livre e ocupado depois que a parede sai do
+campo instantâneo do lidar.
 
-Receita, com o que já existe e o que falta:
+**4. Persistência em disco é uma etapa separada.** O que está implementado
+agora sobrevive a reset de meta/costmap, mas não a restart do container ou
+reboot. Depois do portão acima, montar um volume para o estado do SLAM,
+serializar o pose-graph e validar save→restart→load. Salvar apenas PGM/YAML com
+`map_saver` não basta para continuar criando o mapa em modo mapping.
 
-| passo | estado |
-| --- | --- |
-| `slam.launch.py` (lifecycle encadeado, remap de `/scan`) | **já existe e funciona** |
-| `slam_params.yaml` | existe, mas com `base_frame: base_link`; o Go2 tem `base` |
-| `sensor_msgs/LaserScan` utilizável | **falta** — o `/demo/scan` do Go2 é o anel degenerado com **zero obstáculos** (delta 3 do `nav2_params_go2.yaml`) |
-| `ros-jazzy-pointcloud-to-laserscan` | estoque, 2.0.2 no apt do Jazzy, **em imagem nenhuma** |
-| `static_layer` no global do Go2 | **já definida e inerte**, com o procedimento de religar ao lado |
-| AMCL | **não é necessário** nesta topologia: odom do Gazebo é verdade de terreno e `map`→`odom` já é a identidade do `odom_tf`. Em hardware real ele volta. |
-
-Manter `allow_unknown: true`: no instante 0 o mapa está vazio e o plano vai reto
-pelo desconhecido, o que é **correto** — é o que permite aceitar meta a 8 m sem
-mapa. O que muda é que a parede, uma vez vista, **nunca mais sai**, o atalho
-deixa de existir e o plano converge.
-
-**Custo honesto:** o `pointcloud_to_laserscan` exige **rebuild arm64 nativo no
-módulo**. É a parte cara desta frente. O bind mount de config entregue nesta
-sessão **não** ajuda aqui — ele cobre YAML, não pacote apt.
-
-**3. Reescrever o portão do F5.** "Goal Nav2 `SUCCEEDED` com o robô de pernas,
-Nav2 no módulo" foi cumprido **oito vezes numa corrida**. O que continuava
-reprovando era o protocolo de 8 m sobre metas de patrulha, que pede ao
-planejador uma coisa que a geometria do maze11 não oferece
-(`scripts/maze_geodesic.py`: 4 de 4 metas com parede na reta). O portão tem de
-ser reescrito sobre rota conectada ou sobre mapa persistido antes de voltar a
-ser cobrado.
-
-**4. Só então sintonia de critic.** `PathAlignCritic` 14 × 8 (§4), com entrada
-válida e sob o protocolo intercalado da §2. Resta déficit real: 37,5% de razão
-de trabalho e 0,0454 m/s médio ainda estão abaixo de `vx_max` 0,15 m/s. A
-condição `params-align8.yaml` já foi regerada a partir do baseline atual.
+**5. Só então reescrever o portão do F5 e voltar à sintonia de critic.** A
+campanha deve usar rota conectada ou o mapa já persistido. Depois medir
+`PathAlignCritic` 14 × 8 sob o protocolo intercalado; o déficit atual continua
+37,5% de razão de trabalho e 0,0454 m/s médio para `vx_max` 0,15 m/s.
 
 ### Pendências fora desta frente, inalteradas
 
-- **Cockpit F4** (controle manual atrás do `twist_mux`): bloqueado por
-  infraestrutura — `twist_mux` não está em nenhuma imagem e o módulo não tem
-  rota default, então `apt` não resolve nada lá. Falta
-  `sudo ip route add default via 10.22.1.1 dev ethernet0 metric 100`, com
-  persistência na configuração de rede do Torizon.
+- **Cockpit F4** (controle manual atrás do `twist_mux`): `twist_mux` ainda não
+  está em nenhuma imagem. A rota default do módulo via `10.22.1.1` foi
+  restaurada para o build do SLAM; confirmar que permaneceu após reboot antes
+  de considerar a infraestrutura fechada.
 - **Gate visual do cockpit:** nada foi visto num navegador em nenhuma sessão
   desta série. Não há Chrome nesta máquina e o MCP de automação não dirige o
   Firefox instalado.
-- **Trabalho não commitado de sessões anteriores** ainda na árvore:
-  `nav_campaign.py`, `nav_select.launch.py`, `nav_to_pose_smoothed.xml`,
-  `compose.host.yml`, `test_nav_campaign.py`, `test_nav_params_override.py`,
-  `test_nav_to_pose_smoothed_bt.py`, `params-align8.yaml`,
-  `docs/guia-hil-go2-labirinto.md`.
+- O mapa em disco/reload de pose-graph ainda não foi implementado; o mapa vivo
+  atual é memória intra-execução.
 
 ### Como retomar a bancada
 

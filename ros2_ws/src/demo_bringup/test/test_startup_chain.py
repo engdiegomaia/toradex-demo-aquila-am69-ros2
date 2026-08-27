@@ -24,7 +24,9 @@ PARAMS = SRC / 'demo_navigation' / 'config' / 'nav2_params_go2.yaml'
 WAIT_FOR_TF = SRC / 'demo_bringup' / 'demo_bringup' / 'wait_for_tf.py'
 
 # Emitir estes junto com o resto e exatamente o defeito medido.
-MUST_BE_GATED = ('nav2_container', 'navigation', 'nav_control')
+MUST_BE_GATED = (
+    'cloud_to_scan', 'slam', 'nav2_container', 'navigation', 'nav_control',
+)
 
 
 def _tree() -> ast.Module:

@@ -1,8 +1,5 @@
 r"""
-SLAM mapping run — one-off, used to produce the static map ML3 then navigates on.
-
-Runs on: x86 host. This is a development tool, not part of the demo. The module
-runs AMCL over the saved map, never SLAM.
+SLAM mapping run used by the Go2 to retain occupied and free space.
 
 Procedure (three terminals):
 
@@ -51,6 +48,12 @@ def generate_launch_description() -> LaunchDescription:
         description='slam_toolbox parameter file.',
     )
 
+    scan_topic_arg = DeclareLaunchArgument(
+        'scan_topic',
+        default_value='/demo/scan_slam',
+        description='LaserScan input. The Go2 converts /demo/scan_cloud here.',
+    )
+
     # The bulk of the tuning comes from the params file; the scan topic is
     # remapped instead of being passed as a parameter.
     #
@@ -71,7 +74,7 @@ def generate_launch_description() -> LaunchDescription:
             LaunchConfiguration('params_file'),
             {'use_sim_time': LaunchConfiguration('use_sim_time')},
         ],
-        remappings=[('/scan', '/demo/scan')],
+        remappings=[('/scan', LaunchConfiguration('scan_topic'))],
     )
 
     # slam_toolbox is a LIFECYCLE node on Jazzy and comes up `unconfigured`.
@@ -105,6 +108,7 @@ def generate_launch_description() -> LaunchDescription:
     return LaunchDescription([
         use_sim_time_arg,
         params_arg,
+        scan_topic_arg,
         slam_toolbox_node,
         activate_slam_on_configure,
         configure_slam,
