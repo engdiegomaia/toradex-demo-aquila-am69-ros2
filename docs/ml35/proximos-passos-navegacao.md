@@ -572,35 +572,136 @@ de sinal.
 
 O passo 1 fica registrado como feito. Quem retomar começa no passo 2.
 
+## 12. Próximos passos — estado em 27/08/2026, fim da sessão
+
+Esta seção substitui todas as listas de "próximo passo" anteriores. Ela é o
+ponto de partida de quem abrir a próxima sessão.
+
+### O que está FECHADO e não deve ser reaberto
+
+| item | como morreu |
+| --- | --- |
+| as cinco hipóteses da §1 (CPU, `/clock`, amostragem MPPI, `inflation_radius`, rede) | medição, §1 |
+| `offset_from_furthest: 20` mal dimensionado | recalculado com resolução medida, §8 |
+| mínimo local por bearing | sem gradiente por rumo, §9 |
+| `collision_monitor` / `velocity_smoother` / conversor SI | medido em `/cmd_vel_nav`, §9 |
+| meta com orientação de chegada incompatível | leitura de `nav_trial.py:_send`, §10 |
+| `GoalAngleCritic` com tolerância assimétrica | default de estoque, §10 |
+| **"assimetria de critic" / erro de sinal na guinada** | **o sinal do giro INVERTEU entre corridas** — erro de sinal não troca de sinal (parte 2) |
+| **teste de desligar critic um a um** | **cancelado**: mediria a reação do MPPI a uma entrada que se sabe inválida |
+| **`clearing: false` no `obstacle_layer` global** | **medido e reprovado** — é o raytrace, e o raytrace é o que cria espaço LIVRE. Ver `docs/results/ml35-f5-memoria-costmap.md`. Travado por teste. |
+
+### O que está PROVADO
+
+A navegação nunca esteve quebrada. **O plano global alterna entre duas rotas
+incompatíveis a 1 Hz** — 11,5 m (a verdadeira) e 8,6 m (atravessando parede não
+observada, barata porque `allow_unknown: true`) — e o MPPI recebe um caminho que
+inverte 90–180° a cada segundo. Dê a ele uma meta sem parede na reta e o mesmo
+robô, no mesmo módulo, com os mesmos parâmetros, cumpre **8 metas de 8** com
+razão de trabalho de **37,5%**.
+
+Evidência: `docs/results/ml35-f5-rota-conectada.md` e
+`docs/results/ml35-f5-memoria-costmap.md`.
+
 ### Ordem para a próxima sessão
 
-O teste de desligar critic (§10) está **cancelado** como prioridade: mediria a
-reação do MPPI a uma entrada que agora se sabe inválida.
+**1. Medir a anomalia dos 0,55 m. Antes de qualquer outra coisa.**
 
-1. ~~Rota conectada~~ — **feito**, ver acima.
-2. **Persistir o mapa** (pedido do operador), agora com o argumento correto: a
-   rota conectada funciona porque o operador resolveu a geometria FORA do Nav2.
-   O mapa resolve DENTRO — qualquer meta, inclusive as de patrulha a 8 m, passa
-   a ter plano válido. Receita: `pointcloud_to_laserscan` no
-   `sim`, `slam_params_go2.yaml` com `base_frame: base`, corrida de mapeamento
-   dirigida pela rota do `maze_route.py`, `map_saver_cli` para
-   `demo_navigation/maps/maze11.{pgm,yaml}`, e então `static_layer` +
-   `rolling_window: false` no global do Go2. **Sem AMCL:** a odometria do
-   Gazebo é verdade de terreno e `map`→`odom` já é a identidade publicada por
-   `odom_tf`, então o bloqueio de `base_frame` do AMCL da §9 não se aplica a
-   esta topologia. Em hardware real ele volta.
-3. **`track_unknown_space: true` no `local_costmap`** — uma linha, e tira o
-   incentivo de o MPPI preferir o desconhecido. Testar sozinho, sob o protocolo
-   intercalado da §2, e não junto com o item 2.
-4. **Reescrever o portão do F5.** "Goal Nav2 `SUCCEEDED` com o robô de pernas,
-   Nav2 no módulo" foi cumprido **oito vezes numa corrida**. O que continuava
-   reprovando era o protocolo de 8 m sobre metas de patrulha, que pede ao
-   planejador uma coisa que a geometria do cenário não oferece. O portão tem de
-   ser reescrito sobre rota conectada ou sobre mapa persistido antes de voltar a
-   ser cobrado.
-5. Só então reabrir `PathAlignCritic` 14 × 8 (§4), com entrada válida e sob o
-   protocolo intercalado da §2. Resta déficit real a medir: 37,5% de razão de
-   trabalho e 0,0454 m/s médio ainda estão abaixo de `vx_max` 0,15 m/s.
+O costmap global marca a primeira célula ≥ 253 (faixa inscrita) a **0,55 m em
++y**, enquanto `maze_fit.py` mede **3,47 m de pista livre** nessa direção a
+partir do spawn. As duas leituras não se conciliam, e a folga de nascimento é
+justamente 0,55 m.
+
+Isto é pré-requisito do item 2, não paralelo a ele: um mapa persistente
+**herdaria o erro em definitivo**. Hoje o raytrace apaga a marca no ciclo
+seguinte; com SLAM ela vira parede permanente e o robô fica cercado por uma
+parede que não existe.
+
+Candidatos não testados, em ordem de suspeita:
+- inflação de 0,85 m do costmap global vinda das paredes laterais do corredor de
+  1,20 m — o mais provável, mas explica custo alto, **não** um valor ≥ 253, que
+  é a faixa inscrita e vem de `robot_radius`;
+- marca da própria perna em trote — `selfhit.py` foi rodado com o robô **parado**;
+- nuvem marcada em frame errado.
+
+Ferramentas prontas: `scripts/costmap_probe.py` (costmap local),
+`scripts/selfhit.py`, e a sonda de custo global usada nesta sessão está descrita
+em `ml35-f5-memoria-costmap.md` §2.
+
+**2. Persistir o mapa com `slam_toolbox` — o pedido do operador, na única camada
+que o sustenta.**
+
+Precisa persistir **ocupado _e_ livre**; a camada de obstáculo tem um botão só
+para os dois, e é por isso que o item reprovado acima não funcionou.
+
+Receita, com o que já existe e o que falta:
+
+| passo | estado |
+| --- | --- |
+| `slam.launch.py` (lifecycle encadeado, remap de `/scan`) | **já existe e funciona** |
+| `slam_params.yaml` | existe, mas com `base_frame: base_link`; o Go2 tem `base` |
+| `sensor_msgs/LaserScan` utilizável | **falta** — o `/demo/scan` do Go2 é o anel degenerado com **zero obstáculos** (delta 3 do `nav2_params_go2.yaml`) |
+| `ros-jazzy-pointcloud-to-laserscan` | estoque, 2.0.2 no apt do Jazzy, **em imagem nenhuma** |
+| `static_layer` no global do Go2 | **já definida e inerte**, com o procedimento de religar ao lado |
+| AMCL | **não é necessário** nesta topologia: odom do Gazebo é verdade de terreno e `map`→`odom` já é a identidade do `odom_tf`. Em hardware real ele volta. |
+
+Manter `allow_unknown: true`: no instante 0 o mapa está vazio e o plano vai reto
+pelo desconhecido, o que é **correto** — é o que permite aceitar meta a 8 m sem
+mapa. O que muda é que a parede, uma vez vista, **nunca mais sai**, o atalho
+deixa de existir e o plano converge.
+
+**Custo honesto:** o `pointcloud_to_laserscan` exige **rebuild arm64 nativo no
+módulo**. É a parte cara desta frente. O bind mount de config entregue nesta
+sessão **não** ajuda aqui — ele cobre YAML, não pacote apt.
+
+**3. Reescrever o portão do F5.** "Goal Nav2 `SUCCEEDED` com o robô de pernas,
+Nav2 no módulo" foi cumprido **oito vezes numa corrida**. O que continuava
+reprovando era o protocolo de 8 m sobre metas de patrulha, que pede ao
+planejador uma coisa que a geometria do maze11 não oferece
+(`scripts/maze_geodesic.py`: 4 de 4 metas com parede na reta). O portão tem de
+ser reescrito sobre rota conectada ou sobre mapa persistido antes de voltar a
+ser cobrado.
+
+**4. Só então sintonia de critic.** `PathAlignCritic` 14 × 8 (§4), com entrada
+válida e sob o protocolo intercalado da §2. Resta déficit real: 37,5% de razão
+de trabalho e 0,0454 m/s médio ainda estão abaixo de `vx_max` 0,15 m/s. A
+condição `params-align8.yaml` já foi regerada a partir do baseline atual.
+
+### Pendências fora desta frente, inalteradas
+
+- **Cockpit F4** (controle manual atrás do `twist_mux`): bloqueado por
+  infraestrutura — `twist_mux` não está em nenhuma imagem e o módulo não tem
+  rota default, então `apt` não resolve nada lá. Falta
+  `sudo ip route add default via 10.22.1.1 dev ethernet0 metric 100`, com
+  persistência na configuração de rede do Torizon.
+- **Gate visual do cockpit:** nada foi visto num navegador em nenhuma sessão
+  desta série. Não há Chrome nesta máquina e o MCP de automação não dirige o
+  Firefox instalado.
+- **Trabalho não commitado de sessões anteriores** ainda na árvore:
+  `nav_campaign.py`, `nav_select.launch.py`, `nav_to_pose_smoothed.xml`,
+  `compose.host.yml`, `test_nav_campaign.py`, `test_nav_params_override.py`,
+  `test_nav_to_pose_smoothed_bt.py`, `params-align8.yaml`,
+  `docs/guia-hil-go2-labirinto.md`.
+
+### Como retomar a bancada
+
+```bash
+# host: simulador + cockpit
+cd docker && docker compose -f compose.host.yml up -d sim cockpit hmi
+
+# módulo (10.22.1.130): nav + percepção
+./scripts/module.sh sync           # YAML de parâmetros chega por bind mount
+ssh torizon@10.22.1.130 'cd /home/torizon/demo && \
+  docker compose -f compose.module.yml up -d'
+./scripts/module.sh verify         # tem de dar 3/3
+
+# ensaio (host), SEMPRE com --goals=
+. /opt/ros/jazzy/setup.bash && . ros2_ws/install/setup.bash
+export ROS_DOMAIN_ID=69 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export CYCLONEDDS_URI=file://$PWD/docker/cyclonedds/host.rendered.xml
+ros2 service call /demo/sim/reset std_srvs/srv/Trigger      # reposiciona o robô
+python3 scripts/nav_trial.py saida.csv --seconds 240 --goals="..."
+```
 
 **Uma armadilha de ferramenta, encontrada rodando o passo 1.** Toda meta do
 maze11 tem `x` negativo, e `--goals -1.50,...` é lido pelo argparse como uma
