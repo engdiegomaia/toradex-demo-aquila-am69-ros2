@@ -29,12 +29,29 @@
   unica diferenca: o `ComputePathToPose` virou uma `Sequence` que encadeia
   `SmoothPath` depois dele, dentro do mesmo `RateController` de 1 Hz.
 
-  `SmoothPath` escreve em `{path}`, a mesma porta que o `FollowPath` le, entao o
-  controlador recebe o caminho suavizado. Se a suavizacao falhar, a Sequence
-  falha e o `RecoveryNode` limpa o costmap global e replaneja, que e o
-  tratamento que o default da a uma falha de planejamento.
+  `SmoothPath` escreve em `{smooth_path}`, e e essa chave que o `FollowPath`
+  le - NAO reusar `{path}` para as duas pontas do `SmoothPath`. Se a
+  suavizacao falhar, a Sequence falha e o `RecoveryNode` limpa o costmap
+  global e replaneja, que e o tratamento que o default da a uma falha de
+  planejamento.
 
   `max_its` e `tolerance` do suavizador ficam no YAML, nao aqui.
+
+  BUG MEDIDO EM 26/08/2026, CORRIGIDO NA MESMA SESSAO: `SmoothPath` tinha
+  `smoothed_path="{path}"`, a MESMA chave da entrada e a mesma que o
+  `FollowPath` le. `RateController` e `FollowPath` sao irmaos dentro do mesmo
+  `PipelineSequence`; enquanto `FollowPath` retorna RUNNING (o caso normal,
+  ele e uma acao longa), o proprio `PipelineSequence` re-tica os irmaos
+  anteriores - inclusive o `RateController`, que roda no maximo 1x/s mas
+  ainda assim recomputa e resuaviza a cada tick permitido. Cada recomputacao
+  reescrevia `{path}`, e o `FollowPath` via isso como uma meta nova e
+  abortava o handle em andamento - medido no smoke HIL como
+  `[follow_path] [ActionServer] Aborting handle` a ~1 Hz durante os 60 s
+  inteiros do ensaio, culminando no timeout de 40 s do progress_checker sem o
+  robo nunca ter avancado. Reproduzido e explicado por um mantenedor do Nav2
+  em ros-navigation/navigation2#5817: "we expect users to remap the smoothed
+  path to a different blackboard variable". `tests/test_nav_to_pose_smoothed_bt.py`
+  trava esse contrato.
 -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">
@@ -46,7 +63,7 @@
           <RecoveryNode number_of_retries="1" name="ComputePathToPose">
             <Sequence name="PlanThenSmooth">
               <ComputePathToPose goal="{goal}" path="{path}" planner_id="{selected_planner}" error_code_id="{compute_path_error_code}"/>
-              <SmoothPath unsmoothed_path="{path}" smoothed_path="{path}" smoother_id="simple_smoother" max_smoothing_duration="0.3" error_code_id="{smoother_error_code}"/>
+              <SmoothPath unsmoothed_path="{path}" smoothed_path="{smooth_path}" smoother_id="simple_smoother" max_smoothing_duration="0.3" error_code_id="{smoother_error_code}"/>
             </Sequence>
             <Sequence>
               <WouldAPlannerRecoveryHelp error_code="{compute_path_error_code}"/>
@@ -55,7 +72,7 @@
           </RecoveryNode>
         </RateController>
         <RecoveryNode number_of_retries="1" name="FollowPath">
-          <FollowPath path="{path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
+          <FollowPath path="{smooth_path}" controller_id="{selected_controller}" error_code_id="{follow_path_error_code}"/>
           <Sequence>
             <WouldAControllerRecoveryHelp error_code="{follow_path_error_code}"/>
             <ClearEntireCostmap name="ClearLocalCostmap-Context" service_name="local_costmap/clear_entirely_local_costmap"/>
