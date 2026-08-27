@@ -718,6 +718,55 @@ global_costmap:
           data_type: "PointCloud2"
           min_obstacle_height: 0.12
           max_obstacle_height: 1.0
+          # ====== NAO PONHA `false` AQUI. TENTADO, MEDIDO, REPROVADO. ======
+          #
+          # A ideia era dar MEMORIA ao mapa global: parede vista uma vez nunca
+          # mais sai, e o robo para de redescobrir o labirinto a cada segundo.
+          #
+          # O DEFEITO QUE ELA ATACAVA e real, medido no HIL em 27/08/2026 lendo
+          # /plan a cada 5 s numa meta presa (0,0) -> (0,8):
+          #
+          #   t+ 5s   458 pts, 11.49 m, rumo inicial 173 deg   <- rota VERDADEIRA
+          #   t+10s   458 pts, 11.50 m, rumo inicial 177 deg
+          #   t+15s   291 pts,  8.59 m, rumo inicial  89 deg   <- ATRAVESSA parede
+          #   t+25s   274 pts,  8.66 m, rumo inicial  35 deg
+          #   t+30s   271 pts,  8.81 m, rumo inicial  18 deg
+          #
+          # Os 11,5 m batem com a geodesica real do maze11 medida offline
+          # (12,23 m, `scripts/maze_geodesic.py`). Os 8,6 m sao a reta por dentro
+          # de parede nao observada, que so existe porque `allow_unknown: true`
+          # torna o desconhecido barato.
+          #
+          # O plano alterna entre as duas a 1 Hz. O MPPI recebe um caminho que
+          # inverte 90-180 graus a cada segundo -- e gira sem transladar, que e o
+          # sintoma que as secoes 7 a 10 de
+          # `docs/ml35/proximos-passos-navegacao.md` perseguiram como se fosse
+          # defeito de critic.
+          #
+          # POR QUE `false` NAO CONSERTA, medido no mesmo dia, no mesmo HIL:
+          #
+          #   deslocamento liquido   0,19 m -> 1,04 m   (melhorou)
+          #   razao de trabalho vx     0,0% -> 3,9%     (melhorou)
+          #   metas cumpridas             0 -> 0        (nao mudou)
+          #   plano ainda alterna    11,66 m <-> 8,77 m (NAO mudou)
+          #
+          # E lendo `/global_costmap/costmap_raw` na reta ate a meta, com `false`
+          # ligado: **150 de 161 celulas em 255 (DESCONHECIDO)**, tudo alem de
+          # 0,75 m.
+          #
+          # A razao esta na semantica do parametro, e ela e contra-intuitiva:
+          # `clearing` NAO e "esquecer obstaculo", e o raytrace -- e o raytrace e
+          # o UNICO mecanismo que transforma desconhecido em LIVRE nesta camada.
+          # Desligando-o, nada nunca vira livre e o mapa global fica
+          # permanentemente desconhecido fora das celulas marcadas. Como o NavFn
+          # roda com `allow_unknown: true`, isso deixa o atalho pelo desconhecido
+          # MAIS atraente, nao menos. A correcao piora a causa que ataca.
+          #
+          # O QUE DE FATO RESOLVE precisa persistir as DUAS coisas -- ocupado e
+          # livre -- e a camada de obstaculo nao sabe fazer isso. E mapa de SLAM
+          # (`slam_toolbox`) alimentando a `static_layer` acima, com o
+          # `allow_unknown: true` mantido para que meta distante continue
+          # planejavel. Ver docs/results/ml35-f5-memoria-costmap.md.
           clearing: true
           marking: true
           # Dentro do alcance real de 10 m do L1 — ver a nota no costmap local.
