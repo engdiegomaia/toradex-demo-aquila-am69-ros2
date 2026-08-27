@@ -438,8 +438,16 @@ def main(argv=None) -> int:
     parser.add_argument('csv', help='arquivo CSV de saída')
     parser.add_argument('--seconds', type=float, default=180.0,
                         help='duração em tempo de SIMULAÇÃO')
+    # USE `--goals=`, COM SINAL DE IGUAL. Toda meta do maze11 tem x negativo, e
+    # `--goals -1.50,0.05` e lido pelo argparse como uma FLAG desconhecida: o
+    # script imprime `usage` e sai 0. Num pipe com `2>/dev/null` -- que e o uso
+    # normal aqui, porque o CycloneDDS enche o stderr -- isso vira uma corrida
+    # silenciosa que nao faz nada e nao acusa. Custou uma corrida em 27/08/2026.
     parser.add_argument('--goals', default='maze11',
-                        help='"maze11" ou "x,y;x,y;..." em coords do robô')
+                        help='"maze11" ou "x,y;x,y;..." em coords do robô. '
+                             'Passe com sinal de igual (--goals="-1.5,0.05;...") '
+                             ': coordenada negativa sem o "=" vira flag e o '
+                             'script sai 0 sem rodar nada.')
     parser.add_argument('--frame-id', default='map')
     parser.add_argument('--cmd-topic', default='/demo/cmd_vel_si',
                         help='saída SI do Nav2; NAO use /demo/cmd_vel (manche)')
