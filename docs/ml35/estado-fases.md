@@ -31,6 +31,49 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 26/08/2026 | CPU fechada (307% de folga, zero recusas); portão de 8 m REPROVADO — resta **só** decisão de trajeto, agora com protocolo intercalado (`nav_campaign.py`) para medi-la — ver "Sessão 26/08 (tarde)" |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
 
+### Sessão 27/08 (parte 3) — mecanismo achado: o plano global alterna a 1 Hz. `clearing: false` REPROVADO
+
+Evidência: **`docs/results/ml35-f5-memoria-costmap.md`**.
+
+**Causa raiz, lendo `/plan` a cada 5 s numa meta presa (0,0) → (0,8):**
+
+| t | comprimento | rumo inicial |
+| ---: | ---: | ---: |
+| +5 s / +10 s | **11,49 m** | 173° — rota verdadeira |
+| +15 s / +20 s | **8,59 m** | 89° — atravessa parede não vista |
+| +25 s / +30 s | 8,66 / 8,81 m | 35° / 18° |
+
+Os 11,5 m batem com a geodésica offline (12,23 m). Os 8,6 m só existem porque
+`allow_unknown: true` torna o desconhecido barato. **O MPPI recebe um caminho
+que inverte 90–180° a cada segundo** — daí girar sem transladar. Completa o
+achado da parte 2: lá ficou provado que o sintoma some com meta boa; aqui está
+o mecanismo pelo qual a meta ruim o produz.
+
+**Experimento reprovado — não repita.** `clearing: false` no `obstacle_layer`
+global ("dar memória ao mapa") melhorou margem (deslocamento 0,19 → 1,04 m,
+razão de trabalho 0,0% → 3,9%) e **não mexeu no mecanismo**: o plano continuou
+alternando 11,66 ↔ 8,77 m, zero metas. Lendo `costmap_raw`, com ele ligado
+**150 de 161 células da reta até a meta ficaram em 255 (desconhecido)**.
+
+`clearing` não é "esquecer obstáculo" — é o raytrace, e o raytrace é o **único**
+mecanismo que torna desconhecido em LIVRE nessa camada. Desligá-lo deixa o mapa
+permanentemente desconhecido e torna o atalho **mais** atraente. A correção
+agrava a causa que ataca. Travado por `tests/test_module_params_mount.py`.
+
+**O que resolve** é persistir ocupado *e* livre, e a camada de obstáculo tem um
+botão só para os dois. É mapa de `slam_toolbox` na `static_layer` (já definida e
+inerte), com `allow_unknown: true` mantido. Bloqueio real: o
+`pointcloud_to_laserscan` exige **rebuild arm64 nativo no módulo**.
+
+**Infraestrutura entregue:** `compose.module.yml` monta
+`ros2_ws/src/demo_navigation/config` sobre `/ws/src/demo_navigation/config`
+(o **alvo final do symlink**, não o caminho instalado — montar no instalado
+seria silencioso). **Parâmetro no módulo passou a custar `sync`, não `build`.**
+
+**Anomalia aberta:** o costmap global marca primeira célula ≥ 253 a **0,55 m em
++y**, onde `maze_fit.py` mede **3,47 m de pista livre**. Medir antes de rodar o
+SLAM — um mapa persistente herdaria o erro em definitivo.
+
 ### Sessão 27/08 (parte 2) — PROVADO no HIL: 8 de 8 metas cumpridas, razão de trabalho 0,0% → 37,5%
 
 Evidência: **`docs/results/ml35-f5-rota-conectada.md`** + os dois CSVs ao lado.
