@@ -1,78 +1,79 @@
-# Guia completo — operação e cockpit web
+# Complete guide — operation and web cockpit
 
-Como rodar a demo, como mexer nela sem quebrar o que já funciona, e como usar o
-cockpit web que a acompanha. Dois guias que eram arquivos separados
-(`guia-operacao.md` e `guia-cockpit.md`) e foram unificados aqui em
-26/08/2026 — o conteúdo não mudou, só deixou de estar espalhado.
+How to run the demo, how to modify it without breaking what already works, and
+how to use the web cockpit that comes with it. Two guides that used to be
+separate files (`guia-operacao.md` and `guia-cockpit.md`) and were unified here
+on 26/08/2026 — the content did not change, it just stopped being scattered.
 
-Escrito para quem chega no projeto sem experiência prévia de ROS 2. Onde uma
-armadilha conhecida existe, ela está descrita no ponto em que você a
-encontraria — não numa seção de troubleshooting no fim.
-
----
-
-## Sumário
-
-**[Parte I: Operação da demo](#parte-i-operação-da-demo)**
-
-1. [Antes de começar](#1-antes-de-começar)
-2. [Rodar a demo](#2-rodar-a-demo)
-3. [Como o projeto se encaixa](#3-como-o-projeto-se-encaixa)
-4. [Editar o robô](#4-editar-o-robô)
-5. [Editar a navegação](#5-editar-a-navegação)
-6. [Editar a percepção](#6-editar-a-percepção)
-7. [Editar a simulação](#7-editar-a-simulação)
-8. [Diagnóstico](#8-diagnóstico)
-9. [As armadilhas que já custaram tempo](#9-as-armadilhas-que-já-custaram-tempo)
-10. [O módulo Aquila AM69](#10-o-módulo-aquila-am69)
-
-**[Parte II: Cockpit web](#parte-ii-cockpit-web)**
-
-1. [O que é o cockpit](#1-o-que-é-o-cockpit)
-2. [Rodar](#2-rodar)
-3. [A tela](#3-a-tela)
-4. [Os controles](#4-os-controles)
-5. [O que NÃO dá para fazer](#5-o-que-não-dá-para-fazer)
-6. [Trocar de cenário](#6-trocar-de-cenário)
-7. [Ajustar qualidade de imagem](#7-ajustar-qualidade-de-imagem)
-8. [Diagnóstico do cockpit](#8-diagnóstico-do-cockpit)
-9. [As armadilhas do cockpit que já custaram tempo](#9-as-armadilhas-do-cockpit-que-já-custaram-tempo)
-10. [Como o cockpit é feito](#10-como-o-cockpit-é-feito)
-11. [O que está feito e o que falta](#11-o-que-está-feito-e-o-que-falta)
+Written for someone arriving at the project with no prior ROS 2 experience.
+Where a known trap exists, it is described at the point where you would hit it —
+not in a troubleshooting section at the end.
 
 ---
 
-# Parte I: Operação da demo
+## Table of contents
 
-Como rodar a demo e como mexer nela sem quebrar o que já funciona.
+**[Part I: Demo operation](#part-i-demo-operation)**
 
-Escrito para quem chega no projeto sem experiência prévia de ROS 2. Onde uma
-armadilha conhecida existe, ela está descrita no ponto em que você a
-encontraria — não numa seção de troubleshooting no fim.
+1. [Before you start](#1-before-you-start)
+2. [Running the demo](#2-running-the-demo)
+3. [How the project fits together](#3-how-the-project-fits-together)
+4. [Editing the robot](#4-editing-the-robot)
+5. [Editing navigation](#5-editing-navigation)
+6. [Editing perception](#6-editing-perception)
+7. [Editing the simulation](#7-editing-the-simulation)
+8. [Diagnostics](#8-diagnostics)
+9. [The traps that have already cost time](#9-the-traps-that-have-already-cost-time)
+10. [The Aquila AM69 module](#10-the-aquila-am69-module)
 
-**Fase atual: L3 concluída.** As seções 1 a 9 descrevem a demo rodando no host
-x86, nativo, sem containers. A [seção 10](#10-o-módulo-aquila-am69) é a exceção:
-cobre o módulo Aquila AM69, que é sempre container e sempre `arm64`.
+**[Part II: Web cockpit](#part-ii-web-cockpit)**
+
+1. [What the cockpit is](#1-what-the-cockpit-is)
+2. [Running it](#2-running-it)
+3. [The screen](#3-the-screen)
+4. [The controls](#4-the-controls)
+5. [What you CANNOT do](#5-what-you-cannot-do)
+6. [Switching scenario](#6-switching-scenario)
+7. [Tuning image quality](#7-tuning-image-quality)
+8. [Cockpit diagnostics](#8-cockpit-diagnostics)
+9. [The cockpit traps that have already cost time](#9-the-cockpit-traps-that-have-already-cost-time)
+10. [How the cockpit is built](#10-how-the-cockpit-is-built)
+11. [What is done and what is missing](#11-what-is-done-and-what-is-missing)
 
 ---
 
-## 1. Antes de começar
+# Part I: Demo operation
 
-### Onde cada coisa roda
+How to run the demo and how to modify it without breaking what already works.
 
-Metade dos erros possíveis neste projeto vem de colocar algo na máquina errada.
-A regra não muda quando os containers chegarem:
+Written for someone arriving at the project with no prior ROS 2 experience.
+Where a known trap exists, it is described at the point where you would hit it —
+not in a troubleshooting section at the end.
 
-| Componente | Máquina | Por quê |
+**Current phase: L3 complete.** Sections 1 through 9 describe the demo running
+on the x86 host, natively, without containers. [Section 10](#10-the-aquila-am69-module)
+is the exception: it covers the Aquila AM69 module, which is always container
+and always `arm64`.
+
+---
+
+## 1. Before you start
+
+### Where each thing runs
+
+Half of the possible errors in this project come from putting something on the
+wrong machine. The rule does not change once the containers arrive:
+
+| Component | Machine | Why |
 | --- | --- | --- |
-| Gazebo, RViz2 | **Host x86** | São OGRE 2 / OpenGL desktop. A GPU do AM69 só expõe OpenGL ES 3.2 e Vulkan 1.2. |
-| Nav2, percepção, bringup | Aquila (ou host, na L3) | Sem renderização. |
-| HMI Chromium | Aquila | GPU acelerada, mas via ES. |
+| Gazebo, RViz2 | **x86 host** | They are OGRE 2 / desktop OpenGL. The AM69 GPU only exposes OpenGL ES 3.2 and Vulkan 1.2. |
+| Nav2, perception, bringup | Aquila (or host, on L3) | No rendering. |
+| Chromium HMI | Aquila | GPU accelerated, but through ES. |
 
-Nunca coloque Gazebo ou RViz2 num serviço que sobe no módulo. Isso não é
-preferência de estilo: o módulo não tem o driver para isso.
+Never place Gazebo or RViz2 in a service that starts on the module. This is not
+a style preference: the module does not have the driver for it.
 
-### Instalação
+### Installation
 
 ```bash
 sudo apt install -y \
@@ -86,11 +87,11 @@ sudo apt install -y \
     liburdfdom-tools
 ```
 
-Os dois últimos pacotes `nav2-minimal-tb4-*` não são opcionais para a
-aparência: fornecem o mundo do armazém **e** as meshes do robô. Ambos são
-Apache-2.0, mantidos pela organização Nav2.
+The last two `nav2-minimal-tb4-*` packages are not optional as far as
+appearance goes: they provide the warehouse world **and** the robot meshes. Both
+are Apache-2.0, maintained by the Nav2 organization.
 
-### Compilar
+### Building
 
 ```bash
 cd ros2_ws
@@ -98,386 +99,391 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-`--symlink-install` faz launch files e YAMLs serem lidos direto de `src/` —
-você edita e roda de novo, sem recompilar. **Só vale para arquivos de dados.**
-Mudou código Python de um nó, recompile.
+`--symlink-install` makes launch files and YAMLs be read straight from `src/` —
+you edit and run again, without rebuilding. **This only holds for data files.**
+If you changed a node's Python code, rebuild.
 
-> **Nunca commite `build/`, `install/` ou `log/`.** Com `--symlink-install`
-> esses diretórios contêm caminhos absolutos da sua máquina. Já aconteceu neste
-> repo: quatro symlinks apontando para um diretório que não existia mais
-> quebravam o build de quem clonasse. O `.gitignore` cobre isso.
+> **Never commit `build/`, `install/` or `log/`.** With `--symlink-install`
+> these directories contain absolute paths from your machine. It already
+> happened in this repo: four symlinks pointing at a directory that no longer
+> existed broke the build for anyone who cloned it. `.gitignore` covers this.
 
-### O `source` que todo mundo esquece
+### The `source` everybody forgets
 
-Cada terminal novo precisa de:
+Every new terminal needs:
 
 ```bash
 source /opt/ros/jazzy/setup.bash
 source ~/toradex/demo/aquila-am69-ros2/ros2_ws/install/setup.bash
 ```
 
-Sem o segundo, `ros2 launch demo_bringup ...` responde "package not found"
-mesmo com o pacote compilado.
+Without the second one, `ros2 launch demo_bringup ...` answers "package not
+found" even with the package built.
 
 ---
 
-## 2. Rodar a demo
+## 2. Running the demo
 
-### Tudo de uma vez
+### Everything at once
 
 ```bash
 ros2 launch demo_bringup learn.launch.py
 ```
 
-Sobe Gazebo, robô, bridge, percepção, Nav2 e RViz2. **Leva ~30 s até o Nav2
-ficar pronto** — e isso é de propósito:
+It starts Gazebo, the robot, the bridge, perception, Nav2 and RViz2. **It takes
+~30 s until Nav2 is ready** — and that is on purpose:
 
 ```
-t=0s    Gazebo começa a carregar o mundo (~10 s de meshes)
-t=12s   spawn do robô
+t=0s    Gazebo starts loading the world (~10 s of meshes)
+t=12s   robot spawn
 t=15s   ros_gz_bridge
-t=20s   percepção
+t=20s   perception
 t=25s   Nav2 + RViz2
 ```
 
-Esses timers não são folga preguiçosa; ver [seção 9](#9-as-armadilhas-que-já-custaram-tempo).
-Numa máquina mais lenta, aumente **todos juntos**.
+Those timers are not lazy slack; see [section 9](#9-the-traps-that-have-already-cost-time).
+On a slower machine, increase **all of them together**.
 
-Para mandar o robô a um destino: no RViz2, botão **2D Goal Pose**, clique e
-arraste no mapa.
+To send the robot to a destination: in RViz2, the **2D Goal Pose** button, click
+and drag on the map.
 
-### Cockpit de demonstração
+### Demonstration cockpit
 
-Uma página web com as cinco regiões da demo — cena, navegação, logs, câmera e
-barra de controle — servida por container e aberta no navegador:
+A web page with the demo's five regions — scene, navigation, logs, camera and
+control bar — served by a container and opened in the browser:
 
 ```bash
 cd docker
 docker compose -f compose.host.yml --profile learn up -d --build
-# abra http://localhost:8081
+# open http://localhost:8081
 ```
 
-**O guia completo está na [Parte II](#parte-ii-cockpit-web) deste documento**:
-o que cada painel mostra, o que os botões fazem, como trocar de cenário, como
-ajustar qualidade de imagem, e as armadilhas próprias dele.
+**The complete guide is in [Part II](#part-ii-web-cockpit) of this document**:
+what each panel shows, what the buttons do, how to switch scenario, how to tune
+image quality, and its own traps.
 
-> **O caminho antigo foi descartado.** Havia aqui um procedimento que tentava
-> **incorporar janelas X11** de Gazebo, RViz e `rqt_image_view` numa aplicação
-> única (`./scripts/run_cockpit.sh`). Quatro tentativas, nenhuma aceita: no
-> último ensaio RViz e câmera permaneceram externos e os painéis internos
-> ficaram vazios. **Não retome esse caminho** — o checkpoint está em
+> **The old path was discarded.** There used to be a procedure here that tried
+> to **embed X11 windows** of Gazebo, RViz and `rqt_image_view` into a single
+> application (`./scripts/run_cockpit.sh`). Four attempts, none accepted: in the
+> last trial RViz and the camera stayed external and the internal panels were
+> empty. **Do not resume that path** — the checkpoint is in
 > [`results/cockpit-standalone-parcial.md`](results/cockpit-standalone-parcial.md),
-> marcado como superado.
+> marked as superseded.
 >
-> O motivo de fundo não era de implementação: RViz e Gazebo são OGRE 2 e
-> precisam de OpenGL de desktop, então nunca poderiam ir para o Aquila (regra 1
-> do `CLAUDE.md`). Aquele cockpit jamais viraria o HMI do módulo. O cockpit web,
-> que renderiza a partir de tópicos ROS 2, vira.
+> The underlying reason was not an implementation one: RViz and Gazebo are
+> OGRE 2 and need desktop OpenGL, so they could never go to the Aquila (rule 1
+> of `CLAUDE.md`). That cockpit would never become the module's HMI. The web
+> cockpit, which renders from ROS 2 topics, does.
 
-### Opções úteis
+### Useful options
 
 ```bash
-# Sem Nav2 — só simulação, para teleoperar
+# Without Nav2 — simulation only, for teleoperation
 ros2 launch demo_bringup learn.launch.py navigation:=false
 
-# Sem RViz2 (headless, CI)
+# Without RViz2 (headless, CI)
 ros2 launch demo_bringup learn.launch.py rviz:=false
 
-# Outro mundo
+# Another world
 ros2 launch demo_bringup learn.launch.py \
     world:=$(ros2 pkg prefix nav2_minimal_tb4_sim)/share/nav2_minimal_tb4_sim/worlds/depot.sdf
 ```
 
-### Peças isoladas
+### Isolated pieces
 
-Útil para depurar: se algo falha no conjunto, suba uma camada por vez.
+Useful for debugging: if something fails as a whole, bring up one layer at a
+time.
 
 ```bash
-# Só o simulador
+# Simulator only
 ros2 launch demo_simulation simulation.launch.py
 
-# Teleop por teclado (terminal separado, precisa de foco)
+# Keyboard teleoperation (separate terminal, requires focus)
 ros2 launch demo_simulation teleop.launch.py
 
-# Só o modelo, em RViz — não precisa de Gazebo
+# Model only, in RViz — does not require Gazebo
 ros2 launch demo_description view_robot.launch.py
 ```
 
-### Gerar um mapa novo
+### Generating a new map
 
-O mapa em `demo_navigation/maps/warehouse.{yaml,pgm}` já está commitado. Para
-refazer, ou para mapear outro mundo:
+The map in `demo_navigation/maps/warehouse.{yaml,pgm}` is already committed. To
+redo it, or to map another world:
 
 ```bash
 # Terminal 1
 ros2 launch demo_simulation simulation.launch.py
 # Terminal 2
 ros2 launch demo_navigation slam.launch.py
-# Terminal 3 — dirija o robô pelo cenário inteiro
+# Terminal 3 — drive the robot through the entire scenario
 ros2 launch demo_simulation teleop.launch.py
-# Terminal 4 — quando o mapa estiver completo
+# Terminal 4 — when the map is complete
 ros2 run nav2_map_server map_saver_cli -f meu_mapa
 ```
 
-Depois copie os dois arquivos para `demo_navigation/maps/` e passe
+Then copy the two files to `demo_navigation/maps/` and pass
 `map:=.../meu_mapa.yaml`.
 
 ---
 
-## 3. Como o projeto se encaixa
+## 3. How the project fits together
 
 ```
-demo_description   o robô: geometria, sensores, plugins Gazebo
-demo_simulation    Gazebo + spawn + ponte ROS↔gz + teleop
-demo_perception    stub de detecção + adaptador para o costmap
-demo_navigation    Nav2, parâmetros, SLAM, mapas
-demo_bringup       composição: quem sobe, em que ordem
-demo_tutorials     exercícios da L1, não faz parte da demo
+demo_description   the robot: geometry, sensors, Gazebo plugins
+demo_simulation    Gazebo + spawn + ROS↔gz bridge + teleoperation
+demo_perception    detection stub + costmap adapter
+demo_navigation    Nav2, parameters, SLAM, maps
+demo_bringup       composition: what starts and in which order
+demo_tutorials     L1 exercises, not part of the demo
 ```
 
-### O contrato de tópicos
+### The topic contract
 
-Isto é o invariante do projeto. Existe para que a inferência na NPU entre
-depois sem refatorar nada:
+This is the project invariant. It exists so that NPU inference can arrive later
+without refactoring anything:
 
-| Tópico | Tipo | Produtor | Consumidores |
+| Topic | Type | Producer | Consumers |
 | --- | --- | --- | --- |
-| `/demo/camera/image_raw` | `sensor_msgs/Image` | Gazebo, câmera USB ou rosbag | `demo_perception` |
+| `/demo/camera/image_raw` | `sensor_msgs/Image` | Gazebo, USB camera or rosbag | `demo_perception` |
 | `/demo/perception/detections` | `vision_msgs/Detection2DArray` | `demo_perception` | costmap, HMI |
-| `/demo/cmd_vel` | `geometry_msgs/Twist` | Nav2 | Gazebo ou driver real |
+| `/demo/cmd_vel` | `geometry_msgs/Twist` | Nav2 | Gazebo or real driver |
 
-Duas consequências práticas ao editar:
+Two practical consequences when editing:
 
-- **A percepção nunca pode saber de onde vem a imagem.** Se você escrever no
-  código dela algo que assume Gazebo, trocar o stub por TIDL deixa de ser uma
-  troca de container e vira refatoração.
-- **As detecções alimentam o costmap, não só a tela.** Mesmo sendo stub. Se
-  essa costura quebrar, ninguém percebe até o dia em que a inferência real
-  chegar.
+- **Perception must never know where the image comes from.** If you write
+  something into its code that assumes Gazebo, swapping the stub for TIDL stops
+  being a container swap and becomes a refactor.
+- **The detections feed the costmap, not just the screen.** Even as a stub. If
+  that seam breaks, nobody notices until the day real inference arrives.
 
-### Quem publica cada transformada
+### Who publishes each transform
 
-Uma transformada com dois donos é um robô que treme no RViz. A tabela:
+A transform with two owners is a robot that shakes in RViz. The table:
 
-| Aresta TF | Dono |
+| TF edge | Owner |
 | --- | --- |
 | `map → odom` | `amcl` (Nav2) |
-| `odom → base_footprint` | plugin DiffDrive do Gazebo |
-| `base_footprint → base_link` → sensores | `robot_state_publisher`, a partir do URDF |
+| `odom → base_footprint` | Gazebo DiffDrive plugin |
+| `base_footprint → base_link` → sensors | `robot_state_publisher`, from the URDF |
 
 ---
 
-## 4. Editar o robô
+## 4. Editing the robot
 
-Arquivos em `ros2_ws/src/demo_description/urdf/`:
+Files in `ros2_ws/src/demo_description/urdf/`:
 
-| Arquivo | Conteúdo |
+| File | Content |
 | --- | --- |
-| `demo_robot.urdf.xacro` | principal: dimensões, montagem, plugins Gazebo |
-| `_visuals.xacro` | visuais por mesh e o fallback primitivo |
-| `_wheel.xacro` | rodas motrizes e roda-boba |
-| `_sensors.xacro` | lidar e câmera (URDF + bloco `<sensor>` do gz) |
-| `_inertia.xacro` | tensores de inércia |
-| `_materials.xacro` | cores (só RViz) |
+| `demo_robot.urdf.xacro` | main: dimensions, assembly, Gazebo plugins |
+| `_visuals.xacro` | mesh visuals and the primitive fallback |
+| `_wheel.xacro` | drive wheels and caster wheel |
+| `_sensors.xacro` | lidar and camera (URDF + gz `<sensor>` block) |
+| `_inertia.xacro` | inertia tensors |
+| `_materials.xacro` | colors (RViz only) |
 
-### Mudar uma dimensão
+### Changing a dimension
 
-Tudo é argumento xacro. Nada é hardcoded:
+Everything is a xacro argument. Nothing is hardcoded:
 
 ```bash
-# Testar sem editar arquivo
+# Test without editing the file
 ros2 launch demo_description view_robot.launch.py \
     xacro_args:="wheel_separation:=0.30"
 ```
 
-Gostou, mude o `default` do `<xacro:arg>` correspondente.
+If you like it, change the `default` of the corresponding `<xacro:arg>`.
 
-> **`wheel_separation` e `wheel_radius` não são cosméticos.** Vão literalmente
-> para o plugin DiffDrive, que integra os dois na odometria. Mudar a mesh sem
-> mudar esses valores (ou o contrário) produz um robô que **desliza
-> visivelmente enquanto reporta uma linha reta** — e nada dá erro. Mudou um,
-> confira o outro.
+> **`wheel_separation` and `wheel_radius` are not cosmetic.** They go literally
+> into the DiffDrive plugin, which integrates both into the odometry. Changing
+> the mesh without changing these values (or the other way around) produces a
+> robot that **visibly slides while reporting a straight line** — and nothing
+> raises an error. If you changed one, check the other.
 
-Mudou o raio do chassi? Atualize `robot_radius` nos dois costmaps em
-`demo_navigation/config/nav2_params.yaml`. Eles não leem o URDF.
+Changed the chassis radius? Update `robot_radius` in both costmaps in
+`demo_navigation/config/nav2_params.yaml`. They do not read the URDF.
 
-### Aparência: meshes e o fallback
+### Appearance: meshes and the fallback
 
-O robô renderiza a partir de meshes DAE de `nav2_minimal_tb4_description`
-(iRobot Create 3 + TurtleBot 4), referenciadas por `package://`. **Não estão
-copiadas neste repositório** — são ~25 MB de binários que não precisam estar no
-git.
+The robot renders from DAE meshes in `nav2_minimal_tb4_description`
+(iRobot Create 3 + TurtleBot 4), referenced via `package://`. **They are not
+copied into this repository** — they are ~25 MB of binaries that do not need to
+be in git.
 
 ```bash
-# Padrão: meshes
+# Default: meshes
 ros2 launch demo_description view_robot.launch.py
 
-# Fallback: primitivas
+# Fallback: primitives
 ros2 launch demo_description view_robot.launch.py xacro_args:="use_meshes:=false"
 ```
 
-Duas regras ao mexer nisso:
+Two rules when touching this:
 
-1. **Visual e colisão são geometrias diferentes de propósito.** Visual é mesh
-   (bonito, caro); colisão é primitiva (cilindro/caixa, barato). Usar mesh como
-   colisão deixa a física ordens de grandeza mais cara sem ganho nenhum — um
-   cilindro descreve muito bem um chassi redondo.
-2. **Mantenha o caminho `use_meshes:=false` funcionando.** É a saída para uma
-   máquina sem o pacote instalado, e é o que a imagem arm64 da L4 vai usar se
-   as meshes forem removidas dela. Colisão, inércia, TF e odometria são
-   idênticas nos dois caminhos; só a renderização muda.
+1. **Visual and collision are different geometries on purpose.** Visual is a
+   mesh (pretty, expensive); collision is a primitive (cylinder/box, cheap).
+   Using a mesh as collision makes the physics orders of magnitude more
+   expensive with no gain at all — a cylinder describes a round chassis very
+   well.
+2. **Keep the `use_meshes:=false` path working.** It is the way out on a
+   machine without the package installed, and it is what the L4 arm64 image
+   will use if the meshes are removed from it. Collision, inertia, TF and
+   odometry are identical on both paths; only the rendering changes.
 
-Se trocar as meshes, os `rpy` em `_visuals.xacro` vêm dos macros upstream que
-sabidamente renderizam certo. Uma rotação errada desenha o robô deitado — e o
-sintoma é só visual, porque TF, odometria e costmaps continuam corretos.
+If you swap the meshes, the `rpy` values in `_visuals.xacro` come from the
+upstream macros, which are known to render correctly. A wrong rotation draws the
+robot lying down — and the symptom is purely visual, because TF, odometry and
+costmaps stay correct.
 
-### Depois de qualquer edição no URDF
+### After any URDF edit
 
 ```bash
-# Expande e valida a estrutura
+# Expand and validate the structure
 xacro demo_robot.urdf.xacro > /tmp/r.urdf && check_urdf /tmp/r.urdf
 
-# Os dois caminhos precisam expandir
+# Both paths must expand
 xacro demo_robot.urdf.xacro use_meshes:=false > /dev/null && echo "fallback OK"
 ```
 
-`check_urdf` deve mostrar `base_footprint` como raiz e a árvore de links.
+`check_urdf` should show `base_footprint` as the root and the link tree.
 
 ---
 
-## 5. Editar a navegação
+## 5. Editing navigation
 
-`demo_navigation/config/nav2_params.yaml`, ~13 blocos de servidor. Parâmetros
-ficam em YAML, **nunca embutidos em código**.
+`demo_navigation/config/nav2_params.yaml`, ~13 server blocks. Parameters live in
+YAML, **never embedded in code**.
 
-Os que você mais vai mexer:
+The ones you will touch most:
 
-| Parâmetro | Onde | Efeito |
+| Parameter | Where | Effect |
 | --- | --- | --- |
-| `max_vel_x`, `max_vel_theta` | `controller_server` | velocidade da demo |
-| `robot_radius` | ambos os costmaps | precisa casar com o chassi |
-| `inflation_radius` | `inflation_layer` | distância que ele mantém das paredes |
-| `xy_goal_tolerance` | `general_goal_checker` | precisão para dar goal por concluído |
+| `max_vel_x`, `max_vel_theta` | `controller_server` | demo speed |
+| `robot_radius` | both costmaps | must match the chassis |
+| `inflation_radius` | `inflation_layer` | distance it keeps from walls |
+| `xy_goal_tolerance` | `general_goal_checker` | precision for calling a goal done |
 
-Editou YAML? Não precisa recompilar (`--symlink-install`), mas **precisa
-reiniciar o Nav2** — parâmetros são lidos no configure do ciclo de vida.
+Edited YAML? You do not need to rebuild (`--symlink-install`), but you **do need
+to restart Nav2** — parameters are read during the lifecycle configure.
 
-> Reiniciar aqui significa **subir o launch de novo** (ou recriar o serviço
-> `nav`). Não serve o `/demo/nav/reset` descrito abaixo: ele não passa por
-> `CONFIGURE`, de propósito, então parâmetro novo não é lido. Um reset que
-> "não pegou a mudança" é o sintoma.
+> Restarting here means **launching again** (or recreating the `nav` service).
+> The `/demo/nav/reset` described below does not do it: it deliberately does not
+> go through `CONFIGURE`, so a new parameter is not read. A reset that "did not
+> pick up the change" is the symptom.
 
-### Descartar a meta e limpar os costmaps
+### Discarding the goal and clearing the costmaps
 
 ```bash
 ros2 service call /demo/nav/reset std_srvs/srv/Trigger
 ```
 
-Serve para "a demo travou, quero recomeçar sem derrubar nada": cancela toda meta
-em andamento, esvazia os dois costmaps e recicla os servidores por
-`PAUSE`/`RESUME`. ~6,6 s no host. É o mesmo serviço do botão **reiniciar nav** do
-cockpit. Sobe junto com os dois caminhos de Nav2 (`navigation.launch.py` e
-`nav_quadruped.launch.py`); `nav_control:=false` desliga.
+It serves "the demo got stuck, I want to start over without tearing anything
+down": it cancels any goal in progress, empties both costmaps and recycles the
+servers through `PAUSE`/`RESUME`. ~6,6 s on the host. It is the same service as
+the cockpit's **reiniciar nav** button. It comes up along with both Nav2 paths
+(`navigation.launch.py` and `nav_quadruped.launch.py`); `nav_control:=false`
+turns it off.
 
-`/demo/nav/cancel` faz só a primeira parte, sem tocar em costmap nem em ciclo de
-vida.
+`/demo/nav/cancel` does only the first part, without touching the costmap or the
+lifecycle.
 
-> **Não troque isso por `RESET`+`STARTUP` no `lifecycle_manager`.** É o caminho
-> óbvio e ele derruba o container inteiro com `SIGSEGV` ao configurar o
-> `route_server` — medido duas vezes, determinístico. Ver a armadilha 8 do cockpit,
-> [aqui](#8-reset--startup-no-nav2-mata-o-container-segfault-no-route_server).
+> **Do not swap this for `RESET`+`STARTUP` on the `lifecycle_manager`.** That is
+> the obvious path and it takes the whole container down with `SIGSEGV` while
+> configuring the `route_server` — measured twice, deterministic. See cockpit
+> trap 8, [here](#8-reset--startup-on-nav2-kills-the-container-segfault-in-route_server).
 
-> **Não esvazie listas YAML.** `docks: []` chega ao launch como tupla Python e
-> derruba tudo com `Expected 'value' to be one of [float, int, str, bool,
-> bytes], but got '()'`. Se não quer a chave, **omita** — não deixe vazia.
-
----
-
-## 6. Editar a percepção
-
-```
-detection_stub.py       gera detecções sintéticas determinísticas
-detections_to_cloud.py  Detection2DArray → PointCloud2 para o costmap
-```
-
-O adaptador existe porque a `ObstacleLayer` de fábrica do Nav2 não lê
-`Detection2DArray`. A alternativa seria um plugin C++ de costmap; a convenção do
-projeto é C++ só com desempenho medido no hardware, e nada foi medido no AM69
-ainda. Trocar depois não muda nenhum dos dois lados.
-
-**Limitação assumida:** caixa 2D não tem profundidade. O adaptador assume
-distância fixa e usa pinhole para o azimute. Daí `clearing: false` (a projeção
-é grosseira demais para apagar um obstáculo real visto pelo lidar) e
-`observation_persistence: 1.0` (a detecção expira em vez de virar fantasma).
-
-Ao substituir o stub por inferência real, o alvo é: publicar
-`vision_msgs/Detection2DArray` em `/demo/perception/detections`, consumindo
-`sensor_msgs/Image` de `/demo/camera/image_raw`. Nada mais precisa mudar.
+> **Do not leave YAML lists empty.** `docks: []` reaches the launch as a Python
+> tuple and takes everything down with `Expected 'value' to be one of [float,
+> int, str, bool, bytes], but got '()'`. If you do not want the key, **omit
+> it** — do not leave it empty.
 
 ---
 
-## 7. Editar a simulação
+## 6. Editing perception
 
-### A ponte ROS ↔ Gazebo
+```
+detection_stub.py       generates deterministic synthetic detections
+detections_to_cloud.py  Detection2DArray → PointCloud2 for the costmap
+```
 
-`demo_simulation/config/bridge_warehouse.yaml` é a fronteira inteira. Todo nome
-do lado ROS vive sob `/demo`.
+The adapter exists because Nav2's stock `ObstacleLayer` does not read
+`Detection2DArray`. The alternative would be a C++ costmap plugin; the project
+convention is C++ only with hardware-measured performance, and nothing has been
+measured on the AM69 yet. Swapping later changes neither side.
 
-> **Nenhuma entrada é escopada por modelo, e isso está correto.** Os elementos
-> `<topic>`, `<odom_topic>` e `<tf_topic>` do DiffDrive são **literais**: o
-> plugin escuta em `/cmd_vel` e publica em `/odom` e `/tf`, sem prefixo. O
-> Gazebo *também* anuncia `/model/demo_robot/{cmd_vel,odom,tf}`, que aparecem
-> em `gz topic -l` e **parecem** os nomes certos — mas não têm ninguém
-> conectado. Apontar a ponte para eles dá um robô que não anda e odometria que
-> não publica, **sem erro nenhum**.
+**Accepted limitation:** a 2D box has no depth. The adapter assumes a fixed
+distance and uses a pinhole model for the azimuth. Hence `clearing: false` (the
+projection is too coarse to erase a real obstacle seen by the lidar) and
+`observation_persistence: 1.0` (the detection expires instead of becoming a
+ghost).
 
-Confirme antes de confiar:
+When replacing the stub with real inference, the target is: publish
+`vision_msgs/Detection2DArray` on `/demo/perception/detections`, consuming
+`sensor_msgs/Image` from `/demo/camera/image_raw`. Nothing else needs to change.
+
+---
+
+## 7. Editing the simulation
+
+### The ROS ↔ Gazebo bridge
+
+`demo_simulation/config/bridge_warehouse.yaml` is the entire boundary. Every
+name on the ROS side lives under `/demo`.
+
+> **No entry is model-scoped, and that is correct.** The DiffDrive `<topic>`,
+> `<odom_topic>` and `<tf_topic>` elements are **literal**: the plugin listens
+> on `/cmd_vel` and publishes on `/odom` and `/tf`, without a prefix. Gazebo
+> *also* advertises `/model/demo_robot/{cmd_vel,odom,tf}`, which show up in
+> `gz topic -l` and **look** like the right names — but have nobody connected to
+> them. Pointing the bridge at them gives a robot that does not move and
+> odometry that does not publish, **with no error at all**.
+
+Confirm before trusting:
 
 ```bash
-gz topic -l                    # existe?
-gz topic -i -t /cmd_vel        # tem publisher/subscriber?
+gz topic -l                    # does it exist?
+gz topic -i -t /cmd_vel        # does it have a publisher/subscriber?
 ```
 
-`No subscribers on topic` é o sintoma.
+`No subscribers on topic` is the symptom.
 
-### Trocar o mundo
+### Switching the world
 
-O default resolve para `nav2_minimal_tb4_sim`. Para usar outro, passe
-`world:=/caminho/absoluto.sdf`. Se colocar um `.sdf` em
-`demo_simulation/worlds/`, ele é instalado pelo `setup.py` — mas prefira não
-versionar mundos pesados.
+The default resolves to `nav2_minimal_tb4_sim`. To use another one, pass
+`world:=/caminho/absoluto.sdf`. If you put an `.sdf` in
+`demo_simulation/worlds/`, it is installed by `setup.py` — but prefer not to
+version heavy worlds.
 
 ---
 
-## 8. Diagnóstico
+## 8. Diagnostics
 
-Ordem de baixo para cima. Pare no primeiro que falhar.
+Bottom-up order. Stop at the first one that fails.
 
 ```bash
-# 1. Os nós estão vivos?
+# 1. Are the nodes alive?
 ros2 node list
 
-# 2. Os tópicos existem e publicam?
+# 2. Do the topics exist and publish?
 ros2 topic list | grep demo
-ros2 topic hz /demo/scan          # esperado ~10 Hz
-ros2 topic hz /demo/odom          # esperado ~30 Hz
+ros2 topic hz /demo/scan          # expected ~10 Hz
+ros2 topic hz /demo/odom          # expected ~30 Hz
 
-# 3. A árvore TF está completa e sem furo?
-ros2 run tf2_tools view_frames    # gera frames.pdf
+# 3. Is the TF tree complete and without gaps?
+ros2 run tf2_tools view_frames    # generates frames.pdf
 ros2 run tf2_ros tf2_echo odom base_footprint
 
-# 4. O Nav2 subiu inteiro? Os 7 servidores têm de estar em `active`
+# 4. Did all of Nav2 start? All 7 servers must be `active`
 ros2 lifecycle list /planner_server
 for n in map_server amcl planner_server controller_server \
          bt_navigator behavior_server velocity_smoother; do
     echo -n "$n: "; ros2 lifecycle get /$n
 done
 
-# 5. A percepção chega ao costmap?
-ros2 topic info /demo/perception/detection_cloud -v   # Subscription count deve ser 2
+# 5. Does perception reach the costmap?
+ros2 topic info /demo/perception/detection_cloud -v   # Subscription count must be 2
 ```
 
-**Lado Gazebo** (nomes gz não são nomes ROS):
+**Gazebo side** (gz names are not ROS names):
 
 ```bash
 gz topic -l
@@ -485,121 +491,123 @@ gz topic -i -t /odom
 gz model --list
 ```
 
-### Sintomas comuns
+### Common symptoms
 
-| Sintoma | Causa provável |
+| Symptom | Likely cause |
 | --- | --- |
-| Robô aparece, sensores publicam, mas não anda e `/demo/odom` está mudo | Spawn cedo demais, ou ponte apontando para nome escopado. Ver seção 9. |
-| Nav2 metade `active`, metade `inactive` | Um servidor falhou no configure e o lifecycle manager abortou o resto. Veja qual. |
-| `slam_toolbox` roda mas não gera mapa | Ficou em `unconfigured` — é lifecycle node. Ver seção 9. |
-| Costmap ignora as detecções | `frame_id` fora da árvore TF, ou `observation_persistence` expirando. |
-| Tudo trava esperando TF | Falta `/clock`. A ponte precisa estar de pé antes de qualquer nó com `use_sim_time`. |
+| The robot appears, sensors publish, but it does not move and `/demo/odom` is silent | Spawned too early, or the bridge pointing at a scoped name. See section 9. |
+| Nav2 half `active`, half `inactive` | One server failed to configure and the lifecycle manager aborted the rest. Find out which. |
+| `slam_toolbox` runs but does not produce a map | It stayed in `unconfigured` — it is a lifecycle node. See section 9. |
+| The costmap ignores the detections | `frame_id` outside the TF tree, or `observation_persistence` expiring. |
+| Everything hangs waiting for TF | `/clock` is missing. The bridge must be up before any node with `use_sim_time`. |
 
 ---
 
-## 9. As armadilhas que já custaram tempo
+## 9. The traps that have already cost time
 
-Todas têm a mesma assinatura: **nenhuma mensagem de erro, tudo parecendo
-funcionar**. Estão aqui porque voltam se alguém "limpar" o código.
+All of them share the same signature: **no error message, everything looking
+like it works**. They are here because they come back if somebody "cleans up"
+the code.
 
-### 1. Spawn em t=0 nunca completa
+### 1. A spawn at t=0 never completes
 
-`ros_gz_sim create` chama primeiro o serviço de lista de mundos. Em t=0 esse
-serviço não existe, e o cliente **retenta a cada 5 s para sempre** em vez de
-falhar. O mundo do armazém leva ~10 s carregando meshes.
+`ros_gz_sim create` first calls the world-list service. At t=0 that service does
+not exist, and the client **retries every 5 s forever** instead of failing. The
+warehouse world takes ~10 s loading meshes.
 
-O robô ainda aparece no mundo — o create assíncrono aceita —, então
-`gz model --list` mostra `demo_robot` e os sensores publicam. Mas os plugins
-DiffDrive e JointStatePublisher **nunca inicializam**.
+The robot still shows up in the world — the asynchronous create accepts it — so
+`gz model --list` shows `demo_robot` and the sensors publish. But the DiffDrive
+and JointStatePublisher plugins **never initialize**.
 
-→ Não remova os `TimerAction` de 12 s e 15 s em `simulation.launch.py`.
+→ Do not remove the 12 s and 15 s `TimerAction`s in `simulation.launch.py`.
 
-### 2. Tópicos gz não são escopados
+### 2. gz topics are not scoped
 
-Detalhado na [seção 7](#a-ponte-ros--gazebo). É a que mais parece um bug de
-configuração e mais consome tempo.
+Detailed in [section 7](#the-ros--gazebo-bridge). It is the one that looks most
+like a configuration bug and consumes the most time.
 
-### 3. `slam_toolbox` é lifecycle node
+### 3. `slam_toolbox` is a lifecycle node
 
-Sobe em `unconfigured` e fica lá. O processo roda, loga normalmente, e **não
-cria assinatura de scan nem publica mapa ou `map→odom`**. `ros2 node info`
-mostra só `/clock`.
+It comes up in `unconfigured` and stays there. The process runs, logs normally,
+and **creates no scan subscription and publishes no map or `map→odom`**.
+`ros2 node info` shows only `/clock`.
 
-→ `slam.launch.py` usa `LifecycleNode` com `EmitEvent`/`OnStateTransition`
-encadeados: activate só depois do configure dar OK.
+→ `slam.launch.py` uses `LifecycleNode` with chained
+`EmitEvent`/`OnStateTransition`: activate only after configure returns OK.
 
-### 4. `docking_server` sem `dock_plugins` derruba o Nav2 inteiro
+### 4. `docking_server` without `dock_plugins` takes down all of Nav2
 
-Faz parte da lista padrão do Nav2 Jazzy. Sem configuração, falha no configure e
-o lifecycle manager **aborta tudo** — `map_server` e `amcl` ficam `active` e o
-resto para em `inactive`. A demo não tem dock; está configurado o mínimo.
+It is part of the default Nav2 Jazzy list. Without configuration it fails to
+configure and the lifecycle manager **aborts everything** — `map_server` and
+`amcl` stay `active` and the rest stops at `inactive`. This demo has no dock;
+the minimum is configured.
 
-### 5. Lista YAML vazia quebra o launch
+### 5. An empty YAML list breaks the launch
 
-`docks: []` → tupla Python → launch aborta. Omita a chave.
+`docks: []` → Python tuple → the launch aborts. Omit the key.
 
-### 6. `autodetermine` do CycloneDDS escolhe a bridge do Docker
+### 6. CycloneDDS `autodetermine` picks the Docker bridge
 
-No Aquila, `ip -br addr` mostra `ethernet0` **e** `br-a00dfb945795`
-(172.18.0.1) UP ao mesmo tempo — a stack de easy-pairing da própria Toradex roda
-em compose. `autodetermine` ranqueia interfaces e pode escolher a bridge. O
-CycloneDDS então transmite num endereço que o host não roteia, e **nenhum log de
-nenhum dos lados menciona interface**.
+On the Aquila, `ip -br addr` shows `ethernet0` **and** `br-a00dfb945795`
+(172.18.0.1) UP at the same time — Toradex's own easy-pairing stack runs under
+compose. `autodetermine` ranks interfaces and may pick the bridge. CycloneDDS
+then transmits on an address the host does not route, and **no log on either
+side mentions an interface**.
 
-→ `scripts/module.sh sync` fixa a interface, detectada a partir de `MODULE_IP`.
-Não troque por `autodetermine` "para simplificar", e não fixe `ethernet0` à mão
-— placa diferente ou mudança para `wlan0` deixa o nome obsoleto e falhando
-calado.
+→ `scripts/module.sh sync` pins the interface, detected from `MODULE_IP`. Do not
+swap it for `autodetermine` "to simplify", and do not pin `ethernet0` by hand —
+a different board or a move to `wlan0` leaves the name obsolete and failing
+silently.
 
-### 7. `--packages-skip` do colcon não é `--packages-ignore`
+### 7. colcon's `--packages-skip` is not `--packages-ignore`
 
-O grafo de dependências do `colcon` não distingue `exec_depend` de
-`build_depend`. `--packages-skip gz_quadruped_hardware` mantém o pacote no grafo
-sem construí-lo, e `demo_simulation` (que o declara como `exec_depend`) falha
-pedindo `install/gz_quadruped_hardware/.../package.sh`. O dano real é o
-`demo_bringup` que vem depois virar "not processed" — e é lá que moram
-`nav.launch.py` e `perception.launch.py`, os entrypoints dos dois serviços do
-módulo.
+`colcon`'s dependency graph does not distinguish `exec_depend` from
+`build_depend`. `--packages-skip gz_quadruped_hardware` keeps the package in the
+graph without building it, and `demo_simulation` (which declares it as an
+`exec_depend`) fails asking for `install/gz_quadruped_hardware/.../package.sh`.
+The real damage is `demo_bringup` coming afterwards and turning into "not
+processed" — and that is where `nav.launch.py` and `perception.launch.py` live,
+the entrypoints of the module's two services.
 
-→ Use `--packages-ignore`. A mensagem de erro não menciona a diferença.
+→ Use `--packages-ignore`. The error message does not mention the difference.
 
-### 8. Dois publishers em `/demo/cmd_vel` não geram erro nenhum
+### 8. Two publishers on `/demo/cmd_vel` produce no error at all
 
-`nav` no módulo é o Nav2, e o Nav2 publica `/demo/cmd_vel`. Se a simulação do
-host estiver rodando no mesmo `ROS_DOMAIN_ID`, o robô simulado passa a receber
-comandos de duas origens. O tópico é válido, os dois publishers estão saudáveis,
-o DDS faz exatamente o que foi mandado — e o robô se move sozinho. Um ensaio de
-marcha em curso é **corrompido, não interrompido**.
+`nav` on the module is Nav2, and Nav2 publishes `/demo/cmd_vel`. If the host's
+simulation is running on the same `ROS_DOMAIN_ID`, the simulated robot starts
+receiving commands from two sources. The topic is valid, both publishers are
+healthy, DDS does exactly what it was told — and the robot moves on its own. A
+gait trial in progress is **corrupted, not interrupted**.
 
-→ `scripts/module.sh up` detecta simulação ativa no host e recusa. As saídas
-estão na mensagem de recusa.
+→ `scripts/module.sh up` detects an active simulation on the host and refuses.
+The ways out are in the refusal message.
 
-### 9. `docker compose exec` não roda o ENTRYPOINT da imagem
+### 9. `docker compose exec` does not run the image ENTRYPOINT
 
 ```
 $ docker compose exec -T tools bash -lc 'which ros2'
-                      # (nada)
+                      # (nothing)
 ```
 
-O `entrypoint.sh` é que faz `source` do underlay e do overlay `/ws/install`, e
-`exec` não o executa. `bash -lc` não salva: a imagem `ros` não coloca o setup no
-`.bashrc`.
+It is `entrypoint.sh` that `source`s the underlay and the `/ws/install` overlay,
+and `exec` does not run it. `bash -lc` does not save you: the `ros` image does
+not put the setup into `.bashrc`.
 
-O que torna isso venenoso é a combinação usual:
+What makes this poisonous is the usual combination:
 
 ```bash
 ros2 topic list 2>/dev/null | grep /demo/ || echo "(nenhum topico visivel)"
 ```
 
-O `2>/dev/null` engole `command not found`, e o `||` imprime a **mesma linha**
-que uma falha real de descoberta imprimiria. Isso já fez duas etapas de
-verificação relatarem um problema de DDS que não existia.
+`2>/dev/null` swallows `command not found`, and `||` prints the **same line** a
+real discovery failure would print. This has already made two verification steps
+report a DDS problem that did not exist.
 
-→ Sempre `docker compose exec <svc> /usr/local/bin/entrypoint.sh <comando>`.
-E não use `2>/dev/null` em comando de diagnóstico. Com `exec -d`, confirme
-depois que o nó subiu — `-d` esconde todo erro.
+→ Always use `docker compose exec <svc> /usr/local/bin/entrypoint.sh <comando>`.
+And do not use `2>/dev/null` in a diagnostic command. With `exec -d`, confirm
+afterwards that the node came up — `-d` hides every error.
 
-### 10. `ROS_NAMESPACE` não funciona no ROS 2
+### 10. `ROS_NAMESPACE` does not work in ROS 2
 
 ```
 $ ... -e ROS_NAMESPACE=/demo ... printenv ROS_NAMESPACE
@@ -608,36 +616,36 @@ $ ros2 run demo_tutorials heartbeat_publisher              → /system/heartbeat
 $ ros2 run ... --ros-args -r __ns:=/demo                   → /demo/system/heartbeat
 ```
 
-A variável **está** no ambiente do processo. O ROS 2 a ignora — é um resquício
-de ROS 1.
+The variable **is** in the process environment. ROS 2 ignores it — it is a
+leftover from ROS 1.
 
-→ Use `--ros-args -r __ns:=<ns>`. Note que `scripts/env.sh` exporta
-`ROS_NAMESPACE=/demo` como se funcionasse; aquela linha não tem efeito.
+→ Use `--ros-args -r __ns:=<ns>`. Note that `scripts/env.sh` exports
+`ROS_NAMESPACE=/demo` as if it worked; that line has no effect.
 
-### 11. Metade da configuração de DDS falha igual a firewall
+### 11. Half of a DDS configuration fails exactly like a firewall
 
-Com o módulo configurado certo (multicast off, peers) e um publisher
-**comprovadamente rodando** nele, o host não via nada. Duas causas ao mesmo
-tempo:
+With the module configured correctly (multicast off, peers) and a publisher
+**demonstrably running** on it, the host saw nothing. Two causes at the same
+time:
 
-| Direção | Por que falhava |
+| Direction | Why it failed |
 | --- | --- |
-| host → módulo | O default do CycloneDDS anuncia por **multicast**; o módulo tem `AllowMulticast=false` e nunca escuta. |
-| módulo → host | O módulo manda SPDP unicast para as portas RTPS do host, mas um participante default **não fixa porta determinística** — usa efêmera e conta com multicast para ser achado. Não há porta para mirar. |
+| host → module | The CycloneDDS default announces over **multicast**; the module has `AllowMulticast=false` and never listens. |
+| module → host | The module sends unicast SPDP to the host's RTPS ports, but a default participant **does not pin a deterministic port** — it uses an ephemeral one and relies on multicast to be found. There is no port to aim at. |
 
-Os dois lados precisam de config **casada**: multicast off,
-`ParticipantIndex=auto`, e o outro endereço como `<Peer>`. Configurar só um lado
-produz exatamente o sintoma de firewall bloqueando.
+Both sides need **matched** config: multicast off, `ParticipantIndex=auto`, and
+the other address as a `<Peer>`. Configuring only one side produces exactly the
+symptom of a firewall blocking.
 
-→ `scripts/module.sh sync` renderiza os dois: `module.xml` (vai para o módulo) e
-`docker/cyclonedds/host.rendered.xml` (fica no host, gitignored). Quem publica no
-host precisa apontar `CYCLONEDDS_URI` para o arquivo renderizado.
-`scripts/run_quadruped_sim.sh` monta e seleciona esse arquivo quando ele existe
-e imprime a interface e o peer usados.
+→ `scripts/module.sh sync` renders both: `module.xml` (goes to the module) and
+`docker/cyclonedds/host.rendered.xml` (stays on the host, gitignored). Whoever
+publishes on the host must point `CYCLONEDDS_URI` at the rendered file.
+`scripts/run_quadruped_sim.sh` mounts and selects that file when it exists and
+prints the interface and peer in use.
 
-### 12. Matar o `ros2 launch` deixa os nós vivos, e o próximo Nav2 morre acusando o DDS
+### 12. Killing `ros2 launch` leaves the nodes alive, and the next Nav2 dies blaming DDS
 
-Sintoma: você reinicia o Nav2 e **todos** os nós morrem na subida, cada um com
+Symptom: you restart Nav2 and **all** the nodes die on startup, each one with
 
 ```
 [rmw_cyclonedds_cpp]: rmw_create_node: failed to create domain, error Error
@@ -645,26 +653,28 @@ terminate called after throwing an instance of 'rclcpp::exceptions::RCLError'
   what():  failed to initialize rcl node: error not set, at ./src/rcl/node.c:252
 ```
 
-e o `lifecycle_manager` fica para sempre em `Waiting for service
+and the `lifecycle_manager` stays forever at `Waiting for service
 controller_server/get_state...`.
 
-A mensagem acusa o CycloneDDS. O culpado é a execução **anterior**.
-`ros2 launch` é só o pai: um `kill` nele **órfã os nós filhos**, que seguem
-vivos segurando índice de participante do domínio. Medido em 21/08/2026:
-31 órfãos acumulados de 5 gerações de launch, 14 falhas de domínio na subida
-seguinte. Um nó isolado ainda criava domínio sem erro, o que faz parecer que o
-DDS está bem — e está; o que acabou foi o espaço de índice.
+The message blames CycloneDDS. The culprit is the **previous** run. `ros2 launch`
+is only the parent: a `kill` on it **orphans the child nodes**, which stay alive
+holding a domain participant index. Measured on 21/08/2026: 31 orphans
+accumulated over 5 launch generations, 14 domain failures on the following
+startup. An isolated node still created a domain without error, which makes it
+look like DDS is fine — and it is; what ran out was the index space.
 
-Como confirmar, antes de mexer em configuração de DDS:
+How to confirm, before touching any DDS configuration:
 
 ```bash
 ps -eo pid,etimes,comm --no-headers | grep -E \
   'odom_tf|controller_serv|bt_navigator|behavior_server|route_server'
 ```
 
-Se aparecerem PIDs com `etimes` maior que a sua sessão atual, são órfãos.
+If PIDs show up with an `etimes` larger than your current session, they are
+orphans.
 
-Como limpar. Use `pkill -x`, que casa o **nome** do processo, e não `pkill -f`:
+How to clean up. Use `pkill -x`, which matches the process **name**, and not
+`pkill -f`:
 
 ```bash
 for n in odom_tf cmd_vel_si_to_s velocity_smooth waypoint_follow \
@@ -673,41 +683,41 @@ for n in odom_tf cmd_vel_si_to_s velocity_smooth waypoint_follow \
          lifecycle_manag; do pkill -9 -x "$n"; done
 ```
 
-Dois detalhes que custam tempo sozinhos:
+Two details that cost time on their own:
 
-- **`pkill -f` casa a própria linha de comando de quem chama.** `pkill -f nav2`
-  digitado num shell cujo comando contém `nav2` mata o shell. Aconteceu duas
-  vezes aqui, e o sintoma é o comando "falhar" sem imprimir nada. `-x` não tem
-  esse problema. Se precisar de `-f`, escreva o padrão com classe de caractere:
-  `pkill -f '[n]av2'`.
-- **Os nomes em `-x` são truncados em 15 caracteres**, que é o limite de `comm`
-  no Linux: é `collision_monit`, não `collision_monitor`.
+- **`pkill -f` matches the caller's own command line.** `pkill -f nav2` typed in
+  a shell whose command contains `nav2` kills the shell. It happened twice here,
+  and the symptom is the command "failing" without printing anything. `-x` does
+  not have that problem. If you need `-f`, write the pattern with a character
+  class: `pkill -f '[n]av2'`.
+- **The names in `-x` are truncated at 15 characters**, which is the `comm`
+  limit on Linux: it is `collision_monit`, not `collision_monitor`.
 
-### 13. No modo HIL o robô fica lento e a culpa não é do Aquila
+### 13. In HIL mode the robot gets slow and it is not the Aquila's fault
 
-O sintoma: em `hil` o robô navega muito mais devagar que em `learn`, e a
-tentação é dizer que o AM69 é fraco. Medido em 21/08/2026, **não é**.
+The symptom: in `hil` the robot navigates much more slowly than in `learn`, and
+the temptation is to say the AM69 is weak. Measured on 21/08/2026, **it is not**.
 
-O que atravessa o Wi-Fi é que pesa. O maior item, medido no fio:
+What crosses the Wi-Fi is what weighs. The largest item, measured on the wire:
 
 ```
-/demo/camera/image_raw: 640x480 rgb8, 921600 bytes/quadro, 10,1 Hz
+/demo/camera/image_raw: 640x480 rgb8, 921600 bytes/frame, 10,1 Hz
                         -> 74,2 Mbit/s
 ```
 
-É `sensor_msgs/Image` **cru**, sem compressão, com QoS confiável — cada perda
-vira retransmissão, e retransmissão vira contrapressão no publicador **dentro do
-simulador**. Por isso o efeito aparece na velocidade do robô e não num erro de
-rede. Nada em log nomeia a câmera.
+It is **raw** `sensor_msgs/Image`, uncompressed, with reliable QoS — every loss
+becomes a retransmission, and retransmission becomes backpressure on the
+publisher **inside the simulator**. That is why the effect shows up in the
+robot's speed and not as a network error. Nothing in any log names the camera.
 
-Subindo só `nav` no módulo, sem `perception`, ninguém assina a câmera, o
-CycloneDDS não a transmite, e a velocidade média sobe 2,2× (0,0197 → 0,0427
-m/s). Com o módulo inteiro parado, 0,0725 m/s.
+Bringing up only `nav` on the module, without `perception`, nobody subscribes to
+the camera, CycloneDDS does not transmit it, and average speed rises 2,2×
+(0,0197 → 0,0427 m/s). With the whole module stopped, 0,0725 m/s.
 
-Como conferir antes de culpar o hardware:
+How to check before blaming the hardware:
 
 ```bash
-# banda real do tópico, do lado do host
+# actual topic bandwidth, on the host side
 python3 - <<'EOF'
 import time, rclpy
 from rclpy.node import Node
@@ -721,68 +731,68 @@ print('%.1f Mbit/s' % (sum(got) * 8 / 1e6 / (time.monotonic() - t)))
 EOF
 ```
 
-E **não** use `ros2 topic hz` para isso: nesta configuração de DDS ele volta sem
-imprimir nada, em qualquer tópico, o que parece tópico morto.
+And do **not** use `ros2 topic hz` for this: in this DDS configuration it comes
+back without printing anything, on any topic, which looks like a dead topic.
 
-Em 21/08/2026, uma sonda e o `detection_stub` não receberam quadros e isso foi
-atribuído ao Wi-Fi. O HIL Ethernet de 24/08 localizou a causa: o bridge publica
-o frame de 921600 bytes como `RELIABLE`, mas o stub pedia `BEST_EFFORT`; a
-descoberta ocorria e todos os frames fragmentados eram perdidos. O stub agora
-pede `RELIABLE` e recebe ~10 Hz. Portanto o ensaio antigo não prova que o Wi-Fi
-era incapaz de carregar a câmera.
+On 21/08/2026, a probe and the `detection_stub` received no frames and this was
+attributed to Wi-Fi. The 24/08 Ethernet HIL located the cause: the bridge
+publishes the 921600-byte frame as `RELIABLE`, but the stub was asking for
+`BEST_EFFORT`; discovery happened and every fragmented frame was lost. The stub
+now asks for `RELIABLE` and receives ~10 Hz. So the old trial does not prove
+that Wi-Fi was incapable of carrying the camera.
 
-### Trocar o host para Ethernet
+### Switching the host to Ethernet
 
-O módulo tem duas portas Ethernet na mesma `/24`, mas o kernel roteia os peers
-dessa rede por `ethernet0` (métrica 101 contra 102). Use explicitamente
-`ethernet0`; fixar DDS em `ethernet1` enquanto a rota sai por
-`ethernet0` cria bind e envio divergentes. Não presuma que o hostname mDNS
-identifica uma porta.
+The module has two Ethernet ports on the same `/24`, but the kernel routes that
+network's peers through `ethernet0` (metric 101 against 102). Use `ethernet0`
+explicitly; pinning DDS to `ethernet1` while the route leaves through
+`ethernet0` creates divergent bind and send. Do not assume the mDNS hostname
+identifies a port.
 
-1. Antes de ligar o cabo, confirme que o PHY do host anuncia gigabit:
+1. Before plugging the cable in, confirm that the host PHY advertises gigabit:
 
    ```bash
    ethtool enp0s31f6 | sed -n '/Supported link modes:/,/Advertised/p'
    ```
 
-   `1000baseT/Full` precisa aparecer. Se o I219 anunciar apenas 10baseT depois
-   de uma retomada de suspensão, recarregue `e1000e`; se ainda não aparecer,
-   desligue o host de verdade — reboot morno preserva esse estado do PHY.
+   `1000baseT/Full` must appear. If the I219 advertises only 10baseT after a
+   resume from suspend, reload `e1000e`; if it still does not appear, power the
+   host off for real — a warm reboot preserves that PHY state.
 
-2. Ligue host e `ethernet0` do módulo no mesmo switch/roteador, nunca ponto a
-   ponto para este portão. Confirme link e rota:
+2. Connect the host and the module's `ethernet0` to the same switch/router,
+   never point to point for this gate. Confirm link and route:
 
    ```bash
    ip -br addr show enp0s31f6
    ethtool enp0s31f6 | grep -E 'Speed:|Duplex:|Link detected:'
-   ip route get <IP_ETHERNET0_AQUILA>   # tem de dizer "dev enp0s31f6"
+   ip route get <IP_ETHERNET0_AQUILA>   # must say "dev enp0s31f6"
    ```
 
-   O portão exige `Speed: 1000Mb/s`, `Duplex: Full`, `Link detected: yes` e um
-   `src` cabeado na mesma sub-rede. Se a rota usar Wi-Fi, não meça.
+   The gate requires `Speed: 1000Mb/s`, `Duplex: Full`, `Link detected: yes` and
+   a wired `src` on the same subnet. If the route uses Wi-Fi, do not measure.
 
-3. Passe os endereços explicitamente. Variável no ambiente vence
-   `docker/.env`, inclusive quando vazia; isso é coberto por teste:
+3. Pass the addresses explicitly. A variable in the environment beats
+   `docker/.env`, including when it is empty; this is covered by a test:
 
    ```bash
    MODULE_HOST=<IP_ETHERNET0_AQUILA> MODULE_IP=<IP_ETHERNET0_AQUILA> \
      HOST_IP=<IP_ETHERNET_DO_HOST> ./scripts/module.sh sync
    ```
 
-4. **Re-renderize a configuração de DDS.** Este é o passo que se esquece:
+4. **Re-render the DDS configuration.** This is the step that gets forgotten:
 
    ```bash
    ./scripts/module.sh sync
    ```
 
-   O `sync` deriva a interface de `ip route get`, então ele passa a fixar a
-   Ethernet nos dois lados. Sem isso o `host.rendered.xml` continua fixando o
-   Wi-Fi, o CycloneDDS transmite num endereço que o módulo não responde, e o
-   sintoma é idêntico a firewall. O `run_quadruped_sim.sh` avisa quando os dois
-   divergem — leia a linha `DDS:` na subida.
+   `sync` derives the interface from `ip route get`, so it then pins Ethernet on
+   both sides. Without this, `host.rendered.xml` keeps pinning Wi-Fi, CycloneDDS
+   transmits on an address the module does not answer, and the symptom is
+   identical to a firewall. `run_quadruped_sim.sh` warns when the two diverge —
+   read the `DDS:` line at startup.
 
-5. Reinicie simulador e containers do módulo e exija as três etapas do
-   instrumento:
+5. Restart the simulator and the module's containers and require the
+   instrument's three stages:
 
    ```bash
    MODULE_HOST=<IP_ETHERNET0_AQUILA> MODULE_IP=<IP_ETHERNET0_AQUILA> \
@@ -791,63 +801,63 @@ identifica uma porta.
      HOST_IP=<IP_ETHERNET_DO_HOST> ./scripts/module.sh verify
    ```
 
-   `verify` agora cria o assinante do host antes do heartbeat remoto, espera a
-   descoberta unicast com prazo limitado e retorna falha se UDP, contrato de
-   tópicos ou heartbeat não passarem.
+   `verify` now creates the host subscriber before the remote heartbeat, waits
+   for unicast discovery with a bounded deadline, and returns failure if UDP,
+   the topic contract or the heartbeat do not pass.
 
-6. Execute três corridas sem mudar carga, imagem ou parâmetros:
+6. Run three trials without changing load, image or parameters:
 
    ```bash
    python3 scripts/nav_trial.py docs/results/ml35-f5-ethernet0-run1.csv \
      --seconds 420 --goal-timeout 200 --sim-log <LOG_DA_SIMULACAO>
-   # reinicie a planta no mesmo estado e repita como run2 e run3
+   # restart the plant in the same state and repeat as run2 and run3
    ```
 
-   Cada CSV registra `sim_s` e `wall_s`; o resumo imprime o RTF calculado no
-   mesmo intervalo. F5 fecha apenas se as três corridas concluírem ao menos uma
-   meta de 8 m, sem queda e com enlace/RTF comparáveis.
+   Each CSV records `sim_s` and `wall_s`; the summary prints the RTF computed
+   over the same interval. F5 only closes if all three runs complete at least
+   one 8 m goal, without a fall and with comparable link/RTF.
 
-Se a Ethernet não for possível, os outros caminhos são reduzir taxa ou resolução
-em `demo_simulation/urdf/go2_sim.urdf.xacro` (muda o que a demo mostra) ou
-`image_transport` comprimido. Detalhe em `docs/results/ml35-hil-aquila.md`.
+If Ethernet is not possible, the other paths are lowering the rate or resolution
+in `demo_simulation/urdf/go2_sim.urdf.xacro` (which changes what the demo shows)
+or compressed `image_transport`. Details in `docs/results/ml35-hil-aquila.md`.
 
-### Switch isolado de exposição (sem roteador/DHCP)
+### Isolated exhibition switch (no router/DHCP)
 
-Um switch Ethernet comum é somente camada 2: ele encaminha os quadros, mas não
-atribui endereços nem fornece rota padrão. Portanto a demonstração funciona sem
-roteador desde que host e Aquila recebam IPs estáticos na mesma sub-rede. A
-configuração da bancada de exposição é:
+An ordinary Ethernet switch is layer 2 only: it forwards the frames, but does
+not assign addresses or provide a default route. So the demonstration works
+without a router as long as the host and the Aquila get static IPs on the same
+subnet. The exhibition bench configuration is:
 
-| Equipamento | Interface | Endereço | Gateway |
+| Equipment | Interface | Address | Gateway |
 | --- | --- | --- | --- |
-| Host | `enp0s31f6` | `10.22.1.190/24` | nenhum |
-| Aquila | porta `ethernet0` ligada ao switch | `10.22.1.130/24` | nenhum |
+| Host | `enp0s31f6` | `<HOST_IP>/24` | none |
+| Aquila | port `ethernet0` connected to the switch | `<MODULE_IP>/24` | none |
 
-No host, o perfil NetworkManager persistente deve manter o Wi-Fi como rota
-padrão e usar somente a rota conectada da Ethernet. Isto evita que desligar o
-roteador externo derrube a comunicação host--Aquila:
+On the host, the persistent NetworkManager profile must keep Wi-Fi as the
+default route and use only the Ethernet's connected route. This prevents turning
+off the external router from taking down host--Aquila communication:
 
 ```bash
 nmcli connection modify ethernet \
-  ipv4.method manual ipv4.addresses 10.22.1.190/24 \
+  ipv4.method manual ipv4.addresses <HOST_IP>/24 \
   ipv4.gateway '' ipv4.never-default yes ipv4.route-metric 700 \
-  ipv4.routes 10.22.1.130/32 ipv6.method disabled
+  ipv4.routes <MODULE_IP>/32 ipv6.method disabled
 nmcli connection up ethernet ifname enp0s31f6
 ```
 
-Antes de subir a demo, este é o portão mínimo. `ip route get` tem de mencionar
-`enp0s31f6`; se `ip neigh` ficar `FAILED`, o Aquila não está no switch nessa
-sub-rede (cabo, porta, alimentação ou IP do módulo), e sincronizar DDS não
-resolverá a ausência de conectividade L2.
+Before bringing the demo up, this is the minimum gate. `ip route get` must
+mention `enp0s31f6`; if `ip neigh` stays `FAILED`, the Aquila is not on the
+switch in that subnet (cable, port, power or module IP), and synchronizing DDS
+will not fix the absence of L2 connectivity.
 
 ```bash
 ip -br -4 addr show enp0s31f6
-ip route get 10.22.1.130
-ping -c 2 -I enp0s31f6 10.22.1.130
+ip route get <MODULE_IP>
+ping -c 2 -I enp0s31f6 <MODULE_IP>
 ```
 
-Quando o Aquila responder, renderize novamente os peers unicast e valide o
-contrato, sem depender de multicast nem do roteador:
+When the Aquila answers, render the unicast peers again and validate the
+contract, without depending on multicast or on the router:
 
 ```bash
 ./scripts/module.sh sync
@@ -855,71 +865,74 @@ contrato, sem depender de multicast nem do roteador:
 ./scripts/module.sh verify
 ```
 
-### 14. `use_composition` sem container é falha 100% silenciosa
+### 14. `use_composition` without a container is a 100% silent failure
 
-`navigation_launch.py` com composição usa `LoadComposableNodes` para carregar os
-servidores dentro de `/nav2_container`, mas **não cria** esse container — quem o
-cria upstream é `bringup_launch.py`, que este projeto não inclui.
+`navigation_launch.py` with composition uses `LoadComposableNodes` to load the
+servers inside `/nav2_container`, but **does not create** that container — the
+one that creates it upstream is `bringup_launch.py`, which this project does not
+include.
 
-Ligar `use_composition: 'True'` sem criar o container carrega os nós num
-container que ninguém criou: **nada sobe e nada imprime erro**. O log do launch
-termina em `wait_for_clock` e `odom_tf` e para ali. O sintoma legível é "o Nav2
-não ativou", que não aponta para este parâmetro.
+Turning `use_composition: 'True'` on without creating the container loads the
+nodes into a container nobody created: **nothing comes up and nothing prints an
+error**. The launch log ends at `wait_for_clock` and `odom_tf` and stops there.
+The readable symptom is "Nav2 did not activate", which does not point at this
+parameter.
 
-O container está criado em `nav_quadruped.launch.py`, no bloco `nav2_container`,
-com o nome casando o default do argumento `container_name` do launch vendorizado.
-Se um dos dois nomes mudar, volta a falhar assim.
+The container is created in `nav_quadruped.launch.py`, in the `nav2_container`
+block, with the name matching the default of the vendored launch's
+`container_name` argument. If either of the two names changes, it fails this way
+again.
 
-### 15. `down` sem `--profile` deixa o `nav` vivo com a imagem antiga
+### 15. `down` without `--profile` leaves `nav` alive with the old image
 
-`nav` e `perception` estão atrás de `profiles: ["learn"]` no
-`compose.host.yml`. Compose **ignora serviços com perfil** em qualquer comando
-que não declare o perfil, e isso inclui o `down`:
+`nav` and `perception` are behind `profiles: ["learn"]` in `compose.host.yml`.
+Compose **ignores services with a profile** in any command that does not declare
+the profile, and that includes `down`:
 
 ```bash
-docker compose -f compose.host.yml down --remove-orphans   # NAO derruba nav nem perception
-docker compose -f compose.host.yml --profile learn down     # derruba
+docker compose -f compose.host.yml down --remove-orphans   # DOES NOT stop nav or perception
+docker compose -f compose.host.yml --profile learn down     # stops them
 ```
 
-O `down` sem perfil imprime uma lista de containers removidos que **parece
-completa** — ele lista o que removeu, nunca o que pulou. O `up -d sim` seguinte
-também não recria o `nav`, porque para o Compose ele já está no estado desejado.
-Resultado: o `nav` atravessa reconstruções de imagem indefinidamente rodando o
-código de quando subiu.
+`down` without the profile prints a list of removed containers that **looks
+complete** — it lists what it removed, never what it skipped. The following
+`up -d sim` does not recreate `nav` either, because as far as Compose is
+concerned it is already in the desired state. Result: `nav` survives image
+rebuilds indefinitely running the code from when it came up.
 
-O sintoma é o pior possível, porque não há sintoma: `docker compose ps` diz
-`running`, os tópicos existem, e o comportamento é o de uma versão antiga do
-código. Medido em 25/08/2026 — um `nav` de 10 horas antes sobreviveu a dois
-ciclos de build e continuou construindo o `ReroutingService` que a correção
-recém-compilada já não construía, o que fez a correção parecer não ter
-funcionado.
+The symptom is the worst possible one, because there is no symptom:
+`docker compose ps` says `running`, the topics exist, and the behavior is that
+of an old version of the code. Measured on 25/08/2026 — a `nav` from 10 hours
+earlier survived two build cycles and kept constructing the `ReroutingService`
+that the freshly compiled fix no longer constructed, which made the fix look
+like it had not worked.
 
-Como conferir, quando um resultado não bate com o código:
+How to check, when a result does not match the code:
 
 ```bash
-# ID da imagem que o container esta rodando vs. ID da tag atual
+# ID of the image running in the container vs. ID of the current tag
 docker inspect docker-nav-1 --format '{{.Image}}'
 docker images --no-trunc --format '{{.Repository}}:{{.Tag}} {{.ID}}' | grep nav:dev
 ```
 
-IDs diferentes = container obsoleto. É a mesma família da armadilha 4: ali o
-`/ws/src` assado na imagem estava velho, aqui a imagem inteira está velha.
+Different IDs = stale container. It is the same family as trap 4: there the
+`/ws/src` baked into the image was old, here the whole image is old.
 
 ---
 
-### 16. O builder multi-arch não enxerga as imagens locais, e o build "não existe"
+### 16. The multi-arch builder cannot see local images, and the build "does not exist"
 
-O `CLAUDE.md` manda criar o builder multi-arch uma vez por host:
+`CLAUDE.md` says to create the multi-arch builder once per host:
 
 ```bash
 docker buildx create --use --name multiarch
 ```
 
-O `--use` deixa esse builder **ativo para tudo**, e ele usa o driver
-`docker-container`. Esse driver tem um store de imagens próprio e **não lê o
-store local do Docker**. Consequência: qualquer imagem deste projeto cujo pai
-seja outra imagem local para de construir, porque o builder tenta *puxar* o pai
-do Docker Hub:
+`--use` leaves that builder **active for everything**, and it uses the
+`docker-container` driver. That driver has its own image store and **does not
+read Docker's local store**. Consequence: any image in this project whose parent
+is another local image stops building, because the builder tries to *pull* the
+parent from Docker Hub:
 
 ```text
 failed to solve: local/demo-aquila-base:dev: failed to resolve source metadata
@@ -927,59 +940,64 @@ for docker.io/local/demo-aquila-base:dev: pull access denied, repository does
 not exist or may require authorization
 ```
 
-A mensagem fala em autorização e repositório inexistente, então ela **manda o
-leitor procurar credencial, VPN ou registry** — e o problema não é nenhum dos
-três. A imagem existe, na máquina, construída minutos antes.
+The message talks about authorization and a nonexistent repository, so it
+**sends the reader looking for a credential, a VPN or a registry** — and the
+problem is none of the three. The image exists, on the machine, built minutes
+earlier.
 
-A `base` engana porque **ela continua funcionando**: o pai dela é
-`ros:jazzy-ros-base`, que de fato é puxável. Só `sim`, `nav`, `perception`,
-`tools`, `viz`, `cockpit` e `hmi` quebram — o que faz parecer defeito dos
-Dockerfiles dessas imagens.
+`base` is deceptive because **it keeps working**: its parent is
+`ros:jazzy-ros-base`, which really is pullable. Only `sim`, `nav`, `perception`,
+`tools`, `viz`, `cockpit` and `hmi` break — which makes it look like a defect in
+those images' Dockerfiles.
 
-Como conferir e como resolver:
+How to check and how to fix:
 
 ```bash
-docker buildx ls          # o builder com * e o ativo; driver docker-container e o problema
+docker buildx ls          # the builder marked with * is active; the docker-container driver is the problem
 
-docker buildx use default                                   # driver `docker`, le o store local
-docker compose -f compose.host.yml build base               # em SERIE: os filhos
-docker compose -f compose.host.yml build sim                # precisam do pai ja construido
-docker buildx use armbuilder                                # restaure, o multi-arch depende dele
+docker buildx use default                                   # the `docker` driver reads the local store
+docker compose -f compose.host.yml build base               # IN SERIES: the children
+docker compose -f compose.host.yml build sim                # require the parent to be built already
+docker buildx use armbuilder                                # restore it; multi-arch depends on it
 ```
 
-Duas notas que economizam tempo:
+Two notes that save time:
 
-- **`docker compose ... --builder default` não existe** nesta versão do Compose;
-  ele responde `unknown flag: --builder`. Trocar o builder ativo é o caminho.
-- **Construir `base sim perception` num comando só falha por corrida**, não pelo
-  builder: o Compose dispara os três em paralelo e os filhos não encontram o pai
-  que ainda está sendo construído. Em série sempre.
+- **`docker compose ... --builder default` does not exist** in this version of
+  Compose; it answers `unknown flag: --builder`. Switching the active builder is
+  the way.
+- **Building `base sim perception` in a single command fails because of a
+  race**, not because of the builder: Compose fires all three in parallel and
+  the children do not find the parent that is still being built. Always in
+  series.
 
-O build **nativo no módulo** não passa por nada disso: ele roda `docker build`
-no próprio Aquila, com o daemon local.
+The **native build on the module** goes through none of this: it runs
+`docker build` on the Aquila itself, with the local daemon.
 
 ---
 
-### 17. `use_sim_time: true` custa CPU mesmo em nó que nunca olha o relógio
+### 17. `use_sim_time: true` costs CPU even in a node that never looks at the clock
 
-O sintoma: o módulo fica com carga alta, o `collision_monitor` recusa a nuvem do
-LiDAR dizendo que a fonte está velha, e o robô para. Você olha o `top`, vê o
-Nav2 no topo e conclui que Nav2 é caro. **Pode não ser ele.**
+The symptom: the module ends up under high load, `collision_monitor` rejects the
+LiDAR cloud saying the source is old, and the robot stops. You look at `top`,
+see Nav2 at the top and conclude that Nav2 is expensive. **It may not be it.**
 
-`use_sim_time: true` não é uma declaração de intenção. É o **rclpy** que cria uma
-assinatura de `/clock` por nó, independentemente de o código do nó chamar o
-relógio. No mundo do Go2 o Gazebo publica `/clock` a ~870 Hz, porque o passo de
-física da marcha é 1 ms. Cada nó que assina paga por mensagem, useando-a ou não.
+`use_sim_time: true` is not a statement of intent. It is **rclpy** that creates
+one `/clock` subscription per node, regardless of whether the node's code calls
+the clock. In the Go2 world Gazebo publishes `/clock` at ~870 Hz, because the
+gait's physics step is 1 ms. Every node that subscribes pays per message,
+whether it uses it or not.
 
-Medido em 26/08/2026 no AM69, pilha de pé e **sem meta ativa**: 367% de 800%, dos
-quais 111% em três republicadores em Python que não têm uma única chamada a
-`get_clock()`.
+Measured on 26/08/2026 on the AM69, stack up and **with no active goal**: 367%
+of 800%, of which 111% in three Python republishers that do not have a single
+call to `get_clock()`.
 
-Como conferir, em vez de supor. `top` mostra o processo; o que você quer é a
-thread, e num container composto o nome da thread é quem entrega o culpado:
+How to check, instead of assuming. `top` shows the process; what you want is the
+thread, and in a composed container the thread name is what gives up the
+culprit:
 
 ```bash
-# no módulo. Soma utime+stime por thread de todo o cgroup do container.
+# on the module. Sum utime+stime per thread across the container's entire cgroup.
 CID=$(docker inspect -f '{{.Id}}' demo-nav-1)
 for p in $(cat /sys/fs/cgroup/system.slice/docker-$CID.scope/cgroup.procs); do
   for t in /proc/$p/task/*; do
@@ -989,250 +1007,254 @@ for p in $(cat /sys/fs/cgroup/system.slice/docker-$CID.scope/cgroup.procs); do
 done
 ```
 
-Rode duas vezes com ~20 s de intervalo e tire a diferença: `(ticks2 - ticks1) /
-100 / dt * 100` é a porcentagem de um núcleo. Um `component_container` espalhado
-em ~30 threads a ~7% cada **não** é custo algorítmico — é entrega de mensagem.
+Run it twice with a ~20 s gap and take the difference: `(ticks2 - ticks1) /
+100 / dt * 100` is the percentage of one core. A `component_container` spread
+across ~30 threads at ~7% each is **not** algorithmic cost — it is message
+delivery.
 
-E confirme de fora, sem inferir:
+And confirm from the outside, without inferring:
 
 ```bash
-ros2 topic info /clock -v | grep 'Node name'   # quem realmente assina
+ros2 topic info /clock -v | grep 'Node name'   # who actually subscribes
 ```
 
-**Antes de tirar `use_sim_time` de um nó, verifique que ele não lê o relógio:**
+**Before removing `use_sim_time` from a node, verify that it does not read the
+clock:**
 
 ```bash
 grep -n 'get_clock' <arquivo_do_no>.py
 ```
 
-Se ele lê e você tira, o nó passa a ler **tempo de parede** achando que lê tempo
-simulado. Os carimbos saem anos no futuro, o costmap descarta a leitura com
-`message filter dropping message`, e nada nomeia a causa. `demo_bringup/test/`
-`test_sim_time_scope.py` trava essa invariante nos dois sentidos.
+If it does read it and you remove it, the node starts reading **wall time**
+thinking it is reading simulated time. The stamps come out years into the
+future, the costmap discards the reading with `message filter dropping message`,
+and nothing names the cause. `demo_bringup/test/` `test_sim_time_scope.py` locks
+this invariant in both directions.
 
-**O que isto NÃO é:** estrangular `/clock` (`demo_simulation/clock_throttle.py`).
-Aquilo baixa a taxa para **todo mundo**, o MPPI incluso, foi ensaiado em 21/08 e
-**matou a navegação** (0,0039 m/s contra 0,0251). Aqui a taxa não muda para
-ninguém; muda quem assina.
+**What this is NOT:** throttling `/clock` (`demo_simulation/clock_throttle.py`).
+That lowers the rate for **everyone**, MPPI included, was tried on 21/08 and
+**killed navigation** (0,0039 m/s against 0,0251). Here the rate does not change
+for anyone; what changes is who subscribes.
 
-### 18. `docker/.env` tem endereço de bancada antigo, e `ssh` esconde isso
+### 18. `docker/.env` has an old bench address, and `ssh` hides it
 
-O sintoma: `scripts/module.sh sync` ou `build` falha com
+The symptom: `scripts/module.sh sync` or `build` fails with
 
 ```
-[module.sh] ERRO: nao identifiquei a interface do modulo que carrega 10.22.1.130
+[module.sh] ERRO: nao identifiquei a interface do modulo que carrega <MODULE_IP>
 ```
 
-enquanto `ssh`, `verify` e `status` funcionam normalmente.
+while `ssh`, `verify` and `status` work normally.
 
-A causa: a precedência é ambiente → `docker/.env` → defaults. O `.env` da bancada
-carrega um `MODULE_IP` de outra rede, e ele **vence os defaults**. O `ssh` não
-percebe porque usa `MODULE_HOST` (nome mDNS), não o IP — só os comandos que
-precisam casar o IP com uma interface é que quebram.
+The cause: precedence is environment → `docker/.env` → defaults. The bench
+`.env` carries a `MODULE_IP` from another network, and it **beats the defaults**.
+`ssh` does not notice because it uses `MODULE_HOST` (the mDNS name), not the IP —
+only the commands that need to match the IP to an interface break.
 
-Saída imediata:
+Immediate way out:
 
 ```bash
 MODULE_IP=<ip real> HOST_IP=<ip real> ./scripts/module.sh sync
 ```
 
-Saída permanente: conserte o `.env`. Confira o valor real com
-`getent hosts <MODULE_HOST>` e `ip route get <ip do módulo>`.
+Permanent way out: fix the `.env`. Check the real value with
+`getent hosts <MODULE_HOST>` and `ip route get <ip do módulo>`.
 
-### 19. `/demo/sim/reset` num quadrúpede em marcha o derrubava
+### 19. `/demo/sim/reset` on a walking quadruped knocked it over
 
-`/demo/sim/reset` (`std_srvs/Trigger`, servido pelo `sim_control_relay`)
-teleporta o robô de volta à pose de nascimento do cenário. Chamado direto por
-`ros2 service call`, sem o cockpit, num quadrúpede que está andando: até
-26/08/2026 ele podia colapsar (a altura caía de 0,337 m para 0,162 m em 1 s) ou
-arrastar-se girando por dezenas de metros perseguindo a orientação de antes do
-reset — os dois defeitos são silenciosos, nada em log ou na resposta do serviço
-acusava.
+`/demo/sim/reset` (`std_srvs/Trigger`, served by `sim_control_relay`) teleports
+the robot back to the scenario's spawn pose. Called directly through
+`ros2 service call`, without the cockpit, on a quadruped that is walking: until
+26/08/2026 it could collapse (height dropped from 0,337 m to 0,162 m in 1 s) or
+drag itself around spinning for dozens of meters chasing the orientation from
+before the reset — both defects are silent, nothing in a log or in the service
+response gave them away.
 
-A causa e a correção estão detalhadas na armadilha 9 do cockpit,
-[aqui](#9-o-reset-derrubava-o-quadrúpede-em-marcha) (`SetEntityPose` preserva
-velocidade; `StateTrotting` reancora sua postura uma única vez). O reset agora para o gait antes de teleportar e o retoma depois —
-por isso, num quadrúpede, a chamada leva alguns segundos a mais do que num
-diff-drive antes de responder. Se o `Trigger` voltar `success=True` mas a
-mensagem mencionar `NAO foi reancorado`, o robô ficou preso em pé sem aceitar
-comando: chame `ros2 service call /demo/gait/resume std_srvs/srv/Trigger`
-manualmente. Esse serviço só existe na planta quadrúpede — no diff-drive a
-mensagem do reset diz `sem /demo/gait/hold (planta sem gait)`, e isso não é
-falha.
+The cause and the fix are detailed in cockpit trap 9,
+[here](#9-reset-knocked-over-the-walking-quadruped) (`SetEntityPose` preserves
+velocity; `StateTrotting` re-anchors its posture only once). The reset now stops
+the gait before teleporting and resumes it afterwards — because of that, on a
+quadruped the call takes a few seconds longer than on a diff-drive before it
+answers. If the `Trigger` returns `success=True` but the message mentions
+`NAO foi reancorado`, the robot got stuck standing without accepting commands:
+call `ros2 service call /demo/gait/resume std_srvs/srv/Trigger` manually. That
+service only exists on the quadruped plant — on the diff-drive the reset message
+says `sem /demo/gait/hold (planta sem gait)`, and that is not a failure.
 
-Evidência: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
+Evidence: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
 
-## 10. O módulo Aquila AM69
+## 10. The Aquila AM69 module
 
-Tudo aqui é `arm64` sobre Torizon OS, e **nada gráfico** (regra 1: o AM69 expõe
-só OpenGL ES 3.2 e Vulkan 1.2, então Gazebo e RViz2 ficam no host x86).
+Everything here is `arm64` on Torizon OS, and **nothing graphical** (rule 1: the
+AM69 exposes only OpenGL ES 3.2 and Vulkan 1.2, so Gazebo and RViz2 stay on the
+x86 host).
 
-A interface é `scripts/module.sh`. Ele resolve os dois endereços em vez de
-adivinhar: `MODULE_IP` por resolução do nome, `HOST_IP` pela **rota até o
-módulo** — pegar o primeiro endereço da primeira interface UP escolheria
-`docker0` ou `tailscale0` no workstation e produziria um peer que ninguém
-alcança.
+The interface is `scripts/module.sh`. It resolves both addresses instead of
+guessing: `MODULE_IP` by name resolution, `HOST_IP` by the **route to the
+module** — taking the first address of the first UP interface would pick
+`docker0` or `tailscale0` on the workstation and produce a peer nobody can
+reach.
 
 ```bash
-scripts/module.sh inventory   # OS, docker, disco, links — antes de qualquer coisa
-scripts/module.sh sync        # fontes + config renderizada para ~/demo no módulo
-scripts/module.sh build       # constrói as imagens arm64 NO módulo
-scripts/module.sh verify      # 3 etapas: UDP, módulo vê host, host recebe módulo
-scripts/module.sh up          # nav + perception (recusa se houver sim no host)
-scripts/module.sh shell       # shell no container tools
+scripts/module.sh inventory   # OS, Docker, disk, links — before anything else
+scripts/module.sh sync        # sources + rendered config to ~/demo on the module
+scripts/module.sh build       # builds the arm64 images ON the module
+scripts/module.sh verify      # 3 stages: UDP, module sees host, host receives module
+scripts/module.sh up          # nav + perception (refuses if sim is active on the host)
+scripts/module.sh shell       # shell in the tools container
 ```
 
-### Por que o build roda no módulo e não sob QEMU
+### Why the build runs on the module and not under QEMU
 
-`CLAUDE.md` documenta `docker buildx --platform linux/arm64` a partir do host, e
-esse caminho é o certo quando houver registry e manifest multi-arch. Para
-bring-up não é:
+`CLAUDE.md` documents `docker buildx --platform linux/arm64` from the host, and
+that path is the right one once there is a registry and a multi-arch manifest.
+For bring-up it is not:
 
-- QEMU arm64 pode nem estar habilitado no workstation (`binfmt_misc` sem handler
-  aarch64, `docker buildx ls` sem `linux/arm64` nas plataformas);
-- o módulo tem 8 × Cortex-A72 e 31 GiB ociosos, e compila `ros2_control` e
-  `unitree_guide_controller` em minutos, não horas;
-- **o workstation é onde os ensaios de marcha rodam.** Eles medem *quando* o robô
-  cai. Um build QEMU satura a CPU e corrompe a medição em vez de só atrasá-la.
+- QEMU arm64 may not even be enabled on the workstation (`binfmt_misc` with no
+  aarch64 handler, `docker buildx ls` without `linux/arm64` in the platforms);
+- the module has 8 × Cortex-A72 and 31 GiB idle, and compiles `ros2_control` and
+  `unitree_guide_controller` in minutes, not hours;
+- **the workstation is where the gait trials run.** They measure *when* the
+  robot falls. A QEMU build saturates the CPU and corrupts the measurement
+  instead of merely delaying it.
 
-O que se perde: imagem local só-arm64, sem manifest multi-arch. E nenhum dos
-dois caminhos mede desempenho (regra 5).
+What is lost: a local arm64-only image, without a multi-arch manifest. And
+neither of the two paths measures performance (rule 5).
 
-### O que vai para o módulo e o que não vai
+### What goes to the module and what does not
 
-`sync` envia `ros2_ws/src`, `docker/entrypoint.sh`, `compose.module.yml` e
-apenas os Dockerfiles de `base`, `nav`, `perception` e `tools`. **`sim/` e
-`viz/` não são enviados** — são OGRE 2. A ausência deles no módulo é parte da
-guarda, junto com a verificação de regra 1 que o `build` roda nas imagens
-prontas (procurando `ogre|gz-rendering|gz-sim|gz-gui|rviz`, e não um `gz`
-genérico: `gz-cmake/math/tools/utils-vendor` entram via `sdformat`, são CPU puro
-e não violam nada).
+`sync` sends `ros2_ws/src`, `docker/entrypoint.sh`, `compose.module.yml` and
+only the Dockerfiles for `base`, `nav`, `perception` and `tools`. **`sim/` and
+`viz/` are not sent** — they are OGRE 2. Their absence on the module is part of
+the guard, together with the rule-1 check that `build` runs on the finished
+images (looking for `ogre|gz-rendering|gz-sim|gz-gui|rviz`, and not a generic
+`gz`: `gz-cmake/math/tools/utils-vendor` come in through `sdformat`, are pure
+CPU and violate nothing).
 
-### Configuração de DDS, renderizada e não commitada
+### DDS configuration, rendered and not committed
 
-Nenhum endereço entra no git. `sync` renderiza
-`docker/cyclonedds/module.xml` — fixa a interface, injeta
-`<Peer address="${HOST_IP}"/>` — e escreve em `~/demo/cyclonedds/module.xml`,
-validando o XML no fim. O peer `127.0.0.1` continua lá e é *load-bearing*: com
-`AllowMulticast=false`, `nav` e `perception` no módulo não se veem entre si sem
-ele.
+No address goes into git. `sync` renders `docker/cyclonedds/module.xml` — pins
+the interface, injects `<Peer address="${HOST_IP}"/>` — and writes it to
+`~/demo/cyclonedds/module.xml`, validating the XML at the end. The `127.0.0.1`
+peer is still there and is *load-bearing*: with `AllowMulticast=false`, `nav` and
+`perception` on the module cannot see each other without it.
 
-Se `ros2 topic list` vier vazio no módulo, confira nesta ordem:
+If `ros2 topic list` comes back empty on the module, check in this order:
 
 ```bash
 ssh torizon@<módulo> 'grep -E "<Peer |<NetworkInterface " ~/demo/cyclonedds/module.xml'
-ssh torizon@<módulo> 'cat ~/demo/.env'          # ROS_DOMAIN_ID igual nos dois lados?
-scripts/module.sh verify                         # etapa 1 separa firewall de DDS
+ssh torizon@<módulo> 'cat ~/demo/.env'          # is ROS_DOMAIN_ID the same on both sides?
+scripts/module.sh verify                         # stage 1 distinguishes firewall from DDS
 ```
 
-### O que ainda falta para o modo `hil` completo
+### What is still missing for full `hil` mode
 
-- O portão funcional passa: TF fecha, Nav2 e percepção arm64 sobem no Aquila e
-  o contrato atravessa a fronteira.
-- O portão de estabilidade ainda depende do enlace físico gigabit e das três
-  corridas de 420/200 s descritas acima. Nenhum número por Wi-Fi fecha F5.
-- `odom_tf` ainda republica ground truth da simulação; portanto HIL não valida
-  localização por pernas nem um Go2 físico.
-
----
+- The functional gate passes: TF closes, arm64 Nav2 and perception come up on
+  the Aquila and the contract crosses the boundary.
+- The stability gate still depends on the physical gigabit link and the three
+  420/200 s runs described above. No number over Wi-Fi closes F5.
+- `odom_tf` still republishes ground truth from the simulation; therefore HIL
+  validates neither leg-based localization nor a physical Go2.
 
 ---
 
-# Parte II: Cockpit web
+---
 
-Como rodar, o que cada região da tela mostra, o que os botões fazem, e o que
-não é possível fazer por eles.
+# Part II: Web cockpit
 
-Este documento é **operacional**. A evidência de bancada (medições, capturas,
-falhas encontradas) está em [`results/cockpit-web-f1.md`](results/cockpit-web-f1.md)
-e [`results/cockpit-web-f3b.md`](results/cockpit-web-f3b.md); as decisões de
-projeto e as fases em [`ml35/plano-cockpit-web.md`](ml35/plano-cockpit-web.md).
+How to run it, what each region of the screen shows, what the buttons do, and
+what is not possible through them.
 
-> **Nada aqui foi executado no Aquila AM69.** Tudo abaixo é o modo `learn`, com
-> todos os containers na workstation x86. O kiosk no módulo é o F2 do plano e
-> continua em aberto.
+This document is **operational**. The bench evidence (measurements, captures,
+failures found) is in [`results/cockpit-web-f1.md`](results/cockpit-web-f1.md)
+and [`results/cockpit-web-f3b.md`](results/cockpit-web-f3b.md); the design
+decisions and the phases are in [`ml35/plano-cockpit-web.md`](ml35/plano-cockpit-web.md).
+
+> **Nothing here was executed on the Aquila AM69.** Everything below is `learn`
+> mode, with all containers on the x86 workstation. The kiosk on the module is
+> F2 of the plan and is still open.
 
 ---
 
-## 1. O que é o cockpit
+## 1. What the cockpit is
 
-Uma página web que mostra o robô e deixa comandá-lo, sem RViz e sem a janela do
-Gazebo. Ela substituiu quatro tentativas de **incorporar janelas X11** numa
-aplicação única — todas falharam, e o checkpoint delas
+A web page that shows the robot and lets you command it, without RViz and
+without the Gazebo window. It replaced four attempts at **embedding X11
+windows** into a single application — all of them failed, and their checkpoint
 ([`results/cockpit-standalone-parcial.md`](results/cockpit-standalone-parcial.md))
-está marcado como superado. **Não retome aquele caminho.**
+is marked as superseded. **Do not resume that path.**
 
-O eixo agora é: renderizar **a partir de tópicos ROS 2**. Isso muda o que é
-possível. RViz e Gazebo são OGRE 2 e precisam de OpenGL de desktop, então nunca
-poderiam ir para o Aquila (regra 1 do `CLAUDE.md` — o AM69 só expõe OpenGL ES
-3.2 e Vulkan 1.2). Um navegador desenhando `nav_msgs/OccupancyGrid` num
-`<canvas>`, não. É por isso que **este cockpit vira o HMI do módulo no M3**, e a
-tentativa anterior não viraria.
+The axis now is: render **from ROS 2 topics**. That changes what is possible.
+RViz and Gazebo are OGRE 2 and need desktop OpenGL, so they could never go to
+the Aquila (rule 1 of `CLAUDE.md` — the AM69 only exposes OpenGL ES 3.2 and
+Vulkan 1.2). A browser drawing `nav_msgs/OccupancyGrid` on a `<canvas>` can. That
+is why **this cockpit becomes the module's HMI in M3**, and the previous attempt
+would not.
 
-Duas peças:
+Two pieces:
 
-| Serviço | O que é | Onde roda hoje | Onde roda no M3 |
+| Service | What it is | Where it runs today | Where it runs in M3 |
 | --- | --- | --- | --- |
 | `cockpit` | `rosbridge_server` + `web_video_server` | host | Aquila |
-| `hmi` | nginx servindo o bundle de `hmi/` | host | Aquila |
+| `hmi` | nginx serving the `hmi/` bundle | host | Aquila |
 
-O bundle é HTML/CSS/ES modules **sem etapa de build** — sem npm, sem bundler,
-sem `node_modules`. Editar um arquivo e recarregar a página é o ciclo inteiro.
-Isso é decisão de projeto (Decisão 5 do plano): a cadeia npm é justamente o que
-não deve viajar para o módulo.
+The bundle is HTML/CSS/ES modules **with no build step** — no npm, no bundler,
+no `node_modules`. Editing a file and reloading the page is the whole cycle.
+That is a design decision (Decision 5 of the plan): the npm chain is precisely
+what must not travel to the module.
 
 ---
 
-## 2. Rodar
+## 2. Running it
 
-### Pré-requisitos
+### Prerequisites
 
-Uma vez por máquina:
+Once per machine:
 
 ```bash
 cd docker
-cp .env.example .env      # e edite MAZE_MODELS, se for usar o labirinto
+cp .env.example .env      # edit MAZE_MODELS if you will use the maze
 ```
 
-### Subir
+### Bringing it up
 
 ```bash
 cd docker
 docker compose -f compose.host.yml --profile learn up -d --build
 ```
 
-Isso sobe cinco serviços: `sim` (Gazebo + robô + pontes), `nav` (Nav2),
-`perception` (stub de detecção), `cockpit` (rosbridge + vídeo) e `hmi` (nginx).
+This brings up five services: `sim` (Gazebo + robot + bridges), `nav` (Nav2),
+`perception` (detection stub), `cockpit` (rosbridge + video) and `hmi` (nginx).
 
-**Abra <http://localhost:8081>.**
+**Open <http://localhost:8081>.**
 
-O Nav2 leva ~30 s para ficar pronto. A página pode ser aberta antes: os painéis
-sobem vazios e se preenchem sozinhos, e o ponto de frescor de cada um diz se
-aquele tópico já chegou. É de propósito — um cockpit que trava até tudo estar
-pronto não mostra o que está faltando.
+Nav2 takes ~30 s to become ready. The page can be opened before that: the panels
+come up empty and fill in on their own, and each one's freshness dot says
+whether that topic has arrived yet. This is on purpose — a cockpit that hangs
+until everything is ready does not show what is missing.
 
-### Portas
+### Ports
 
-Todos os containers usam `network_mode: host`, então **nada aqui é mapeamento de
-porta**: os números abaixo abrem direto na workstation. Se colidirem com algo
-que você já roda (8080 é popular), troque em `docker/.env`.
+All containers use `network_mode: host`, so **nothing here is a port mapping**:
+the numbers below open directly on the workstation. If they collide with
+something you already run (8080 is popular), change them in `docker/.env`.
 
-| Variável | Padrão | Serve |
+| Variable | Default | Serves |
 | --- | --- | --- |
-| `COCKPIT_HMI_PORT` | 8081 | a página — **é esta que você abre** |
-| `COCKPIT_ROSBRIDGE_PORT` | 9090 | WebSocket que o navegador consome |
-| `COCKPIT_VIDEO_PORT` | 8080 | MJPEG das câmeras |
+| `COCKPIT_HMI_PORT` | 8081 | the page — **this is the one you open** |
+| `COCKPIT_ROSBRIDGE_PORT` | 9090 | WebSocket the browser consumes |
+| `COCKPIT_VIDEO_PORT` | 8080 | camera MJPEG |
 
-### Derrubar
+### Tearing it down
 
 ```bash
 docker compose -f compose.host.yml --profile learn down
 ```
 
-### Editar o bundle
+### Editing the bundle
 
-Mudança em `hmi/` (HTML, CSS, JS) não precisa de `colcon`, mas precisa de
-rebuild da imagem, porque o nginx serve uma cópia:
+A change in `hmi/` (HTML, CSS, JS) does not need `colcon`, but does need an
+image rebuild, because nginx serves a copy:
 
 ```bash
 cd <raiz do repo>
@@ -1240,283 +1262,293 @@ DOCKER_BUILDKIT=0 docker build -f docker/hmi/Dockerfile -t local/demo-aquila-hmi
 cd docker && docker compose -f compose.host.yml up -d --no-build --force-recreate hmi
 ```
 
-Antes de recarregar, rode os testes do bundle — eles não precisam de ROS nem de
+Before reloading, run the bundle's tests — they need neither ROS nor a
 container:
 
 ```bash
 cd hmi && node --test "test/**/*.test.js"
 ```
 
-As **aspas no glob são obrigatórias**: sem elas o shell expande, o `node --test`
-recebe um diretório, resolve para nada e sai com código 0 — verde sem ter
-rodado teste nenhum.
+The **quotes around the glob are mandatory**: without them the shell expands it,
+`node --test` receives a directory, resolves to nothing and exits with code 0 —
+green without having run a single test.
 
 ---
 
-## 3. A tela
+## 3. The screen
 
-Cinco regiões, na disposição de [`ml35/cockpit-division-view.png`](ml35/cockpit-division-view.png):
+Five regions, in the layout of [`ml35/cockpit-division-view.png`](ml35/cockpit-division-view.png):
 
 ```
 +---------------------------+--------+
-|          CENA             |  NAV   |
+|          SCENE            |  NAV   |
 +---------------------------+--------+
-|          LOGS             | CÂMERA |
+|          LOGS             | CAMERA |
 +---------------------------+--------+
-|          BARRA DE CONTROLE         |
+|             CONTROL BAR            |
 +------------------------------------+
 ```
 
-| Região | Fonte | Responde a que pergunta |
+| Region | Source | Answers which question |
 | --- | --- | --- |
-| **Cena** | `/demo/cockpit/scene_{iso,top}/image_raw` | o robô se mexeu? |
-| **Navegação** | `/global_costmap/costmap`, `/plan`, `/demo/scan`, TF | ele sabe para onde ir? |
-| **Logs** | `/rosout` + telemetria de `/demo/cmd_vel` e `/demo/odom` | o que ele está tentando fazer? |
-| **Câmera** | `/demo/camera/image_raw` | o que ele está vendo? |
-| **Barra** | estado do WebSocket | o cockpit ainda está falando com o robô? |
+| **Scene** | `/demo/cockpit/scene_{iso,top}/image_raw` | did the robot move? |
+| **Navigation** | `/global_costmap/costmap`, `/plan`, `/demo/scan`, TF | does it know where to go? |
+| **Logs** | `/rosout` + telemetry from `/demo/cmd_vel` and `/demo/odom` | what is it trying to do? |
+| **Camera** | `/demo/camera/image_raw` | what is it seeing? |
+| **Bar** | WebSocket state | is the cockpit still talking to the robot? |
 
-### O painel de Cena é o mais importante e é o menos óbvio
+### The Scene panel is the most important and the least obvious
 
-São **duas câmeras estáticas do mundo** — não do robô — alternadas pelos botões
-`iso` / `topo` no cabeçalho. Elas existem porque respondem "o robô se mexeu?"
-sem depender de nenhum nó do stack: se o Nav2, a TF e a odometria mentirem
-juntos, esta imagem continua honesta. É a testemunha independente da tela.
+They are **two static world cameras** — not robot cameras — switched by the
+`iso` / `topo` buttons in the header. They exist because they answer "did the
+robot move?" without depending on any node of the stack: if Nav2, TF and
+odometry all lie together, this image stays honest. It is the screen's
+independent witness.
 
-### O ponto de frescor
+### The freshness dot
 
-Cada painel tem uma bolinha no canto do cabeçalho, com três estados que **não
-são a mesma coisa**:
+Each panel has a small dot in the corner of its header, with three states that
+are **not the same thing**:
 
-| Cor | Estado | Significa |
+| Color | State | Means |
 | --- | --- | --- |
-| cinza | `never` | esse tópico nunca produziu nada desde que a página abriu |
-| verde | `live` | chegou amostra dentro da janela daquele painel |
-| laranja | `stale` | chegou antes e **parou** |
+| gray | `never` | that topic has never produced anything since the page opened |
+| green | `live` | a sample arrived within that panel's window |
+| orange | `stale` | it arrived earlier and **stopped** |
 
-`stale` é o que pega um simulador morto, e por isso não pode parecer `never`.
+`stale` is what catches a dead simulator, and that is why it cannot look like
+`never`.
 
-### Cores
+### Colors
 
-A paleta é a identidade Toradex: fundo branco, azul `#00508c`, verde `#96c837`,
-laranja `#ff5a00`. O **vermelho de falha (`#c0261b`) não é da marca, de
-propósito**: "parado há tempo demais" e "morto" precisam parecer coisas
-diferentes através da sala, e usar laranja nos dois faria o pior caso
-desaparecer dentro do caso comum.
+The palette is the Toradex identity: white background, blue `#00508c`, green
+`#96c837`, orange `#ff5a00`. The **failure red (`#c0261b`) is deliberately not a
+brand color**: "stalled for too long" and "dead" have to look like different
+things from across the room, and using orange for both would make the worst case
+disappear inside the common case.
 
-No mapa, a mesma lógica: azul é o plano global, verde é o robô, laranja é
-obstáculo, e a meta é violeta — uma cor que **não** é da marca, justamente para
-não poder ser confundida com um estado.
+On the map, the same logic: blue is the global plan, green is the robot, orange
+is an obstacle, and the goal is violet — a color that is **not** a brand color,
+precisely so it cannot be confused with a state.
 
-Cor de canvas não existe em JavaScript. `hmi/js/panels/palette.js` lê os tokens
-`--map-*` de `hmi/css/tokens.css` uma vez, na montagem. Mudar tema é mexer num
-arquivo.
+Canvas color does not exist in JavaScript. `hmi/js/panels/palette.js` reads the
+`--map-*` tokens from `hmi/css/tokens.css` once, at mount time. Changing theme
+means touching one file.
 
 ---
 
-## 4. Os controles
+## 4. The controls
 
-### Clicar no mapa manda meta
+### Clicking on the map sends a goal
 
-Clique no painel verde. Vai um `NavigateToPose` para o Nav2, e o HUD no rodapé
-do painel passa a mostrar o estado (`navegando · 5,04 m restantes`), incluindo a
-contagem de recuperações. Um botão **cancelar meta** aparece no cabeçalho
-enquanto há meta ativa.
+Click on the green panel. A `NavigateToPose` goes to Nav2, and the HUD at the
+bottom of the panel starts showing the state (`navegando · 5,04 m restantes`),
+including the recovery count. A **cancelar meta** button appears in the header
+while a goal is active.
 
-Clique perto demais do robô (< 0,25 m) é tratado como engano e ignorado.
+A click too close to the robot (< 0,25 m) is treated as a mistake and ignored.
 
-**Durante uma busca autônoma o clique não manda nada** — veja a seção seguinte.
+**During an autonomous search the click sends nothing** — see the next section.
 
-### Busca autônoma: iniciar e cancelar
+### Autonomous search: start and cancel
 
-Dois botões no cabeçalho do painel verde, `iniciar busca` e `cancelar busca`.
-Chamam `/demo/exploration/{start,cancel}` (`std_srvs/Trigger`), servidos pelo
-`maze_explorer`, que roda **junto com o Nav2** — no Aquila, no modo `hil`.
+Two buttons in the green panel's header, `iniciar busca` and `cancelar busca`.
+They call `/demo/exploration/{start,cancel}` (`std_srvs/Trigger`), served by
+`maze_explorer`, which runs **alongside Nav2** — on the Aquila, in `hil` mode.
 
-O que ele faz sem nenhuma ajuda: parte sem mapa prévio, extrai fronteiras do
-mapa vivo do `slam_toolbox`, navega até a melhor delas, e quando a percepção
-reconhece o painel magenta da saída, cancela a fronteira e se aproxima em passos
-de 0,5 m. Ele **não** conhece o labirinto: não há waypoint, não há coordenada da
-saída, e há teste garantindo que o código não menciona nenhuma.
+What it does with no help at all: it starts without a prior map, extracts
+frontiers from `slam_toolbox`'s live map, navigates to the best one, and when
+perception recognizes the exit's magenta panel, it cancels the frontier and
+approaches in 0,5 m steps. It does **not** know the maze: there is no waypoint,
+no exit coordinate, and there is a test making sure the code mentions none.
 
-O HUD passa a mostrar o estado da busca no lugar do estado da meta:
+The HUD then shows the search state in place of the goal state:
 
-| Estado | Significa |
+| State | Means |
 |---|---|
-| `waiting_map` | esperando mapa, TF e os servidores do Nav2 |
-| `selecting` | avaliando candidatos com o planner `ExplorationGrid` |
-| `navigating` | indo para uma fronteira |
-| `homing_exit` | vendo o marcador e se aproximando dele |
-| `completed` | chegou ao marcador |
-| `failed` | prazo total (600 s) ou falha declarada |
-| `cancelled` | o operador parou |
+| `waiting_map` | waiting for map, TF and the Nav2 servers |
+| `selecting` | evaluating candidates with the `ExplorationGrid` planner |
+| `navigating` | heading to a frontier |
+| `homing_exit` | seeing the marker and approaching it |
+| `completed` | reached the marker |
+| `failed` | total deadline (600 s) or a declared failure |
+| `cancelled` | the operator stopped it |
 
-Junto vão o tempo decorrido, quantas fronteiras existem, `saída detectada`
-quando a percepção está vendo o painel, e a última mensagem de falha.
+Along with it go the elapsed time, how many frontiers exist, `saída detectada`
+when perception is seeing the panel, and the last failure message.
 
-Três coisas que parecem detalhe e não são:
+Three things that look like details and are not:
 
-- **O clique no mapa fica desabilitado enquanto a busca corre.** Duas fontes de
-  meta no mesmo `navigate_to_pose` se preemptam sem erro nenhum no log — é a
-  mesma classe de falha dos dois publicadores em `/demo/cmd_vel`.
-- **`iniciar busca` recusa a segunda chamada** enquanto uma está em andamento, e
-  a recusa aparece no HUD.
-- **`reiniciar nav` cancela a busca antes** de ciclar a pilha. Sem isso o
-  explorador mandaria uma meta nova no meio do ciclo de reset.
+- **The click on the map is disabled while the search runs.** Two goal sources
+  on the same `navigate_to_pose` preempt each other with no error at all in the
+  log — it is the same class of failure as the two publishers on
+  `/demo/cmd_vel`.
+- **`iniciar busca` refuses the second call** while one is in progress, and the
+  refusal shows up in the HUD.
+- **`reiniciar nav` cancels the search first** before cycling the stack. Without
+  that the explorer would send a new goal in the middle of the reset cycle.
 
-### `SAÍDA CONFIRMADA` não vem do explorador
+### `SAÍDA CONFIRMADA` does not come from the explorer
 
-O rótulo só aparece quando `/demo/maze/escaped` é `true`, e quem publica isso é
-o `maze_escape_validator`, **do lado da simulação**, olhando a odometria ground
-truth: ele exige o cruzamento da abertura *e* o robô inteiro do lado de fora.
+The label only appears when `/demo/maze/escaped` is `true`, and what publishes
+that is `maze_escape_validator`, **on the simulation side**, looking at ground
+truth odometry: it requires crossing the opening *and* the whole robot being
+outside.
 
-O explorador não assina esse tópico. Ele é o árbitro da demonstração, não uma
-entrada dela — `state: completed` diz apenas que o robô chegou perto do painel,
-o que não é a mesma coisa que ter saído.
+The explorer does not subscribe to that topic. It is the demonstration's
+arbiter, not an input to it — `state: completed` only says the robot got close
+to the panel, which is not the same as having exited.
 
-### Simulação: ▶ ⏸ ⟲
+### Simulation: ▶ ⏸ ⟲
 
-Na barra. Chamam `/demo/sim/{play,pause,reset}` (`std_srvs/Trigger`).
+In the bar. They call `/demo/sim/{play,pause,reset}` (`std_srvs/Trigger`).
 
-O **reset exige dois cliques**: o primeiro arma o botão (ele vira `confirmar` em
-laranja por 4 s), o segundo executa. Ele devolve o robô à pose inicial. **Não**
-apaga o costmap — quem limpa o costmap é [reiniciar a navegação](#reiniciar-a-navegação),
-botão separado, de propósito: repor o robô sem derrubar o que o Nav2 já sabe do
-mundo é o que permite os dois em sequência sem perder trabalho.
+The **reset requires two clicks**: the first arms the button (it turns into
+`confirmar` in orange for 4 s), the second executes. It returns the robot to its
+initial pose. It does **not** clear the costmap — what clears the costmap is
+[restarting navigation](#restarting-navigation), a separate button, on purpose:
+putting the robot back without discarding what Nav2 already knows about the
+world is what allows the two in sequence without losing work.
 
-No cenário quadrúpede o clique leva alguns segundos a mais do que no
-diff-drive, e isso é esperado: o robô é **parado** antes de ser reposicionado e
-só volta a andar depois — ver a [armadilha 9](#9-o-reset-derrubava-o-quadrúpede-em-marcha).
+In the quadruped scenario the click takes a few seconds longer than in the
+diff-drive, and that is expected: the robot is **stopped** before being
+repositioned and only walks again afterwards — see
+[trap 9](#9-reset-knocked-over-the-walking-quadruped).
 
-O rótulo ao lado (`rodando` / `pausado` / `sem simulador`) **não é o eco do
-último clique**: ele vem do `/clock`. Um eco mentiria em todos os casos que
-importam — container `sim` morto, chamada expirada, pausa feita pela GUI do
-Gazebo, mundo resetado por outra pessoa. Se o botão diz uma coisa e o rótulo
-diz outra, **o rótulo está certo**.
+The label next to it (`rodando` / `pausado` / `sem simulador`) is **not the echo
+of the last click**: it comes from `/clock`. An echo would lie in every case that
+matters — dead `sim` container, expired call, a pause done in the Gazebo GUI, a
+world reset by somebody else. If the button says one thing and the label says
+another, **the label is right**.
 
-A diferença entre `pausado` e `sem simulador` é a que custa: amostras chegando
-com o mesmo tempo simulado é pausa; amostras **parando** é ausência.
+The difference between `pausado` and `sem simulador` is the one that costs:
+samples arriving with the same simulated time is a pause; samples **stopping** is
+absence.
 
-### Câmera de cena: o pad sobre a imagem
+### Scene camera: the pad over the image
 
-Canto inferior direito do painel azul. Três fileiras:
+Bottom-right corner of the blue panel. Three rows:
 
 ```
- ↺  ▲  ▼  ↻      girar e inclinar
- ◀  △  ▽  ▶      mover
- +  −  recentrar  aproximar / afastar / voltar ao enquadramento inicial
- seguir robô      liga/desliga o acompanhamento (vale para as DUAS vistas)
+ ↺  ▲  ▼  ↻      rotate and tilt
+ ◀  △  ▽  ▶      move
+ +  −  recenter   zoom in / zoom out / return to the initial framing
+ follow robot     enable/disable following (applies to BOTH views)
 ```
 
-Segurar o botão repete. Os comandos agem sobre **a câmera que está na tela** —
-trocar entre `iso` e `topo` troca o alvo junto. O `seguir robô` é a exceção: ele
-vale para as duas de uma vez, porque o que ele muda é o **alvo da órbita**, e não
-há versão disso que faça sentido para uma câmera só.
+Holding a button repeats it. The commands act on **the camera that is on
+screen** — switching between `iso` and `topo` switches the target with it.
+`seguir robô` is the exception: it applies to both at once, because what it
+changes is the **orbit target**, and there is no version of that which makes
+sense for a single camera.
 
-O navegador publica **deltas** em `/demo/cockpit/scene/cmd_view`
-(`geometry_msgs/TwistStamped`, com o `header.frame_id` escolhendo a câmera). Quem
-guarda a órbita, satura os limites e escreve a pose no Gazebo é o nó
-`scene_view_controller`. Por isso recarregar a página **não** mexe no
-enquadramento, e dois cockpits abertos não brigam pela pose.
+The browser publishes **deltas** on `/demo/cockpit/scene/cmd_view`
+(`geometry_msgs/TwistStamped`, with `header.frame_id` choosing the camera). What
+keeps the orbit, saturates the limits and writes the pose into Gazebo is the
+`scene_view_controller` node. That is why reloading the page does **not** disturb
+the framing, and two open cockpits do not fight over the pose.
 
-### Seguir o robô
+### Following the robot
 
-Ligado por default. As duas câmeras acompanham `/demo/odom` a 10 Hz, e o que se
-move é só o **alvo** da órbita — azimute, elevação e distância ficam onde
-estavam. Consequência prática: o enquadramento medido do armazém (a diagonal de
-`(-3, +3, 2,4)` na iso, os 6 m de altura na topo) continua valendo enquanto o
-robô caminha, em vez de o robô sair do quadro em quinze segundos.
+On by default. Both cameras follow `/demo/odom` at 10 Hz, and what moves is only
+the orbit's **target** — azimuth, elevation and distance stay where they were.
+Practical consequence: the measured warehouse framing (the `(-3, +3, 2,4)`
+diagonal on the iso view, the 6 m height on the top view) keeps holding while the
+robot walks, instead of the robot leaving the frame in fifteen seconds.
 
-Os botões de mover (`◀ △ ▽ ▶`) continuam úteis com o seguimento ligado: com ele
-ligado o pan vira um **deslocamento relativo ao robô**, saturado em 15 m, e não
-um ponto fixo do mundo. Serve para olhar o robô de lado, ou um pouco à frente
-dele, sem perder o acompanhamento. `recentrar` zera esse deslocamento junto com
-o resto.
+The move buttons (`◀ △ ▽ ▶`) stay useful with following on: with it on, the pan
+becomes an **offset relative to the robot**, saturated at 15 m, and not a fixed
+world point. It serves for looking at the robot from the side, or a little ahead
+of it, without losing the follow. `recentrar` zeroes that offset along with the
+rest.
 
-O estado do botão vem de `/demo/cockpit/scene/following`
-(`std_msgs/Bool`, latched), publicado pelo nó, e **não do próprio clique** — o
-mesmo raciocínio do rótulo de simulação, e pelos mesmos três casos: F5, segundo
-cockpit aberto, e alguém que desligou o seguimento por `ros2 service call`.
+The button's state comes from `/demo/cockpit/scene/following`
+(`std_msgs/Bool`, latched), published by the node, and **not from the click
+itself** — the same reasoning as the simulation label, and for the same three
+cases: F5, a second cockpit open, and someone who turned following off through
+`ros2 service call`.
 
-Desligar (`follow:=false` no launch, ou o botão) devolve a vista larga do
-cenário, que é o que se quer para conferir o mundo inteiro ou para comparar com
-um enquadramento anterior.
+Turning it off (`follow:=false` in the launch, or the button) gives back the
+wide view of the scenario, which is what you want to inspect the whole world or
+to compare with an earlier framing.
 
-### Reiniciar a navegação
+### Restarting navigation
 
-**reiniciar nav**, no cabeçalho do painel verde. Chama `/demo/nav/reset`
-(`std_srvs/Trigger`), servido pelo `nav_control_relay` **dentro do container que
-roda o Nav2** — no `hil` isso é o Aquila.
+**reiniciar nav**, in the green panel's header. It calls `/demo/nav/reset`
+(`std_srvs/Trigger`), served by `nav_control_relay` **inside the container that
+runs Nav2** — in `hil` that is the Aquila.
 
-Como o reset da simulação, **exige dois cliques** (o primeiro arma por 4 s). Não
-por simetria: ele descarta a meta em andamento, e um clique por engano no meio de
-uma demo custa a demo.
+Like the simulation reset, it **requires two clicks** (the first arms it for
+4 s). Not for symmetry: it discards the goal in progress, and one accidental
+click in the middle of a demo costs the demo.
 
-A sequência, na ordem, e cada passo existe:
+The sequence, in order, and every step exists for a reason:
 
-1. `CancelGoal` em `/navigate_to_pose` com `goal_info` zerado — cancela **todas**
-   as metas, inclusive a que o cockpit não sabe que existe (mandada pelo
-   `patrol_commander`, ou por outra aba);
-2. `ClearEntireCostmap` no global e no local, **com os servidores ainda ativos**
-   — um nó desativado não responde serviço, então limpar depois de pausar não
-   limparia nada e não daria erro;
-3. `PAUSE` no `lifecycle_manager_navigation`;
+1. `CancelGoal` on `/navigate_to_pose` with `goal_info` zeroed — cancels **all**
+   goals, including the one the cockpit does not know exists (sent by
+   `patrol_commander`, or by another tab);
+2. `ClearEntireCostmap` on the global and the local one, **with the servers
+   still active** — a deactivated node does not answer services, so clearing
+   after pausing would clear nothing and raise no error;
+3. `PAUSE` on `lifecycle_manager_navigation`;
 4. `RESUME`.
 
-Medido em 6,6 s no host. A meta interrompida termina `CANCELED`, os servidores
-voltam `active [3]`, e uma meta nova é aceita em seguida.
+Measured at 6,6 s on the host. The interrupted goal ends `CANCELED`, the servers
+come back `active [3]`, and a new goal is accepted right afterwards.
 
-O HUD do painel mostra `reiniciando…` durante a sequência e `reiniciado` no fim.
-Sem timeout do lado do navegador: quem tem o timeout é o nó (60 s por transição),
-e fechar a aba no meio **não** interrompe o reset.
+The panel's HUD shows `reiniciando…` during the sequence and `reiniciado` at the
+end. No timeout on the browser side: the one with the timeout is the node (60 s
+per transition), and closing the tab in the middle does **not** interrupt the
+reset.
 
-**Por que não `RESET` + `STARTUP`**, que é o caminho óbvio: ele derruba o
-container. Ver a armadilha 8.
+**Why not `RESET` + `STARTUP`**, which is the obvious path: it takes the
+container down. See trap 8.
 
-A localização **não** é tocada. `lifecycle_manager_localization` fica fora da
-sequência de propósito: no caminho de mapa estático, reciclar o AMCL joga a pose
-fora e o robô "se perde" num reset que era só para descartar a meta.
+Localization is **not** touched. `lifecycle_manager_localization` is left out of
+the sequence on purpose: on the static map path, recycling AMCL throws the pose
+away and the robot "gets lost" in a reset that was only meant to discard the
+goal.
 
-### Controle manual: desligado de propósito
+### Manual control: deliberately disabled
 
-As setas e o E-STOP da barra estão desenhados, alcançáveis por teclado, e
-**inertes**, com o motivo no `title`. Hoje o Nav2 é o único publicador em
-`/demo/cmd_vel`; um botão de teleop publicando ali daria dois escritores não
-arbitrados no mesmo tópico — o último a escrever ganha, e nenhum dos dois sabe
-que perdeu. Fecha no **F4**, com `twist_mux`, não com um mux escrito à mão no
-navegador.
-
----
-
-## 5. O que NÃO dá para fazer
-
-### Rodar a simulação no Aquila
-
-Não é limitação de implementação, é a regra 1 do `CLAUDE.md`: o Gazebo é OGRE 2
-e precisa de OpenGL de desktop; o AM69 expõe apenas OpenGL ES 3.2 e Vulkan 1.2.
-**Nenhuma quantidade de código na UI muda isso.**
-
-O que existe é **controlar a simulação a partir do cockpit**. No M3, com o
-cockpit servido pelo Aquila, o clique sai do módulo e a chamada de serviço
-atravessa o grafo ROS — exatamente como a meta do Nav2 já atravessa hoje. O
-processo do simulador continua na workstation x86.
-
-Se a distinção parecer sutil na hora da demo: o que está na tela do módulo é
-uma **imagem** vinda do host, e um **botão** que fala com o host.
-
-### Chamar serviço com tipo do Gazebo pelo navegador
-
-Também não é limitação temporária. O `rosbridge` monta o pedido importando o
-pacote de interfaces **dentro do próprio container**, e o container `cockpit`
-não tem `ros_gz_interfaces` — nem deve ter, porque no M3 ele roda no Aquila e no
-modo `deploy` não existe Gazebo nenhum. Ver a armadilha 2 na
-[seção 9](#9-as-armadilhas-do-cockpit-que-já-custaram-tempo).
+The bar's arrows and E-STOP are drawn, keyboard reachable, and **inert**, with
+the reason in the `title`. Today Nav2 is the only publisher on `/demo/cmd_vel`;
+a teleop button publishing there would give two unarbitrated writers on the same
+topic — last writer wins, and neither of them knows it lost. It closes in **F4**,
+with `twist_mux`, not with a mux hand-written in the browser.
 
 ---
 
-## 6. Trocar de cenário
+## 5. What you CANNOT do
 
-O mundo padrão é o armazém do `nav2_minimal_tb4_sim`. Para o labirinto de 11,6 ×
-11,6 m, duas variáveis de ambiente (em `docker/.env` ou exportadas antes do
+### Run the simulation on the Aquila
+
+It is not an implementation limitation, it is rule 1 of `CLAUDE.md`: Gazebo is
+OGRE 2 and needs desktop OpenGL; the AM69 exposes only OpenGL ES 3.2 and
+Vulkan 1.2. **No amount of UI code changes that.**
+
+What does exist is **controlling the simulation from the cockpit**. In M3, with
+the cockpit served by the Aquila, the click leaves the module and the service
+call crosses the ROS graph — exactly as the Nav2 goal already crosses it today.
+The simulator process stays on the x86 workstation.
+
+If the distinction feels subtle at demo time: what is on the module's screen is
+an **image** coming from the host, and a **button** that talks to the host.
+
+### Call a service with a Gazebo type from the browser
+
+Also not a temporary limitation. `rosbridge` assembles the request by importing
+the interfaces package **inside its own container**, and the `cockpit` container
+does not have `ros_gz_interfaces` — nor should it, because in M3 it runs on the
+Aquila and in `deploy` mode there is no Gazebo at all. See trap 2 in
+[section 9](#9-the-cockpit-traps-that-have-already-cost-time).
+
+---
+
+## 6. Switching scenario
+
+The default world is the `nav2_minimal_tb4_sim` warehouse. For the 11,6 ×
+11,6 m maze, two environment variables (in `docker/.env` or exported before the
 `up`):
 
 ```bash
@@ -1531,478 +1563,490 @@ export SIM_ARGS="world:=/ws/install/demo_simulation/share/demo_simulation/worlds
 docker compose -f compose.host.yml up -d --force-recreate sim
 ```
 
-O que cada grupo faz:
+What each group does:
 
-- **`MAZE_MODELS`** — o `sim` monta esse diretório em `/maze/models` e aponta
-  `GZ_SIM_RESOURCE_PATH` para lá. **Sem ele o mundo carrega e o labirinto
-  simplesmente não está lá** — sem erro nenhum. Os modelos vêm de
-  `github.com/cafemesa/ros_maze_worlds` e nenhum asset externo é copiado para o
-  repositório.
-- **`yaw:=1.5708`** — o canto de partida do labirinto tem parede no `+x`
-  default; sem girar, o robô nasce de cara na parede.
-- **`scene_*`** — enquadramento das duas câmeras de cena. Os valores acima foram
-  **medidos**, não escolhidos: são os que pegam o labirinto inteiro
-  (`scene_top`) e uma diagonal legível (`scene_iso`).
+- **`MAZE_MODELS`** — `sim` mounts that directory at `/maze/models` and points
+  `GZ_SIM_RESOURCE_PATH` there. **Without it the world loads and the maze simply
+  is not there** — with no error at all. The models come from
+  `github.com/cafemesa/ros_maze_worlds` and no external asset is copied into the
+  repository.
+- **`yaw:=1.5708`** — the maze's starting corner has a wall at the default `+x`;
+  without rotating, the robot spawns facing the wall.
+- **`scene_*`** — framing of the two scene cameras. The values above were
+  **measured**, not chosen: they are the ones that capture the whole maze
+  (`scene_top`) and a legible diagonal (`scene_iso`).
 
-`SIM_ARGS` é livre e passa direto para `sim.launch.py`. É onde mora tudo que é
-do **cenário** e não do **modo**. Vazio = armazém.
+`SIM_ARGS` is free-form and is passed straight to `sim.launch.py`. It is where
+everything that belongs to the **scenario** and not to the **mode** lives. Empty
+= warehouse.
 
-### Por que as câmeras de cena são modelos e não estão nos mundos
+### Why the scene cameras are models and are not in the worlds
 
-Duas razões que só aparecem depois:
+Two reasons that only show up later:
 
-1. o mundo default é de terceiros e **não é editável** — e é ele que sobe quando
-   ninguém passa `world:=`;
-2. pendurar a câmera no `go2_description` vendorizado quebraria a **garantia
-   byte a byte** que sustenta o argumento de licença.
+1. the default world is third-party and **not editable** — and it is the one
+   that comes up when nobody passes `world:=`;
+2. hanging the camera off the vendored `go2_description` would break the
+   **byte-for-byte guarantee** that underpins the licensing argument.
 
-Por isso elas são modelos spawnáveis
-(`demo_simulation/models/cockpit_scene_{iso,top}.sdf`), plantados em qualquer
-mundo por `scene_cameras.launch.py`.
+That is why they are spawnable models
+(`demo_simulation/models/cockpit_scene_{iso,top}.sdf`), planted into any world by
+`scene_cameras.launch.py`.
 
 ---
 
-## 7. Ajustar qualidade de imagem
+## 7. Tuning image quality
 
-Padrão atual: **1600 × 1200 a 10 Hz**, anti-aliasing 8, JPEG de qualidade 95.
+Current default: **1600 × 1200 at 10 Hz**, anti-aliasing 8, JPEG quality 95.
 
-**A taxa é 10 e não 15 por medição.** As duas câmeras renderizam no mesmo
-processo do Gazebo, e nesta resolução a workstation não entrega 15 Hz de
-qualquer forma. Medido na bancada, mesmo mundo (`maze11`), janela de 10 s:
+**The rate is 10 and not 15 because of measurement.** Both cameras render in the
+same Gazebo process, and at this resolution the workstation does not deliver
+15 Hz anyway. Measured on the bench, same world (`maze11`), 10 s window:
 
-| `update_rate` | entregue no tópico | fator de tempo real |
+| `update_rate` | delivered on the topic | real-time factor |
 | --- | --- | --- |
 | 15 | 9,43 Hz | **0,59** |
 | 10 | 9,77 Hz | **0,97** |
 
-Pedir 15 não rendia um quadro a mais e custava 40% da velocidade da simulação —
-o que estica cada meta do Nav2 na mesma proporção.
+Asking for 15 did not yield a single extra frame and cost 40% of the
+simulation's speed — which stretches every Nav2 goal in the same proportion.
 
-**Se precisar economizar, mexa nesta ordem:**
+**If you need to economize, change things in this order:**
 
-1. **qualidade JPEG**, em `hmi/js/config.js` (`STREAM_QUALITY`). Degrada
-   suavemente e não muda nada do lado do ROS. É o primeiro lugar a mexer se o
-   gargalo for **banda** — modo `hil`, stream atravessando a Ethernet até o
-   Aquila.
-2. **`update_rate`** nos dois SDF, se o gargalo for **render**.
-3. **resolução**, por último. Ela desloca o enquadramento em pixels; e a
-   **proporção 4:3 não pode mudar** — o `horizontal_fov` e as poses das duas
-   câmeras foram medidos nela, e ir para 16:9 mantendo o hfov corta vertical e
-   desenquadra as duas cenas de uma vez, sem erro nenhum.
+1. **JPEG quality**, in `hmi/js/config.js` (`STREAM_QUALITY`). It degrades
+   smoothly and changes nothing on the ROS side. It is the first place to touch
+   if the bottleneck is **bandwidth** — `hil` mode, the stream crossing Ethernet
+   to the Aquila.
+2. **`update_rate`** in both SDFs, if the bottleneck is **rendering**.
+3. **resolution**, last. It shifts the framing in pixels; and the **4:3 aspect
+   ratio cannot change** — the `horizontal_fov` and the poses of the two cameras
+   were measured at it, and going to 16:9 while keeping the hfov crops vertically
+   and throws both scenes out of frame at once, with no error at all.
 
-Qualquer mudança nos SDF exige rebuild de `base` **e** de `sim` (o workspace é
-compilado em `base`), e o cache do Docker mente aqui — ver armadilha 4.
+Any change to the SDFs requires rebuilding `base` **and** `sim` (the workspace is
+compiled in `base`), and the Docker cache lies here — see trap 4.
 
-### Para medir o fator de tempo real
+### To measure the real-time factor
 
 ```bash
 docker compose -f compose.host.yml exec -T sim bash -lc 'source /ws/install/setup.bash
   ros2 topic echo --once /clock; sleep 10; ros2 topic echo --once /clock'
 ```
 
-Divida o avanço do tempo simulado pelos 10 s de parede.
+Divide the advance in simulated time by the 10 s of wall time.
 
 ---
 
-## 8. Diagnóstico do cockpit
+## 8. Cockpit diagnostics
 
-O cockpit foi feito para responder sozinho "esse tópico está chegando?" — é para
-isso que o nome do tópico está impresso em cada cabeçalho e que existe o ponto de
-frescor. Quando não bastar:
+The cockpit was built to answer "is this topic arriving?" on its own — that is
+what the topic name printed in each header and the freshness dot are for. When
+that is not enough:
 
 ```bash
 cd docker
 
-# A página existe?
+# Does the page exist?
 curl -o /dev/null -w '%{http_code}\n' localhost:8081/
 
-# O rosbridge subiu?
+# Did rosbridge start?
 docker compose -f compose.host.yml logs cockpit | grep -i rosbridge
 
-# As câmeras de cena estão publicando?
+# Are the scene cameras publishing?
 docker compose -f compose.host.yml exec -T sim bash -lc \
   'source /ws/install/setup.bash; ros2 topic hz /demo/cockpit/scene_iso/image_raw'
 
-# O MJPEG responde?
+# Does MJPEG respond?
 curl -o /dev/null -w '%{http_code}\n' \
   'localhost:8080/snapshot?topic=/demo/cockpit/scene_iso/image_raw'
 
-# Os serviços de simulação existem?
+# Do the simulation services exist?
 docker compose -f compose.host.yml exec -T sim bash -lc \
   'source /ws/install/setup.bash; ros2 service list | grep /demo/sim'
 ```
 
-**O console do navegador é fonte de primeira classe aqui.** Falhas de chamada de
-serviço aparecem lá (`[cockpit] falha ao pausar a simulação: ...`) e, com mais
-detalhe, no log do container `cockpit`.
+**The browser console is a first-class source here.** Service call failures show
+up there (`[cockpit] falha ao pausar a simulação: ...`) and, in more detail, in
+the `cockpit` container's log.
 
-### Sintomas comuns do cockpit
+### Common cockpit symptoms
 
-| Sintoma | Causa provável |
+| Symptom | Likely cause |
 | --- | --- |
-| Painel verde vazio, HUD diz `sem TF map→base` | armadilha 1 |
-| Botão de simulação não faz nada | armadilha 2 — olhe o log do `cockpit` |
-| Painel azul preto, ponto cinza | mundo sem as câmeras: `sim` recriado sem `SIM_ARGS`? |
-| Labirinto não aparece, chão vazio | `MAZE_MODELS` não exportado |
-| Editei o bundle e nada mudou | a imagem `hmi` não foi reconstruída |
-| Editei um SDF e nada mudou | armadilha 4 |
-| Tudo cinza, badge `desconectado` | `cockpit` caiu, ou a porta 9090 colidiu |
+| Green panel empty, HUD says `sem TF map→base` | trap 1 |
+| Simulation button does nothing | trap 2 — look at the `cockpit` log |
+| Blue panel black, gray dot | world without the cameras: was `sim` recreated without `SIM_ARGS`? |
+| Maze does not appear, empty floor | `MAZE_MODELS` not exported |
+| I edited the bundle and nothing changed | the `hmi` image was not rebuilt |
+| I edited an SDF and nothing changed | trap 4 |
+| Everything gray, `desconectado` badge | `cockpit` died, or port 9090 collided |
 
 ---
 
-## 9. As armadilhas do cockpit que já custaram tempo
+## 9. The cockpit traps that have already cost time
 
-### 1. O `/tf_static` chega **uma vez só**, e qual mensagem é sorte
+### 1. `/tf_static` arrives **only once**, and which message it is is luck
 
-Sintoma: o painel verde ficava em `sem TF map→base` em cerca de metade dos
-carregamentos.
+Symptom: the green panel stayed at `sem TF map→base` on roughly half of the page
+loads.
 
-O `rosbridge` entrega **uma** mensagem latched por inscrição. Medido em três
-inscrições novas e consecutivas: a primeira trouxe as arestas do robô, a segunda
-`map→odom`, a terceira `map→odom`. `queue_length: 16` não muda nada — a perda é
-**acima** da fila do cliente.
+`rosbridge` delivers **one** latched message per subscription. Measured across
+three new, consecutive subscriptions: the first brought the robot's edges, the
+second `map→odom`, the third `map→odom`. `queue_length: 16` changes nothing —
+the loss is **above** the client's queue.
 
-Correção, já no código: `nav-panel.js` reinscreve em `/tf_static` a cada 1,5 s,
-no máximo 8 vezes, e para em definitivo assim que `lookup('map','base')`
-resolve. Converge em 2 a 4 rodadas.
+Fix, already in the code: `nav-panel.js` resubscribes to `/tf_static` every
+1,5 s, at most 8 times, and stops for good as soon as `lookup('map','base')`
+resolves. It converges in 2 to 4 rounds.
 
-### 2. O navegador não pode chamar serviço com tipo do Gazebo
+### 2. The browser cannot call a service with a Gazebo type
 
-Sintoma: os botões de simulação não faziam absolutamente nada. A UI não
-mostrava erro; a causa só aparecia no log do container `cockpit`:
+Symptom: the simulation buttons did absolutely nothing. The UI showed no error;
+the cause only appeared in the `cockpit` container's log:
 
 ```
 call_service InvalidModuleException: Unable to import ros_gz_interfaces.srv
 from package ros_gz_interfaces. Caused by: No module named 'ros_gz_interfaces'
 ```
 
-O `rosbridge` monta o pedido importando o pacote de interfaces **dentro do
-próprio container**, e o `cockpit` não tem `ros_gz_interfaces`. E não deve ter:
-no M3 ele roda no Aquila, e no modo `deploy` não há Gazebo nenhum.
+`rosbridge` assembles the request by importing the interfaces package **inside
+its own container**, and `cockpit` does not have `ros_gz_interfaces`. And it must
+not: in M3 it runs on the Aquila, and in `deploy` mode there is no Gazebo at all.
 
-Correção: o nó **`sim_control_relay`** (lado do simulador) expõe
-`/demo/sim/{play,pause,reset}` como `std_srvs/Trigger` e traduz para
-`ControlWorld`. A fronteira do navegador só fala tipos de núcleo do ROS.
-Guardado por `tests/test_cockpit_web_contract.py::test_browser_never_speaks_gazebo_interfaces`.
+Fix: the **`sim_control_relay`** node (simulator side) exposes
+`/demo/sim/{play,pause,reset}` as `std_srvs/Trigger` and translates to
+`ControlWorld`. The browser boundary only speaks ROS core types. Guarded by
+`tests/test_cockpit_web_contract.py::test_browser_never_speaks_gazebo_interfaces`.
 
-### 3. O nome do mundo não é o nome do arquivo
+### 3. The world's name is not the file's name
 
-Os serviços do Gazebo moram em `/world/<nome>/...`, e `<nome>` é o atributo do
-elemento `<world>`. `quadruped_maze11.sdf` declara `<world name="quadruped_maze11">`,
-mas o armazém do `nav2_minimal_tb4_sim` declara `<world name='warehouse'>`.
-Adivinhar pelo nome do arquivo acerta num caso e erra no outro, **em silêncio**:
-a ponte sobe, anuncia os serviços ROS, e cada chamada expira num serviço gz que
-não existe.
+Gazebo's services live under `/world/<nome>/...`, and `<nome>` is the attribute
+of the `<world>` element. `quadruped_maze11.sdf` declares
+`<world name="quadruped_maze11">`, but the `nav2_minimal_tb4_sim` warehouse
+declares `<world name='warehouse'>`. Guessing from the file name gets one case
+right and the other wrong, **silently**: the bridge comes up, advertises the ROS
+services, and every call times out on a gz service that does not exist.
 
-Por isso `sim_control.launch.py` faz parse do SDF, e um arquivo sem `<world>`
-derruba o launch dizendo qual arquivo era.
+That is why `sim_control.launch.py` parses the SDF, and a file without a
+`<world>` takes the launch down naming which file it was.
 
-### 4. O cache do Docker mente sobre `COPY ros2_ws/src`
+### 4. The Docker cache lies about `COPY ros2_ws/src`
 
-Sintoma: você edita um SDF ou um `.py` do workspace, reconstrói, e a mudança não
-está no container. O build reporta `CACHED` para a camada de `COPY`.
+Symptom: you edit an SDF or a `.py` in the workspace, rebuild, and the change is
+not in the container. The build reports `CACHED` for the `COPY` layer.
 
-Aconteceu três vezes em uma sessão. **Contorno: rodar `docker compose build base`
-duas vezes** — a segunda pega. E o workspace é compilado em `base`, então
-qualquer mudança em `ros2_ws/` exige `base` **e depois** `sim`:
+It happened three times in one session. **Workaround: run
+`docker compose build base` twice** — the second one takes. And the workspace is
+compiled in `base`, so any change in `ros2_ws/` requires `base` **and then**
+`sim`:
 
 ```bash
 export DOCKER_BUILDKIT=0
 docker compose -f compose.host.yml build base
-docker compose -f compose.host.yml build base   # sim, de novo
+docker compose -f compose.host.yml build base   # yes, again
 docker compose -f compose.host.yml build sim
 ```
 
-Sempre confirme antes de concluir que a mudança não funcionou:
+Always confirm before concluding that the change did not work:
 
 ```bash
 docker compose -f compose.host.yml exec -T sim \
   grep update_rate /ws/install/demo_simulation/share/demo_simulation/models/cockpit_scene_iso.sdf
 ```
 
-**A variante pior é rodar a suíte de testes de um pacote dentro do container.**
-`/ws/src` é uma cópia da imagem, não um bind mount do seu diretório de trabalho:
-uma imagem de antes da sua edição roda os testes **antigos** e passa. Um teste que
-você acabou de escrever simplesmente não é coletado, e a saída é verde. Aconteceu
-em 25/08: `32 passed` na imagem reconstruída contra `22 passed` na anterior, com o
-arquivo novo ausente da lista de coleta. Confira a contagem, ou confira a
-coleta:
+**The worse variant is running a package's test suite inside the container.**
+`/ws/src` is a copy in the image, not a bind mount of your working directory: an
+image from before your edit runs the **old** tests and passes. A test you have
+just written is simply not collected, and the output is green. It happened on
+25/08: `32 passed` on the rebuilt image against `22 passed` on the previous one,
+with the new file absent from the collection list. Check the count, or check the
+collection:
 
 ```bash
 docker compose -f compose.host.yml run --rm -T tools \
   bash -lc 'ls /ws/src/demo_simulation/test/'
 ```
 
-### 5. Buildx não enxerga imagens locais
+### 5. Buildx cannot see local images
 
-`docker compose build` com o builder `armbuilder` ativo falha com
-`pull access denied ... local/demo-aquila-base:dev`. O builder multi-arquitetura
-não vê o daemon local. Para builds de bancada:
+`docker compose build` with the `armbuilder` builder active fails with
+`pull access denied ... local/demo-aquila-base:dev`. The multi-architecture
+builder does not see the local daemon. For bench builds:
 
 ```bash
 export DOCKER_BUILDKIT=0 BUILDX_BUILDER=default
 ```
 
-### 6. `node --test` com glob sem aspas passa sem rodar nada
+### 6. `node --test` with an unquoted glob passes without running anything
 
 ```bash
-node --test "test/**/*.test.js"    # certo
-node --test test/**/*.test.js      # verde sem ter rodado teste
+node --test "test/**/*.test.js"    # correct
+node --test test/**/*.test.js      # green without running a test
 ```
 
-Sem aspas o shell expande, o Node recebe um diretório, resolve para nada e sai
-com código 0.
+Without quotes the shell expands it, Node receives a directory, resolves to
+nothing and exits with code 0.
 
-### 7. Enquadramento de câmera se mede, não se chuta
+### 7. Camera framing is measured, not guessed
 
-A primeira tentativa (iso em `-7,-7,5`) caía **dentro** dos corredores de
-prateleira do armazém — o robô virava um ponto branco atrás de uma prateleira. A
-de topo a 12 m batia numa viga do telhado exatamente sobre o robô. Os dois
-enquadramentos atuais saíram de tentativas medidas contra a pegada real do
-cenário.
+The first attempt (iso at `-7,-7,5`) landed **inside** the warehouse's shelf
+aisles — the robot became a white dot behind a shelf. The top view at 12 m hit a
+roof beam exactly above the robot. Both current framings came out of attempts
+measured against the scenario's real footprint.
 
-Ao testar comando de órbita pela linha de comando, use `ros2 topic pub -t 1 -w 1`
-e não `-r 3`: seis segundos a 3 Hz aplicam ~18 passos de 0,35 rad ≈ 2π, a câmera
-volta ao ponto de partida, e parece que nada aconteceu.
+When testing an orbit command from the command line, use
+`ros2 topic pub -t 1 -w 1` and not `-r 3`: six seconds at 3 Hz apply ~18 steps of
+0,35 rad ≈ 2π, the camera returns to its starting point, and it looks like
+nothing happened.
 
-### 8. `RESET` + `STARTUP` no Nav2 mata o container (segfault no `route_server`)
+### 8. `RESET` + `STARTUP` on Nav2 kills the container (segfault in `route_server`)
 
-Este era o desenho natural do "reiniciar nav": o `lifecycle_manager` do Nav2 tem
-`RESET` (desativa e desconfigura tudo) e `STARTUP` (configura e ativa tudo), e
-nenhuma outra dupla de transições descreve tão bem "reinicie a pilha".
+This was the natural design for "restart nav": Nav2's `lifecycle_manager` has
+`RESET` (deactivates and unconfigures everything) and `STARTUP` (configures and
+activates everything), and no other pair of transitions describes "restart the
+stack" so well.
 
-Medido em 24/08/2026, no host, modo `learn`, o `nav2_container` morre:
+Measured on 24/08/2026, on the host, `learn` mode, the `nav2_container` dies:
 
 ```
 [component_container_isolated-4] [INFO] [route_server]: Configuring Rerouting service operation.
 [ERROR] [component_container_isolated-4]: process has died [exit code -11]
 ```
 
-`-11` é `SIGSEGV`. Reproduzido **duas** vezes — com meta ativa e sem meta ativa.
-Não é o "aconteceu uma vez" que este guia registrava antes: é determinístico, e
-está no caminho do `CONFIGURE`, que é justamente o que `STARTUP` faz.
+`-11` is `SIGSEGV`. Reproduced **twice** — with an active goal and without one.
+It is not the "it happened once" this guide used to record: it is deterministic,
+and it is on the `CONFIGURE` path, which is exactly what `STARTUP` does.
 
-O `route_server` está na lista de `lifecycle_nodes` do `navigation_launch.py`
-vendorizado — que tem de seguir **idêntico ao upstream** (ver
-`launch/nav2_vendored/README.md`), então tirá-lo da lista não é opção. Esta demo
-não usa roteamento, e ele não tem seção em `nav2_params_go2.yaml`; a hipótese é
-que ele reconfigure sobre estado que não sobrevive ao `CLEANUP`, mas isso não foi
-confirmado no fonte do Nav2. **Candidato a issue upstream.**
+`route_server` is in the `lifecycle_nodes` list of the vendored
+`navigation_launch.py` — which has to remain **identical to upstream** (see
+`launch/nav2_vendored/README.md`), so removing it from the list is not an option.
+This demo does not use routing, and it has no section in `nav2_params_go2.yaml`;
+the hypothesis is that it reconfigures over state that does not survive
+`CLEANUP`, but this was not confirmed in the Nav2 source. **Candidate for an
+upstream issue.**
 
-O que o `nav_control_relay` faz em vez disso — cancelar, limpar costmaps,
-`PAUSE`, `RESUME` — nunca passa por `CONFIGURE`, e por isso nunca chega perto
-disso. Se algum dia alguém "simplificar" a sequência para `RESET`+`STARTUP`, o
-sintoma será o container `nav` reiniciando e o cockpit perdendo o link no meio da
-demo. Existe um guarda estrutural em `tests/` exatamente para isso.
+What `nav_control_relay` does instead — cancel, clear costmaps, `PAUSE`,
+`RESUME` — never goes through `CONFIGURE`, and therefore never gets close to
+this. If someone ever "simplifies" the sequence to `RESET`+`STARTUP`, the symptom
+will be the `nav` container restarting and the cockpit losing the link in the
+middle of the demo. There is a structural guard in `tests/` for exactly that.
 
-#### Não é só no reset: acontece no boot normal (25/08/2026)
+#### It is not only on reset: it happens on a normal boot (25/08/2026)
 
-A frase acima, "está no caminho do `CONFIGURE`", estava certa e era estreita
-demais. O `CONFIGURE` do `route_server` também acontece na **subida normal** do
-`nav`, e lá o mesmo segfault aparece — de forma **intermitente**: o mesmo
-`docker compose up nav` subiu numa vez e derrubou a pilha na seguinte.
+The sentence above, "it is on the `CONFIGURE` path", was right and too narrow.
+`route_server`'s `CONFIGURE` also happens during a **normal startup** of `nav`,
+and there the same segfault appears — **intermittently**: the same
+`docker compose up nav` came up one time and took the stack down the next.
 
-O estado que ele deixa é o que faz isso caro:
+The state it leaves behind is what makes this expensive:
 
 ```
 $ docker compose ps
-nav   running                       <- e mentira
+nav   running                       <- this is false
 
 $ docker exec docker-nav-1 ps -eo comm
-ros2                                <- so o pai
+ros2                                <- only the parent
 odom_tf
 nav_control_rel
-cmd_vel_si_to_s                     <- nenhum servidor do Nav2
+cmd_vel_si_to_s                     <- no Nav2 server
 ```
 
-Morrem **todos** os servidores de uma vez, o container segue `running`, e de
-dentro dele `get_node_names()` lista só os nós do `sim`. Quem olha o Compose
-conclui "o Nav2 está de pé"; quem olha o robô conclui "a navegação piorou". Foi
-metade da regressão investigada em `docs/results/ml35-regressao-navegacao.md`.
+**All** the servers die at once, the container stays `running`, and from inside
+it `get_node_names()` lists only the `sim` nodes. Whoever looks at Compose
+concludes "Nav2 is up"; whoever looks at the robot concludes "navigation got
+worse". It was half of the regression investigated in
+`docs/results/ml35-regressao-navegacao.md`.
 
-A correção vive em `nav2_params_go2.yaml`: `route_server.operations` lista só
-`AdjustSpeedLimit`, então o plugin que estoura nunca é construído. Sobrepor essa
-lista obriga a declarar também o **tipo** de cada plugin dela
-(`AdjustSpeedLimit.plugin`), senão a subida é reprovada com
-`Can not get 'plugin' param value` — falha alta, e nisso melhor que o segfault.
+The fix lives in `nav2_params_go2.yaml`: `route_server.operations` lists only
+`AdjustSpeedLimit`, so the plugin that blows up is never constructed. Overriding
+that list forces you to also declare the **type** of every plugin in it
+(`AdjustSpeedLimit.plugin`), otherwise startup is rejected with
+`Can not get 'plugin' param value` — a loud failure, and in that respect better
+than the segfault.
 
-### 9. O reset derrubava o quadrúpede em marcha
+### 9. Reset knocked over the walking quadruped
 
-O reset da simulação teleporta o robô de volta à pose inicial via
-`SetEntityPose` (ver armadilha 2 sobre por que não é uma chamada direta do
-Gazebo pelo navegador). Isso resolve um defeito pior — `reset.all` **apagava**
-o robô inteiro, ver `docs/results/cockpit-reset-nao-destrutivo.md` §1-2 — mas
-sozinho não bastava para o quadrúpede, e por dois motivos diferentes,
-descobertos em sequência:
+The simulation reset teleports the robot back to its initial pose via
+`SetEntityPose` (see trap 2 on why it is not a direct Gazebo call from the
+browser). That fixes a worse defect — `reset.all` **deleted** the whole robot,
+see `docs/results/cockpit-reset-nao-destrutivo.md` §1-2 — but on its own it was
+not enough for the quadruped, and for two different reasons, discovered in
+sequence:
 
-1. **teleportar sem reancorar o controlador de marcha.** O `StateTrotting`
-   (controlador C++ do gait) captura sua referência de postura uma única vez, e
-   um teleporte muda a pose sem passar por essa captura. Medido sem nenhum
-   comando de velocidade publicado por 26 s: mesmo assim o robô se arrastou
-   0,87 m e girou 135° sozinho, perseguindo a pose de ANTES do reset;
-2. **teleportar sem parar.** `SetEntityPose` reposiciona o corpo e **preserva a
-   velocidade**. Um robô em marcha, teleportado, é solto ainda viajando com as
-   pernas em balanço — e cai. Medido com o Nav2 conduzindo de verdade durante o
-   reset: a altura do robô caiu de 0,337 m para 0,162 m em 1 segundo.
+1. **teleporting without re-anchoring the gait controller.** `StateTrotting`
+   (the C++ gait controller) captures its posture reference only once, and a
+   teleport changes the pose without going through that capture. Measured with
+   no velocity command published for 26 s: even so the robot dragged itself
+   0,87 m and rotated 135° on its own, chasing the pose from BEFORE the reset;
+2. **teleporting without stopping.** `SetEntityPose` repositions the body and
+   **preserves the velocity**. A walking robot, teleported, is released still
+   traveling with its legs in swing — and falls. Measured with Nav2 actually
+   driving during the reset: the robot's height dropped from 0,337 m to 0,162 m
+   in 1 second.
 
-A correção para o robô ANTES de teleportar e o reancora DEPOIS — dois serviços
-internos (`/demo/gait/hold`, `/demo/gait/resume`), servidos pelo mesmo nó que já
-traduzia `/demo/cmd_vel` para os eixos do gait. Nenhum dos dois é exposto ao
-cockpit; o operador só vê o efeito, que é o clique de reset levar ~2-7 s a mais
-no quadrúpede do que no diff-drive. Verificado inclusive com o robô **caído**
-(tombado, preso no modo de recuperação do controlador — que não sai sozinho de
-cabeça para baixo): o reset o devolve de pé.
+The fix stops the robot BEFORE teleporting and re-anchors it AFTERWARDS — two
+internal services (`/demo/gait/hold`, `/demo/gait/resume`), served by the same
+node that already translated `/demo/cmd_vel` into the gait's axes. Neither of the
+two is exposed to the cockpit; the operator only sees the effect, which is the
+reset click taking ~2-7 s longer on the quadruped than on the diff-drive.
+Verified even with the robot **fallen** (tipped over, stuck in the controller's
+recovery mode — which does not get out of it on its own while upside down): the
+reset puts it back on its feet.
 
-Evidência completa: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
+Complete evidence: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
 
 ---
 
-## 10. Como o cockpit é feito
+## 10. How the cockpit is built
 
-### Árvore
+### Tree
 
 ```
 hmi/
-├── index.html            as cinco regiões
+├── index.html            the five regions
 ├── css/
-│   ├── tokens.css        paleta, tipografia, movimento — fonte ÚNICA de cor
-│   ├── layout.css        a grade de cinco regiões
-│   └── panels.css        cromo dos painéis, barra, pad de câmera
-├── img/                  marcas Toradex e ROS (PNG branco com alfa)
+│   ├── tokens.css        palette, typography, motion — SINGLE color source
+│   ├── layout.css        five-region grid
+│   └── panels.css        panel chrome, bar, camera pad
+├── img/                  Toradex and ROS brands (white PNG with alpha)
 ├── js/
-│   ├── main.js           só fiação: resolve config, monta painéis, um timer
-│   ├── config.js         endpoints, tópicos, URL do MJPEG
-│   ├── ros/              transporte
-│   │   ├── rosbridge-client.js   WebSocket, reconexão, ações, serviços
-│   │   ├── png-decompress.js     costmap comprimido (33x menor que JSON)
-│   │   ├── tf-tree.js            cache de TF
-│   │   └── freshness.js          os pontos verde/laranja/cinza
-│   ├── panels/           renderização
-│   │   ├── stream-panel.js       painéis de imagem (cena e câmera)
-│   │   ├── nav-panel.js          canvas do mapa, clique-para-meta
-│   │   ├── map-view.js           mundo <-> tela, LUT de custo (puro, testado)
-│   │   ├── palette.js            lê os tokens --map-* do CSS
-│   │   ├── log-panel.js          /rosout + telemetria
-│   │   ├── control-bar.js        estado do link
+│   ├── main.js           wiring only: resolves config, mounts panels, one timer
+│   ├── config.js         endpoints, topics, MJPEG URL
+│   ├── ros/              transport
+│   │   ├── rosbridge-client.js   WebSocket, reconnection, actions, services
+│   │   ├── png-decompress.js     compressed costmap (33x smaller than JSON)
+│   │   ├── tf-tree.js            TF cache
+│   │   └── freshness.js          green/orange/gray dots
+│   ├── panels/           rendering
+│   │   ├── stream-panel.js       image panels (scene and camera)
+│   │   ├── nav-panel.js          map canvas, click-to-goal
+│   │   ├── map-view.js           world <-> screen, cost LUT (pure, tested)
+│   │   ├── palette.js            reads CSS --map-* tokens
+│   │   ├── log-panel.js          /rosout + telemetry
+│   │   ├── control-bar.js        link state
 │   │   ├── sim-controls.js       play/pause/reset
-│   │   ├── view-controls.js      pad de câmera
-│   │   └── detection-overlay.js  NÃO montado hoje — ver abaixo
+│   │   ├── view-controls.js      camera pad
+│   │   └── detection-overlay.js  NOT mounted today — see below
 │   └── ...
-└── test/                 node --test, sem navegador
+└── test/                 node --test, without a browser
 ```
 
-### Do lado do ROS
+### On the ROS side
 
-| Arquivo | Papel | Roda em |
+| File | Role | Runs on |
 | --- | --- | --- |
-| `demo_bringup/launch/cockpit.launch.py` | rosbridge + web_video_server | host hoje, Aquila no M3 |
-| `demo_simulation/launch/scene_cameras.launch.py` | planta as duas câmeras de cena | host |
-| `demo_simulation/launch/sim_control.launch.py` | ponte de serviços gz + fachada | host |
-| `demo_simulation/scene_view_controller.py` | órbita das câmeras de cena | host |
-| `demo_simulation/sim_control_relay.py` | fachada `std_srvs` para play/pause/reset | host |
-| `demo_navigation/launch/nav_control.launch.py` | sobe a fachada de reset do Nav2 | host ou Aquila |
-| `demo_navigation/nav_control_relay.py` | fachada `std_srvs` para reiniciar o Nav2 | onde o Nav2 roda |
+| `demo_bringup/launch/cockpit.launch.py` | rosbridge + web_video_server | host today, Aquila in M3 |
+| `demo_simulation/launch/scene_cameras.launch.py` | plants the two scene cameras | host |
+| `demo_simulation/launch/sim_control.launch.py` | gz service bridge + façade | host |
+| `demo_simulation/scene_view_controller.py` | orbit of the scene cameras | host |
+| `demo_simulation/sim_control_relay.py` | `std_srvs` façade for play/pause/reset | host |
+| `demo_navigation/launch/nav_control.launch.py` | brings up the Nav2 reset façade | host or Aquila |
+| `demo_navigation/nav_control_relay.py` | `std_srvs` façade for restarting Nav2 | wherever Nav2 runs |
 
-As duas últimas linhas são o único par desta tabela que **roda no módulo** no
-modo `hil`: elas moram no container `nav`, junto da pilha que reiniciam. A
-fachada de simulação fica presa ao host porque o Gazebo fica.
+The last two lines are the only pair in this table that **runs on the module** in
+`hil` mode: they live in the `nav` container, alongside the stack they restart.
+The simulation façade is tied to the host because Gazebo is.
 
-### Um detalhe que parece bug e não é
+### A detail that looks like a bug and is not
 
-O painel da câmera **não desenha as caixas de detecção**, e a ausência é
-deliberada. O `demo_perception` de hoje é um stub determinístico: varre uma
-caixa sintética pela imagem quer haja objeto ali ou não. Sobre o vídeo isso vira
-um retângulo passeando de um lado para o outro — pior que nada numa demo, porque
-o espectador lê aquilo como detecção de verdade.
+The camera panel **does not draw the detection boxes**, and the absence is
+deliberate. Today's `demo_perception` is a deterministic stub: it sweeps a
+synthetic box across the image whether there is an object there or not. Over the
+video that becomes a rectangle strolling from one side to the other — worse than
+nothing in a demo, because the viewer reads it as a real detection.
 
-**As detecções continuam publicadas e continuam alimentando a
-`perception_layer` do costmap.** O contrato de tópicos do `CLAUDE.md` está
-intacto; saiu só o desenho. `detection-overlay.js` segue no bundle, testado,
-para voltar quando o TIDL substituir o stub.
+**The detections are still published and still feed the costmap's
+`perception_layer`.** The `CLAUDE.md` topic contract is intact; only the drawing
+was removed. `detection-overlay.js` is still in the bundle, tested, ready to come
+back when TIDL replaces the stub.
 
-### Testes
+### Tests
 
 ```bash
-cd hmi && node --test "test/**/*.test.js"    # 138 — lógica do bundle
-cd .. && python3 -m pytest tests/ -q          # 36 — guardas estruturais
+cd hmi && node --test "test/**/*.test.js"    # 138 — bundle logic
+cd .. && python3 -m pytest tests/ -q          # 36 — structural guards
 ```
 
-Os guardas estruturais são checagens estáticas em arquivos commitados, não
-testes de runtime. Existem porque cada invariante que eles cobrem é barata de
-quebrar numa edição de uma linha e cara de descobrir — as de colocação só falham
-no Aquila, semanas depois.
+The structural guards are static checks on committed files, not runtime tests.
+They exist because every invariant they cover is cheap to break in a one-line
+edit and expensive to discover — the placement ones only fail on the Aquila,
+weeks later.
 
 ---
 
-## 11. O que está feito e o que falta
+## 11. What is done and what is missing
 
-### Feito (24/08/2026, só no host)
+### Done (24/08/2026, host only)
 
-- **F1** — transporte e esqueleto: serviços `cockpit` e `hmi`, bundle, câmera ao
-  vivo, reconexão automática. Evidência: [`results/cockpit-web-f1.md`](results/cockpit-web-f1.md).
-- **F3b** — painel de cena (duas câmeras alternáveis) e painel de navegação
-  (costmap, plano, laser, pegada, clique-para-meta). Portão cumprido: meta
-  clicada aceita e executada pelo Nav2.
-- **Controle de simulação** pelo cockpit: play, pause, reset.
-- **Controle de câmera**: girar, inclinar, mover, zoom, recentrar.
-- **Identidade Toradex** e repaletização do mapa para fundo claro.
-- **Qualidade de imagem**: 800×600@5 Hz → 1600×1200@10 Hz, JPEG 70 → 95.
+- **F1** — transport and skeleton: `cockpit` and `hmi` services, bundle, live
+  camera, automatic reconnection. Evidence: [`results/cockpit-web-f1.md`](results/cockpit-web-f1.md).
+- **F3b** — scene panel (two switchable cameras) and navigation panel (costmap,
+  plan, laser, footprint, click-to-goal). Gate met: clicked goal accepted and
+  executed by Nav2.
+- **Simulation control** from the cockpit: play, pause, reset.
+- **Camera control**: rotate, tilt, move, zoom, recenter.
+- **Toradex identity** and repalettizing the map for a light background.
+- **Image quality**: 800×600@5 Hz → 1600×1200@10 Hz, JPEG 70 → 95.
 
-Evidência do conjunto: [`results/cockpit-web-f3b.md`](results/cockpit-web-f3b.md).
+Evidence for the set: [`results/cockpit-web-f3b.md`](results/cockpit-web-f3b.md).
 
-### Ajustes de UI (25/08/2026, só no host)
+### UI adjustments (25/08/2026, host only)
 
-Três pedidos de bancada, fora da numeração de fases:
+Three bench requests, outside the phase numbering:
 
-- **Marca Toradex ao dobro** (34 → 68 px de altura; a do ROS, 22 → 44). A altura
-  mínima da faixa saiu de 48 para 80 px **pelo mesmo token** (`--bar-min-height`
-  em `tokens.css`) — a barra tem `overflow-x`, não `-y`, então as duas medidas
-  divergirem cortaria a marca sem avisar.
-- **Seguir o robô** nas duas vistas de cena. Verificado no host: `scene_top` em
-  `(-1,552 ; 0,151 ; 6,0)` contra robô em `(-1,598 ; 0,130)` — acompanhamento
-  dentro de ~5 cm com o `z` preservado; `scene_iso` em `(-4,551 ; 3,15 ; 2,4)`,
-  isto é, o deslocamento medido `(-3, +3, 2,4)` mantido enquanto desliza com o
-  robô. Desligar congelou a pose por 6 s; religar recentrou.
-- **Reiniciar a navegação** pelo cockpit, em 6,6 s, com a meta interrompida
-  terminando `CANCELED` e os servidores voltando `active [3]`.
+- **Toradex logo at double size** (34 → 68 px tall; the ROS one, 22 → 44). The
+  bar's minimum height went from 48 to 80 px **through the same token**
+  (`--bar-min-height` in `tokens.css`) — the bar has `overflow-x`, not `-y`, so
+  the two measurements diverging would crop the logo without warning.
+- **Following the robot** in both scene views. Verified on the host:
+  `scene_top` at `(-1,552 ; 0,151 ; 6,0)` against the robot at
+  `(-1,598 ; 0,130)` — following within ~5 cm with `z` preserved; `scene_iso` at
+  `(-4,551 ; 3,15 ; 2,4)`, that is, the measured offset `(-3, +3, 2,4)` kept
+  while it slides along with the robot. Turning it off froze the pose for 6 s;
+  turning it back on recentered.
+- **Restarting navigation** from the cockpit, in 6,6 s, with the interrupted
+  goal ending `CANCELED` and the servers coming back `active [3]`.
 
-Nada disso foi visto num navegador com captura de tela: o Chrome não está
-instalado nesta máquina e o Firefox snap em modo headless não respondeu. O que
-existe é a página servida com o HTML e o CSS corretos (`curl` 200, tokens e os
-dois botões presentes no que o nginx entrega) mais a verificação pelo lado do
-ROS. **Nada disso rodou no Aquila AM69** (regra 7 do `CLAUDE.md`); as medidas são
-todas do host x86 em `learn`.
+None of this was seen in a browser with a screen capture: Chrome is not
+installed on this machine and headless Firefox snap did not respond. What exists
+is the page served with the correct HTML and CSS (`curl` 200, tokens and both
+buttons present in what nginx delivers) plus verification from the ROS side.
+**None of this ran on the Aquila AM69** (rule 7 of `CLAUDE.md`); the
+measurements are all from the x86 host in `learn`.
 
-### Falta
+### Missing
 
-- **F4 — controle manual.** `twist_mux` arbitrando contra o Nav2. É a única
-  região da tela que ainda mente, e por isso os botões estão desligados.
-- **F2 — kiosk no módulo.** Chromium no Aquila servindo este mesmo bundle. Três
-  coisas que só o módulo responde:
-  1. o bundle foi verificado no **Firefox**; o kiosk é Chromium, e a ressalva de
-     cache do `<img>` em `config.js` vem da literatura, não de medição;
-  2. o MJPEG a 1600×1200 atravessando a Ethernet — nada disso foi medido lá;
-  3. no modo `deploy` não existe Gazebo: os botões de simulação precisam sumir
-     ou dizer por que não valem. **Ainda não foi tratado.**
+- **F4 — manual control.** `twist_mux` arbitrating against Nav2. It is the only
+  region of the screen that still lies, and that is why the buttons are
+  disabled.
+- **F2 — kiosk on the module.** Chromium on the Aquila serving this same bundle.
+  Three things only the module can answer:
+  1. the bundle was verified in **Firefox**; the kiosk is Chromium, and the
+     `<img>` cache caveat in `config.js` comes from the literature, not from
+     measurement;
+  2. the MJPEG at 1600×1200 crossing the Ethernet — none of that was measured
+     there;
+  3. in `deploy` mode there is no Gazebo: the simulation buttons need to
+     disappear or say why they do not apply. **Not handled yet.**
 
-### Uma pendência conhecida, sem relação com o cockpit
+### A known open item, unrelated to the cockpit
 
-O segfault do `route_server` ao configurar, agora caracterizado e
-determinístico — ver a [armadilha 8](#8-reset--startup-no-nav2-mata-o-container-segfault-no-route_server).
-Não é regressão do cockpit; é o motivo pelo qual o reset de navegação usa
-`PAUSE`/`RESUME` em vez de `RESET`/`STARTUP`.
+The `route_server` segfault on configure, now characterized and deterministic —
+see [trap 8](#8-reset--startup-on-nav2-kills-the-container-segfault-in-route_server).
+It is not a cockpit regression; it is the reason the navigation reset uses
+`PAUSE`/`RESUME` instead of `RESET`/`STARTUP`.
 
 ---
 
 ---
 
-## Referências
+## References
 
-- `.ai/CLAUDE.md` — contrato operacional, regras invioláveis, fase atual
-- `.ai/AGENTS.md` — contrato de implementação, milestones, Definition of Done
-- `.ai/changelog.md` — decisões tomadas e o porquê
-- `CLAUDE.md` na raiz — as regras invioláveis, principalmente a 1
-- README de cada pacote em `ros2_ws/src/demo_*/`
-- [`ml35/plano-cockpit-web.md`](ml35/plano-cockpit-web.md) — decisões e fases do cockpit web
-- [`ml35/estado-fases.md`](ml35/estado-fases.md) — estado do ML3.5, leia primeiro numa sessão nova
-- [`results/cockpit-web-f1.md`](results/cockpit-web-f1.md), [`results/cockpit-web-f3b.md`](results/cockpit-web-f3b.md) — evidência de bancada do cockpit
+- `.ai/CLAUDE.md` — operational contract, inviolable rules, current phase
+- `.ai/AGENTS.md` — implementation contract, milestones, Definition of Done
+- `.ai/changelog.md` — decisions taken and why
+- `CLAUDE.md` at the root — the inviolable rules, rule 1 above all
+- README of each package in `ros2_ws/src/demo_*/`
+- [`ml35/plano-cockpit-web.md`](ml35/plano-cockpit-web.md) — web cockpit decisions and phases
+- [`ml35/estado-fases.md`](ml35/estado-fases.md) — ML3.5 state, read it first in a new session
+- [`results/cockpit-web-f1.md`](results/cockpit-web-f1.md), [`results/cockpit-web-f3b.md`](results/cockpit-web-f3b.md) — cockpit bench evidence

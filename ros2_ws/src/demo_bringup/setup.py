@@ -22,7 +22,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Diego Maia',
-    maintainer_email='diego.maia@toradex.com',
+    maintainer_email='engdiegomaia@users.noreply.github.com',
     description='Top-level launch composition, one file per container role.',
     license='Apache-2.0',
     tests_require=['pytest'],

@@ -31,9 +31,9 @@ O bloqueio registrado em 24/08 e 25/08 (PHY sem gigabit, sem portadora) deixou
 de existir:
 
 ```text
-enp0s31f6   UP   192.168.15.74/24   Speed: 1000Mb/s   Duplex: Full   Link: yes
-host -> modulo:  192.168.15.122 dev enp0s31f6 src 192.168.15.74
-modulo -> host:  192.168.15.74  dev ethernet0  src 192.168.15.122
+enp0s31f6   UP   <HOST_IP>/24   Speed: 1000Mb/s   Duplex: Full   Link: yes
+host -> modulo:  <MODULE_IP> dev enp0s31f6 src <HOST_IP>
+modulo -> host:  <HOST_IP>  dev ethernet0  src <MODULE_IP>
 RTT ICMP: 0,400 ms
 ```
 
@@ -42,8 +42,8 @@ Wi-Fi ficou com métrica 600 contra 100 do cabo, então a `/24` inteira prefere 
 cabo. A rota `/32` para o módulo, persistida no perfil NetworkManager, é
 redundância — não é o que segura o caminho.
 
-DDS renderizado coerente: host em `enp0s31f6` com peer `192.168.15.122`; módulo
-em `ethernet0` com peer `192.168.15.74`.
+DDS renderizado coerente: host em `enp0s31f6` com peer `<MODULE_IP>`; módulo
+em `ethernet0` com peer `<HOST_IP>`.
 
 ## `verify` 3/3, e um falso negativo corrigido no caminho
 

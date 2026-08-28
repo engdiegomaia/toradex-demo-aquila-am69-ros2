@@ -1,18 +1,19 @@
-# S0 — Plano vazio
+# S0 — Empty plane
 
-Mundo: `quadruped_empty.sdf` · Estação x86 · ~4 min
+World: `quadruped_empty.sdf` · x86 workstation · ~4 min
 
-**É a referência de tudo.** Nenhum outro cenário significa nada sem uma corrida
-deste no mesmo dia: os números de marcha só são comparáveis entre corridas no
-mesmo RTF, e é aqui que se estabelece o RTF e a linha de base do dia.
+**This is the reference for everything.** No other scenario means anything
+without a run of this one on the same day: gait figures are comparable only
+between runs at the same RTF, and this is where the day's RTF and baseline are
+established.
 
-## Para que serve
+## Purpose
 
-Chão plano infinito, sem nada na altura do lidar. Isola a marcha: qualquer coisa
-que apareça nos outros cenários e não apareça aqui é do mundo, não do
-controlador.
+Infinite flat ground, with nothing at lidar height. It isolates the gait:
+anything that appears in other scenarios but not here comes from the world, not
+the controller.
 
-## Rodar
+## Run
 
 ```bash
 # terminal 1
@@ -23,51 +24,53 @@ source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=69
 python3 scripts/scenario_check.py --seconds 20
 
-# terminal 2 -- caminhada instrumentada
+# terminal 2 -- instrumented walk
 ./scripts/gait_trial.sh /tmp/s0.csv --v-cmd 0.10 --w-cmd 0.0 \
   --cycles 5 --walk 8 --hold 8
 ```
 
-Espere `state=fixed stand` no terminal 1 antes de comandar qualquer coisa.
-Comandar antes disso dá um robô que nunca entra em trote, sem erro que explique.
+Wait for `state=fixed stand` in terminal 1 before issuing any command. Sending a
+command before that produces a robot that never starts trotting, with no error
+to explain why.
 
-## Aceitação
+## Acceptance
 
-Medido em 20/08/2026, RTF 1,00:
+Measured on 20/08/2026, RTF 1,00:
 
-| medida | valor | aceitação |
+| measurement | value | acceptance |
 | --- | --- | --- |
 | `/clock` | 1000 Hz | > 50 |
 | `/demo/imu` | 1000 Hz | > 50 |
 | `/demo/odom` | 50 Hz | > 10 |
 | `/demo/scan` | 10 Hz | > 5 |
-| `/demo/camera/image_raw` | 10 Hz, 640×480 rgb8 | > 5, geometria = `camera_info` |
+| `/demo/camera/image_raw` | 10 Hz, 640×480 rgb8 | > 5, geometry = `camera_info` |
 | `RECOVER` | **0** | 0 |
-| tilt de pico andando | 1,08° | < 3° |
-| `z` | 0,343–0,359 m | faixa < 3 cm |
-| deriva de rumo em 5 ciclos | −0,7° | < 5° |
-| velocidade média | 0,1115 m/s | 0,10 comandado, 97–115% |
+| peak tilt while walking | 1,08° | < 3° |
+| `z` | 0,343–0,359 m | range < 3 cm |
+| heading drift over 5 cycles | −0,7° | < 5° |
+| average speed | 0,1115 m/s | 0,10 commanded, 97–115% |
 
-O relatório inteiro sai `PASSOU: 0 problema(s)`.
+The full report outputs `PASSOU: 0 problema(s)`.
 
-## Armadilha específica deste cenário
+## Scenario-specific pitfall
 
-**O lidar devolve 7% de feixes válidos, e isso está correto.** Medido: 45–46 de
-640 feixes, entre 4,66 e 9,78 m. Não é o sensor com defeito e não é "quase nada
-funcionando" — são os feixes inferiores acertando o **plano do chão** a alguns
-metros de distância. Os outros 93% vão para o horizonte e voltam infinito, porque
-não há nada na altura do plano de varredura.
+**The lidar returns 7% valid beams, and that is correct.** Measured: 45–46 of
+640 beams, between 4,66 and 9,78 m. The sensor is not faulty, nor is "almost
+nothing working": the lower beams are hitting the **ground plane** several
+meters away. The other 93% point toward the horizon and return infinity because
+there is nothing at scan-plane height.
 
-Se você usar este mundo para testar costmap, o costmap enche de um anel de chão a
-5–10 m e nenhum obstáculo. Use o S3 para obstáculo de verdade.
+If you use this world to test the costmap, it fills with a ring of ground at
+5–10 m and no obstacles. Use S3 for actual obstacles.
 
-**A árvore TF é completa no robô e aberta no topo.** Medido: 20 arestas, 8
-estáticas, raiz `base`; `base` → `trunk` → `lidar`, `imu_link`, `front_camera` e
-as quatro pernas até os pés. Faltam só `odom → base` e `map → odom`.
+**The TF tree is complete within the robot and open at the top.** Measured: 20
+edges, 8 static, root `base`; `base` → `trunk` → `lidar`, `imu_link`,
+`front_camera`, and the four legs down to the feet. Only `odom → base` and
+`map → odom` are missing.
 
-Cuidado com a medição: `/tf_static` usa durabilidade `TRANSIENT_LOCAL`. As
-juntas fixas são publicadas **uma vez** na subida do `robot_state_publisher` e
-retidas para quem assinar depois. Um assinante com QoS padrão (`VOLATILE`) não
-recebe nada e conclui que a árvore não tem as juntas fixas. A primeira versão do
-`scenario_check.py` cometeu exatamente esse erro e relatou 12 arestas com raiz em
-`trunk`, o que estava errado.
+Be careful when measuring: `/tf_static` uses `TRANSIENT_LOCAL` durability. The
+fixed joints are published **once** when `robot_state_publisher` starts and are
+retained for later subscribers. A subscriber with the default (`VOLATILE`) QoS
+receives nothing and concludes that the tree lacks its fixed joints. The first
+version of `scenario_check.py` made exactly this mistake and reported 12 edges
+rooted at `trunk`, which was incorrect.

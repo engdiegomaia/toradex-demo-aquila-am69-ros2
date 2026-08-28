@@ -1,1010 +1,975 @@
-# ML3.5 — estado das fases
+# ML3.5 — phase status
 
-Documento de continuidade. Quem pegar este projeto numa sessão nova lê **este
-arquivo primeiro**, depois `guia-ml35-docker.md` (a spec).
+Continuity document. Whoever takes this project in a new session reads **this file
+first**, then `guia-ml35-docker.md` (a spec).
 
-Atualize a tabela e a seção da fase ao fechar cada portão.
-
----
-
-## Objetivo do ML3.5
-
-Substituir o diff-drive por um **quadrúpede A1 com locomoção por pernas real**
-(ROS 2 Jazzy + Gazebo Harmonic), com cada parte do sistema em container próprio
-e a divisão host x86 / módulo Aquila AM69 explícita desde a primeira fase.
-
-Isto é a **opção C** de uma escolha de três, feita com o custo declarado:
-semanas de trabalho, resultado incerto. As alternativas descartadas estão em
-"Decisões" abaixo.
+Update the table and phase section when closing each gate.
 
 ---
 
-## Situação atual
+## Objective of ML3.5
 
-| Fase | Nome | Estado | Commit |
+Replace the diff-drive with a A1 quadruped with real leg locomotion** (ROS 2 Jazzy +
+Gazebo Harmonic), with each part of the system in its own container and the host x86 /
+Aquila module ZZX0003QXZZ explicit since the first phase.
+
+This is the **C** option of a choice of three, made at the declared cost: weeks of work,
+uncertain result. The discarded alternatives are in "Decisions" below.
+
+---
+
+## Current situation
+
+| Phase | Name | Status | Commit |
 |---|---|---|---|
-| **F0** | Ponto de retorno, commit do ML3.1 | ✅ **concluída** 14/08/2026 | `3885f2e` |
-| **F1** | Containerizar a baseline diff-drive | ✅ **concluída** 14/08/2026 | `5d95934` |
-| **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
-| **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
-| **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 28/08/2026 (tarde) | **APROVADOS:** TF (99,94%), janela do costmap global, atualização do mapa, marcha e **portão curto de estabilidade** (3/3 metas nas três corridas, pior meta 27,9 s de 45). **NÃO EXECUTADOS:** validação da percepção no Aquila, smoke da exploração, portão de desempenho de travessia e as três partidas frias. Ver "Sessão 28/08 (tarde)", `docs/results/ml35-f5-ab-joint-states.md` e `ml35-f5-portao-tres-metas.md` |
-| **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
+| **F0** | Return point, ML3.1 | **Completed** 14/08/2026 | `3885f2e` |
+| **F1** | Container baseline diff-drive | **Completed** 14/08/2026 | `5d95934` |
+| **F2** | Spike Go2 inside the container `sim` | **Completed** 14/08/2026 | (disposable spike, uncommitted) |
+| **F3** | Go2 in the project tree (was "retarget A1") | **Completed** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
+| **F4** | Contract crossing container border | **Completed** 24/08/2026 | contract and perception revalidated on Go2 headless |
+| **F5** | Nav2 on legs + ZZXQ0000 modeQXZZ | ** In progress** 28/08/2026 (late) | **APROVADOS:**TF (99,94%), global costmap window, map update, gait and**short stability port** (3/3 targets in the three races, worst ZZXQ005QXZZ s goal of ZZXQ006QXZZ). ** NO EXECUTADOS:** validation of perception in Aquila, exploitation smoke, crossing performance gate and the three cold matches. See "Session ZZXQ008QXZZ/08 (late)", `docs/results/ml35-f5-ab-joint-states.md` and `ml35-f5-portao-tres-metas.md` |
+| **F6** | Selectable Fallback and Tests | **Completed** 24/08/2026 | cold start + goal `SUCCEEDED` on both robots |
 
-### Sessão 28/08 (tarde) — o portão de TF fechou; a velocidade não
+### 28/08 (late) — the TF gate is closed; speed is not
 
-Evidência: **`docs/results/ml35-f5-ab-joint-states.md`** e
-**`ml35-f5-portao-tres-metas.md`**, com os CSVs ao lado. Commits `a7dc097`
-(decimação), `235ac1f` (sonda), `d7efd30` (reversão do mapa), `becac77` e
-`fa1d012` (evidência).
+Evidence: **`docs/results/ml35-f5-ab-joint-states.md`** and
+**`ml35-f5-portao-tres-metas.md`**, with the CSVs next door. Committees `a7dc097`
+(decimation), `235ac1f` (probe), `d7efd30` (reversion of the map), ZZXQ005QXZZ and
+ZZXQ006QXZZ (evidence).
 
-**A causa raiz era `/tf` a 1090 Hz.** O `controller_manager` roda a 1000 Hz
-porque a física roda a 1000 Hz, e um controlador sem `update_rate` próprio herda
-essa taxa. O `joint_state_broadcaster` publicava `/joint_states` a 1 kHz, o
-`robot_state_publisher` convertia cada amostra num `TFMessage`, e onze
-assinantes deserializavam o resultado — atravessando a Ethernet, porque o
-`robot_state_publisher` roda no HOST e a navegação roda no Aquila. Nav2 não
-consome nada disso: as arestas que ela usa são juntas FIXAS e já saem uma vez em
-`/tf_static`. Os 1090 Hz eram as doze juntas das PERNAS.
+* *The root cause was `/tf` a 1090 Hz.** The `controller_manager` runs the 1000 Hz
+because physics runs at 1000 Hz, and a controller without ZZXQ005QXZZ itself inherits
+that rate. `joint_state_broadcaster` published `/joint_states` to 1 kHz,
+`robot_state_publisher` converted each sample into a `TFMessage`, and eleven subscribers
+unserialized the result — across the Ethernet, because `robot_state_publisher` runs on
+HOST and navigation runs on the Aquila. Nav2 does not consume any of this: the edges she
+uses are FIXAS together and already come out once in `/tf_static`. The 1090 Hz were the
+twelve joints of the PERNAS.
 
-A correção é `update_rate: 50` no broadcaster, pelo spawner
-(`demo_simulation/config/joint_state_broadcaster.yaml`), decimação exata de
-fator 20. Laço, marcha, física, IMU e odometria intocados, e há teste estrutural
-para cada um deles — o modo de falha barato é baixar a taxa do LAÇO em vez da
-do BROADCASTER, duas edições de uma linha no mesmo arquivo.
+The correction is `update_rate: 50` in the broadcaster, by the spawner
+(`demo_simulation/config/joint_state_broadcaster.yaml`), exact factor decimation 20.
+Lasso, march, physics, IMU and untouched odometry, and there is structural testing for
+each of them — the cheap failure mode is to lower the Lasso rate instead of the
+BROADCASTER, two editions of a line in the same file.
 
-**A/B pareado, uma variável, mesmo protocolo nos dois braços** (recria `sim` →
-reinicia módulo → espera SLAM → estabiliza → mede):
+**A/B paired, a variable, same protocol in both arms** (reveria `sim` → restart module →
+wait SLAM → stabilize → measure):
 
-| | 1000 Hz | 50 Hz |
+|  | 1000 Hz | 50 Hz |
 | --- | ---: | ---: |
 | `/joint_states` | 986,1 Hz | 45,1 Hz |
 | `/tf` | 1054,5 Hz | 144,6 Hz (−86,3%) |
-| `odom <- lidar` disponível | 94,75% | **99,94%** |
-| carga do módulo | 26,90 | 18,52 |
+| `odom <- lidar` available | 94,75% | **99,94%** |
+| module load | 26,90 | 18,52 |
 | `nav2_container` | 298% | 240% |
 | `maze_explorer` | 67,6% | **76,0%** |
 
-**A atribuição da aresta ficou fechada:** `odom <- base` e `odom <- lidar` deram
-exatamente o mesmo número nos dois braços. A cadeia composta não perde nada além
-do que a aresta dinâmica perde. E o amostrador de 200 Hz dá o mecanismo: no
-braço A o máximo entre carimbos distintos era 120 ms num publicador de 20 ms —
-cinco ciclos perdidos de uma vez. Não era rajada de entrega; era o `odom_tf` não
-sendo escalonado a tempo de carimbar. Isto também corrige a atribuição da manhã
-(100,00% / 95,30% / 78,11%), que comparava três execuções separadas de durações
-diferentes: a conclusão qualitativa estava certa, os números não eram
-comparáveis entre si.
+* * The attribution of the edge was closed: `odom <- base` and `odom <- lidar` gave the
+exact same number in both arms. The compound chain loses nothing but what the dynamic
+edge loses. And the sampler of 200 Hz gives the mechanism: in the arm The maximum
+between separate stamps was 120 ms in a 20 ms publisher — five cycles lost at once. It
+was not delivery burst; it was the `odom_tf` not being staggered in time to stamp. This
+also corrects the morning assignment (ZZXQ006QXZZ / 95,30% / ZZXQ008QXZZ), which
+compared three separate executions of different durations: the qualitative conclusion
+was right, the numbers were not comparable with each other.
 
-**Uma hipótese minha foi REPROVADA e está registrada como tal.** Eu havia dito
-que os ~68% de um `maze_explorer` OCIOSO eram o `TransformListener` dele
-deserializando 1090 mensagens por segundo. Com o fluxo 86% menor ele SUBIU, para
-76,0%. A explicação plausível é estrangulamento — com a carga caindo de 26,9
-para 18,5, um nó antes disputado passa a rodar à vontade — mas isso é hipótese,
-não medição. Perfilar as threads dele (método de `ml35-f5-clock-fanout.md`) é o
-próximo passo se o objetivo for CPU.
+* *One of my hypotheses was REPROVADA and is registered as such.** I had said that the
+~68% of a `maze_explorer` ZZX0003QXZZ were his `TransformListener` deserializing
+ZZXQ005QXZZ messages per second. With the lower ZZXQ006QXZZ flow it SUBIU, for
+ZZXQ008QXZZ. The plausible explanation is strangulation — with the load dropping from
+26,9 to 18,5, a previously disputed knot turns at ease — but this is hypothesis, not
+measurement. Profile his threads (Method of `ml35-f5-clock-fanout.md`) is the next step
+if the goal is CPU.
 
-**`map_update_interval` voltou para 1.0**, em rodada independente. Ele tinha ido
-a 5.0 nesta mesma sessão por economia de CPU; a economia foi medida e não
-existia (31,4% → 30,3% no `async_slam_toolbox`, dentro do ruído). Na volta o
-custo é 1 pp, simétrico — variação pequena e operacionalmente irrelevante, nas
-duas direções. `/map` sobe de 0,2
-para 1,000 Hz e a `static_layer` deixa de ficar até 5 s atrás da parede que o
-SLAM já conhece.
+**`map_update_interval` returned to 1.0**, in an independent round. He had gone to 5.0
+in this same session by economy of CPU; the economy was measured and did not exist
+(31,4% → ZZXQ005QXZZ in ZZXQ006QXZZ, within noise). In return the cost is 1 pp,
+symmetrical — small variation and operationally irrelevant, in both directions.
+ZZXQ008QXZZ climbs from 0,2 to 1,000 Hz and `static_layer` stops staying until 5 s
+behind the wall SLAM already knows.
 
-**Portão de metas, 3 corridas de 180 s em `maze11-short`:**
+* *Gate gate, 3 racing 180 s in `maze11-short`:**
 
-| | 1 | 2 | 3 |
+|  | 1 | 2 | 3 |
 | --- | ---: | ---: | ---: |
-| metas cumpridas | 9/10 | 8/10 | 9/10 |
-| primeiras três | ok ok ok | ok ok ok | ok ok ok |
-| tilt de pico | 1,17° | 1,06° | 1,18° |
-| folga mínima | 0,448 m | 0,448 m | 0,448 m |
-| velocidade média | 0,0383 | 0,0342 | 0,0447 m/s |
+| goals achieved | 9/10 | 8/10 | 9/10 |
+| first three | Okay ok ok ok | Okay ok ok ok | Okay ok ok ok |
+| peak tilt | 1,17° | 1,06° | 1,18° |
+| minimum clearance | 0,448 m | 0,448 m | 0,448 m |
+| average speed | 0,0383 | 0,0342 | 0,0447 m/s |
 
-Varredura de log limitada, 12 min: **zero** `worldToMap`, **zero**
-`invalid source`, **zero** extrapolação de TF. Cinco de seis critérios passam.
+Limited log scan, 12 min: **zero** `worldToMap`, **zero** `invalid source`, **zero**
+extrapolation of TF. Five out of six criteria pass.
 
-**O CONTRATO DO PORTÃO FOI DIVIDIDO, e é o que fecha esta sessão.** O limite de
-0,05 m/s vinha de um ensaio de TRAVESSIA e estava sendo cobrado de metas
-separadas por 0,5 m, onde a média de percurso inclui aceitação, aceleração,
-desaceleração pelo goal checker, reaquisição e a rota de retorno da sequência
-reciclada. Isso mede estabilidade e latência de metas, não travessia. A
-correção não é baixar o limite até passar — é separar:
+**The CONTRATO DO ZZX0002QXZZ ZZX0003QXZZ, and that's what closes this session.** The
+limit of 0,05 m/s came from a TRAVESSIA test and was being charged with targets
+separated by ZZXQ006QXZZ m, where the average route includes acceptance, acceleration,
+deceleration by the goal checker, reacquisition and the return route of the recycled
+sequence. This measures stability and latency of goals, not crossing. The correction is
+not to lower the limit until it passes — it is to separate:
 
-- **portão curto de ESTABILIDADE**, cobrado de `maze11-short`: três metas
-  `SUCCEEDED`, cada uma dentro de 45 s, zero erros do Nav2, zero extrapolações,
-  `worldToMap` e `invalid source`, zero quedas, zero trocas grandes de rota.
-  **APROVADO** — pior meta 27,9 s, e as durações por meta (envio a envio) são
-  12,4/4,8/5,1, 16,5/15,8/5,8 e 27,9/21,3/5,3 s;
-- **portão de DESEMPENHO de travessia**, com metas separadas por pelo menos o
-  horizonte do MPPI, ou de preferência a própria saída autônoma em 600 s. O
-  limite de 0,05 m/s continua valendo lá, intocado. **NÃO EXECUTADO.**
+- ** Short port of ESTABILIDADE**, charged from `maze11-short`: three goals
+  `SUCCEEDED`, each within 45 s, zero Nav2 errors, zero extrapolations, `worldToMap`
+  and `invalid source`, zero falls, zero major route changes. **APROVADO** — Worst
+  target 27,9 s, and the durations per target (send) are ZZXQ006QXZZ/4,8/ZZXQ008QXZZ,
+  16,5/15,8/5,8 and 27,9/21,3/5,3 s;
+- **port of DESEMPENHO crossing**, with targets separated by at least the
+  horizon of MPPI, or preferably the autonomous exit itself in 600 s. The limit of
+  0,05 m/s still goes there, untouched. ** NO EXECUTADO. **
 
-Os números de percurso do `maze11-short` (0,0383 / 0,0342 / 0,0447 m/s) ficam
-registrados e **não são critério de nada**. Também não são regressão: a linha de
-base do maze11 em `gait_go2.yaml` é 0,0399 e estes dão média 0,0391. O que
-melhorou é a razão de trabalho em vx, de 6,2% para 15,6–22,3% — o robô passa
-duas a três vezes mais tempo com avanço efetivo, e isso NÃO virou velocidade
-média. É exatamente a distância entre o limite de MÁQUINA, que esta sessão
-atacou e fechou, e o limite de DECISÃO DE TRAJETO, isolado em
-`ml35-f5-clock-fanout.md` e ainda de pé.
+`maze11-short` (0,0383 / 0,0342 / 0,0447 m/s) are registered and ** are not a
+criterion**. They are also not regression: the baseline of Maze11 in `gait_go2.yaml` is
+ZZXQ005QXZZ and these give average 0,0391. What has improved is the working ratio in vx,
+from 6,2% to ZZXQ008QXZZ–ZZX0009QXZZ — the robot spends two to three times more time
+with effective advancement, and this has NOT become average speed. It is exactly the
+distance between the limit of MACHINE, which this session attacked and closed, and the
+limit of DECISION DE TRAJETO, isolated in `ml35-f5-clock-fanout.md` and still standing.
 
-O estouro de prazo da corrida 2 caiu na QUARTA meta, já na sequência reciclada,
-fora do contrato de três. Fica como sinal de variabilidade — uma em trinta metas
-encerradas — e não invalida o portão curto.
+The 2 race's deadline has fallen on the QUARTA goal, already in recycled sequence,
+outside the three-party contract. It remains a sign of variability — one in thirty goals
+closed — and does not invalidate the short gate.
 
-**A marcha ficou verificada por essas mesmas três corridas:** tilt de pico
-1,06–1,18°, folga de carcaça 0,448 m, zero quedas, zero `cmd_vx` negativo.
-Decimar o broadcaster não degradou o andar.
+* *The march was verified by these same three races: ** peak tilt 1,06–1,18°, carcass
+clearance 0,448 m, zero falls, zero `cmd_vx` negative. Deciding the broadcaster didn't
+degrade the floor.
 
-**`Control loop missed` é métrica, não bloqueio.** A faixa de 8,6–10,4 Hz
-isoladamente não informa frequência nem gravidade. O smoke da exploração deve
-registrar total de avisos, avisos por minuto, maior sequência consecutiva e
-correlação com meta parada ou comando zero. Só perfilar `nav2_container` e
-`maze_explorer` se houver sequência sustentada abaixo da frequência desejada COM
-paradas correlacionadas.
+**`Control loop missed` is metric, not blocking.** The track from 8,6–10,4 Hz alone does
+not report frequency or severity. The farm smoke shall record total warnings, warnings
+per minute, greater consecutive sequence and correlation with zero stop or command. Only
+profile `nav2_container` and `maze_explorer` if there is sustained sequence below the
+desired frequency ZZXQ005QXZZ correlated stops.
 
-**O `maze_explorer` a 76% ocioso NÃO justifica perfilamento agora.** 76% de um
-núcleo é custo, não falha funcional, e o valor ocioso não é a medição certa da
-Etapa 4 — a extração de fronteiras só roda no estado `selecting`. A medição
-certa é o smoke. Perfilar só se ele mostrar extração acima de 100 ms, controller
-perdendo ciclos continuamente, exploração sem selecionar novas fronteiras, TF
-regredindo, carga impedindo a percepção, ou tempo de saída incompatível com
-600 s.
+**The `maze_explorer` to 76% idle does not justify profiling now.** 76% of a core is
+cost, not functional failure, and idle value is not the right measurement of Step 4 —
+the extraction of borders only runs in the state `selecting`. The right measurement is
+the smoke. Profile only if it shows extraction above 100 ms, controller losing cycles
+continuously, exploration without selecting new borders, ZZXQ00006QXZZ regressing, load
+preventing perception, or output time incompatible with ZZX0007QXZZ s.
 
-**Próximo bloqueio real: a percepção no Aquila.** Confirmar com captura
-limitada: `/demo/camera/camera_info` chegando ao módulo, imagem efetivamente
-processada, detecção em pelo menos 3 de 5 quadros, pose da saída no frame
-correto, CPU do detector, TF permanecendo ≥99,5% e controller sem degradação
-material. Se a CPU do detector interferir, aumentar **apenas** `sample_stride` e
-repetir — não mexer no MPPI junto.
+* *Next real lock: perception in Aquila.** Confirm with limited capture:
+`/demo/camera/camera_info` reaching the module, image effectively processed, detection
+in at least ZZX0001QXZZ from ZZX0002QXZZ frames, exit pose in the correct frame,
+detector CPU, TF remaining ≥ZZXQ005QXZZ and controller without material degradation. If
+the detector CPU interferes, increase **only** `sample_stride` and repeat — do not touch
+ZZXQ008QXZZ together.
 
-**Sequência acordada até o fechamento:** contrato/documentação → percepção →
-smoke da exploração → diagnóstico só se o smoke falhar → três partidas frias →
-relatório final e limpeza. Não aumentar `vx_max` antes disso: a folga de
-carcaça de ~6,5 cm continua pequena.
+* *Agreed sequence until closing: ** Contract/documentation → perception → exploitation
+smoke → diagnosis only if smoking fails → three cold matches → final report and
+cleaning. Do not increase `vx_max` before this: the carcass clearance of ~6,5 cm remains
+small.
 
-**Armadilha nova, que custou uma corrida inteira de 180 s.** Logo depois de
-recriar o container `sim`, `/clock` aparece no grafo mas não entrega mensagem a
-assinante NOVO por alguns minutos. Qualquer script com `use_sim_time: True` que
-suba nessa janela lê relógio parado: RTF 0,000, idade da nuvem −240 s, 100% de
-carimbos "no futuro". As colunas que não usam o relógio do nó continuavam
-válidas, mas a corrida foi descartada e refeita. Antes de medir, confirme
-entrega de verdade (`ros2 topic hz /clock`), não presença no grafo — e note que
-o mapa do SLAM é `/map`, não `/demo/map`.
+* *New armadilla, which cost a whole race of 180 s.** Shortly after recreating the `sim`
+container, `/clock` appears in the graph but does not deliver a message to a subscriber
+NOVO for a few minutes. Any script with `use_sim_time: True` that climbs into this
+window reads clock stopped: ZZXQ005QXZZ ZZXQ006QXZZ, cloud age −240 s, ZZXQ008QXZZ
+stamps "in the future". The columns that did not use the knot clock remained valid, but
+the race was discarded and redone. Before measuring, confirm real delivery (`ros2 topic
+hz /clock`), not presence in the graph — and note that the map of SLAM is `/map`, not
+`/demo/map`.
 
-### Sessão 28/08 — busca autônoma implementada; portão de estabilidade ainda REPROVADO
+### 28/08 — autonomous search implemented; stability gate still REPROVADO
 
-Evidência: **`docs/results/ml35-f5-busca-autonoma.md`** (`PENDING EXECUTION`).
+Evidence: **`docs/results/ml35-f5-busca-autonoma.md`** (`PENDING EXECUTION`).
 
-A demonstração de saída autônoma do labirinto está **implementada de ponta a
-ponta e instalada**, e **nenhuma corrida de aceitação foi executada**. As duas
-frases valem ao mesmo tempo, e a segunda é a que decide se a fase fecha.
+The autonomous output demonstration of the labyrinth is**implemented from end to end and
+installed**, and **no acceptance race was performed**. The two sentences are valid at
+the same time, and the second is the one that decides if the phase closes.
 
-**Fechado (host):**
+**Close (host):**
 
-| Peça | Onde roda |
+| Ask. | Where it spins |
 |---|---|
-| `frontier.py` + `maze_explorer` (fronteiras, blacklist, prazos, JSON) | módulo |
-| `ExplorationGrid` (`allow_unknown: false`) + `nav_to_pose_exploration.xml` | módulo |
-| `maze_exit_detector` (painel magenta, confirmação 3 de 5) | módulo |
-| painel magenta no `quadruped_maze11.sdf` | host |
-| `maze_escape_validator` → `/demo/maze/escaped` | **host, só simulação** |
-| botões e HUD de busca no cockpit | cockpit |
+| `frontier.py` + `maze_explorer` (borders, blacklist, deadlines, JSON) | module |
+| `ExplorationGrid` (`allow_unknown: false`) + `nav_to_pose_exploration.xml` | module |
+| `maze_exit_detector` (magenta panel, confirmation 3 by 5) | module |
+| magenta panel on `quadruped_maze11.sdf` | host |
+| `maze_escape_validator` → `/demo/maze/escaped` | **host, only simulation** |
+| buttons and HUD search in cockpit | cockpit |
 
-Suítes de host: contrato **150**, `demo_navigation` **25**, `demo_perception`
-**33**, cockpit **169**. Nenhuma delas mede navegação.
+Host suites: contract **150**, `demo_navigation` **25**, `demo_perception` **33**,
+cockpit **ZZXQ005QXZZ**. None of them measure navigation.
 
-**O portão continua sendo o bloqueio, e ele reprovou.** Última corrida
-(`artifacts/maze11-short-gate.csv`): 37,1 s, 0,69 m, **0,0185 m/s**, `cmd_vx`
-não-nulo em 18,7% das amostras — **abaixo do piso de 0,05 m/s**, e sem 3/3
-metas. A corrida anterior, antes de `restamp_tf: true`, tinha o robô
-**congelado** (`cmd_vx` zero em 150 s). O parâmetro destravou o comando e **não
-fechou o portão**.
+* * The gate remains the lock, and it failed. ** Last race
+(`artifacts/maze11-short-gate.csv`): 37,1 s, 0,69 m, **0,0185 m/s**, `cmd_vx` non-null
+in 18,7% of the samples — **below the floor of ZZXQ006QXZZ m/s**, and without
+3/ZZXQ008QXZZ targets. The previous race, before `restamp_tf: true`, had the
+robot**frozen** (`cmd_vx` zero in 150 s). The parameter unlocked the command and **did
+not close the gate**.
 
-`restamp_tf` foi verificado como parâmetro real do `slam_toolbox` do Jazzy
-(`slam_toolbox_common.hpp:177`, e `restamp_tf: false` nos cinco
-`mapper_params_*.yaml` de `/opt/ros/jazzy/share`) — não é YAML ignorado em
-silêncio. `transform_timeout` fica em 0,2 como exigido.
+`restamp_tf` was verified as a real parameter of Jazzy `slam_toolbox`
+(`slam_toolbox_common.hpp:177`, and `restamp_tf: false` in the five
+`mapper_params_*.yaml` of ZZXQ005QXZZ) — it is not ZZXQ006QXZZ ignored silently.
+`transform_timeout` is in ZZXQ008QXZZ as required.
 
-**`nav_trial.py` passou a arquivar a evidência por meta.** Antes o desfecho de
-cada ação morria no stdout e a meta em voo no fim do ensaio nunca era
-registrada — um portão de 3 metas relatava 2. Agora sai um CSV irmão
-`<csv>-metas.csv` com alvo, desfecho, `status`, `error_code`/`error_msg` do
-Nav2 e trocas de rota **daquela** meta, e cada amostra de telemetria carrega
-`goal_index`.
+**`nav_trial.py` started archiving the evidence by goal.** Before the outcome of each
+action died in the stdout and the goal in flight at the end of the trial was never
+recorded — a gate of 3 goals reported 2. Now comes out a CSV brother `<csv>-metas.csv`
+with target, outcome, ZZXQ005QXZZ, ZZXQ006QXZZ/`error_msg` of Nav2 and route
+changes**from that** goal, and each telemetry sample carries ZZXQ008QXZZ.
 
-**Risco aberto que precede qualquer conclusão sobre percepção:** o RAW da câmera
-não atravessa mais o fio desde `ml35-f5-camera-comprimida.md`. O `SetRemap` de
-`demo_bringup/launch/perception.launch.py` religa a imagem do detector
-automaticamente, **mas `/demo/camera/camera_info` não é remapeado**. Sem ele o
-detector publica detecção e nunca publica pose — falha silenciosa. Checar
-`ros2 topic hz /demo/camera/camera_info` **no módulo** antes de culpar a visão.
+* * Open risk that precedes any conclusion about perception: ** Camera RAW no longer
+crosses the wire since `ml35-f5-camera-comprimida.md`. `SetRemap` by
+`demo_bringup/launch/perception.launch.py` automatically reconnects the detector image,
+but `/demo/camera/camera_info` is not remapped**. Without it the detector publishes
+detection and never publishes pose — silent failure. Check ZZXQ005QXZZ ** in the
+module** before blaming the vision.
 
-### Sessão 27/08 (parte 3) — mecanismo achado: o plano global alterna a 1 Hz. `clearing: false` REPROVADO
+### 27/08 (Part 3) — mechanism found: the global plan alternates 1 Hz. `clearing: false` ZZX005QXZZ
 
-Evidência: **`docs/results/ml35-f5-memoria-costmap.md`**.
+Evidence: **`docs/results/ml35-f5-memoria-costmap.md`**.
 
-**Causa raiz, lendo `/plan` a cada 5 s numa meta presa (0,0) → (0,8):**
+* *Causes root, reading `/plan` every 5 s in a stuck target (0,0) → (0,8):**
 
-| t | comprimento | rumo inicial |
+| t | length | initial course |
 | ---: | ---: | ---: |
-| +5 s / +10 s | **11,49 m** | 173° — rota verdadeira |
-| +15 s / +20 s | **8,59 m** | 89° — atravessa parede não vista |
+| +5 s / +10 s | **11,49 m** | 173° — true route |
+| +15 s / +20 s | **8,59 m** | 89° — cross wall not seen |
 | +25 s / +30 s | 8,66 / 8,81 m | 35° / 18° |
 
-Os 11,5 m batem com a geodésica offline (12,23 m). Os 8,6 m só existem porque
-`allow_unknown: true` torna o desconhecido barato. **O MPPI recebe um caminho
-que inverte 90–180° a cada segundo** — daí girar sem transladar. Completa o
-achado da parte 2: lá ficou provado que o sintoma some com meta boa; aqui está
-o mecanismo pelo qual a meta ruim o produz.
+The 11,5 m match the offline geodesic (12,23 m). The 8,6 m only exist because
+`allow_unknown: true` makes the unknown cheap. **The MPPI receives a path that reverses
+ZZXQ005QXZZ–180° every second** — then rotates without moving. Completes the finding of
+part 2: there it was proven that the symptom disappears with good goal; here is the
+mechanism by which the bad goal produces it.
 
-**Experimento reprovado — não repita.** `clearing: false` no `obstacle_layer`
-global ("dar memória ao mapa") melhorou margem (deslocamento 0,19 → 1,04 m,
-razão de trabalho 0,0% → 3,9%) e **não mexeu no mecanismo**: o plano continuou
-alternando 11,66 ↔ 8,77 m, zero metas. Lendo `costmap_raw`, com ele ligado
-**150 de 161 células da reta até a meta ficaram em 255 (desconhecido)**.
+* *A failed experiment — do not repeat.** `clearing: false` no ZZX0001QXZZ global
+("memory map") improved margin (movement 0,19 → 1,04 m, working ratio 0,0% →
+ZZXQ005QXZZ) and ** did not move the mechanism**: the plan continued alternating
+ZZXQ006QXZZ ↔ 8,77 m, zero goals. Reading `costmap_raw`, with it connected **150 of 161
+straight cells to the goal were left in 255 (unknown)**.
 
-`clearing` não é "esquecer obstáculo" — é o raytrace, e o raytrace é o **único**
-mecanismo que torna desconhecido em LIVRE nessa camada. Desligá-lo deixa o mapa
-permanentemente desconhecido e torna o atalho **mais** atraente. A correção
-agrava a causa que ataca. Travado por `tests/test_module_params_mount.py`.
+`clearing` is not "forget obstacle" — it is raytrace, and raytrace is the only mechanism
+that makes LIVRE unknown in this layer. Turning it off leaves the map permanently
+unknown and makes the shortcut More attractive. Correction worsens the cause it attacks.
+Locked by `tests/test_module_params_mount.py`.
 
-**O que resolve** é persistir ocupado *e* livre, e a camada de obstáculo tem um
-botão só para os dois. É mapa de `slam_toolbox` na `static_layer` (já definida e
-inerte), com `allow_unknown: true` mantido. Bloqueio real: o
-`pointcloud_to_laserscan` exige **rebuild arm64 nativo no módulo**.
+* * What solves** is to keep busy * and* free, and the obstacle layer has a button only
+for the two. It is a map of `slam_toolbox` on `static_layer` (already defined and
+inert), with `allow_unknown: true` maintained. Real lock: `pointcloud_to_laserscan`
+requires **rebuild arm64 native in the module**.
 
-**Infraestrutura entregue:** `compose.module.yml` monta
-`ros2_ws/src/demo_navigation/config` sobre `/ws/src/demo_navigation/config`
-(o **alvo final do symlink**, não o caminho instalado — montar no instalado
-seria silencioso). **Parâmetro no módulo passou a custar `sync`, não `build`.**
+**Infrastructure delivered:** `compose.module.yml` mounts
+`ros2_ws/src/demo_navigation/config` over ZZX0002QXZZ (the final target of the
+symlink**, not the path installed — mounting on the installed would be quiet). **
+Parameter in the module came to cost `sync`, not `build`.**
 
-**Anomalia aberta:** o costmap global marca primeira célula ≥ 253 a **0,55 m em
-+y**, onde `maze_fit.py` mede **3,47 m de pista livre**. Medir antes de rodar o
-SLAM — um mapa persistente herdaria o erro em definitivo.
+* *Open Anomalia:** the global costmap brand first cell ≥ 253 to **0,55 m in +y**, where
+`maze_fit.py` measures **3,47 m freeway**. Measure before running SLAM — a persistent
+map would inherit the error definitively.
 
-### Sessão 27/08 (parte 2) — PROVADO no HIL: 8 de 8 metas cumpridas, razão de trabalho 0,0% → 37,5%
+### 27/08 (Part 2) — PROVADO No HIL: 8 by ZZXQ006QXZZ met goals, working ratio 0,0% → ZZXQ008QXZZ
 
-Evidência: **`docs/results/ml35-f5-rota-conectada.md`** + os dois CSVs ao lado.
-A/B com minutos de intervalo, **HIL real** (Nav2 no Aquila AM69), mesmas
-imagens, mesmos parâmetros, nada reconstruído. **Única variável: a geometria da
-meta.**
+Evidence: **`docs/results/ml35-f5-rota-conectada.md`** + the two CSVs next door. A/B
+with minutes apart, real **HIL** (Nav2 in Aquila ZZX0002QXZZ), same images, same
+parameters, nothing rebuilt. **Only variable: the geometry of the goal.**
 
-| métrica | rota conectada | controle — patrulha (0; 8) |
+| metric | route connected | control — patrol (0; 8) |
 | --- | ---: | ---: |
-| **razão de trabalho `vx`** | **37,5%** | **0,0%** |
-| `cmd_vx` ≈ 0 | 12,9% | 98,6% |
-| deslocamento líquido | **7,11 m** | 0,19 m |
-| eficiência de trajeto | 57,2% | 16,2% |
-| **metas cumpridas** | **8 de 8** | 0 em 120 s |
-| deriva líquida de yaw | **+1,1°** em 240 s | **−186,8°** em 120 s |
+| ** Working Reason `vx`** | **37,5%** | **0,0%** |
+| `cmd_vx`  | 12,9% | 98,6% |
+| liquid displacement | **7,11 m** | 0,19 m |
+| path efficiency | 57,2% | 16,2% |
+| **mets completed** | **8 of 8** | 0 in 120 s |
+| liquid drift from yaw | **+1,1°** in 240 s | **−186,8°** in 120 s |
 
-A razão de trabalho nunca passou de 8,6% em condição alguma testada neste
-projeto (CPU, `/clock`, amostragem do MPPI, câmera comprimida, Ethernet,
-correção da BT). Foi a 37,5% sem tocar em nada além da meta. Os 57,2% de
-eficiência reproduzem os 57% medidos no host em 21/08 — o módulo sempre foi
-capaz disso.
+The working reason has never gone beyond 8,6% in any condition tested in this project
+(CPU, `/clock`, MPPI sampling, compressed camera, Ethernet, BT correction). It was
+ZZXQ005QXZZ without touching anything but the goal. Efficiency ZZXQ006QXZZ reproduces
+57% measured on the host in ZZXQ008QXZZ/08 — the module has always been able to do so.
 
-**O giro unidirecional da §10 não é defeito de controlador.** Com plano válido o
-`cmd_wz` alterna 45,2% / 51,3% e a deriva é +1,1° em quatro minutos. Com meta
-atrás de parede volta a ser unidirecional — **e com o sinal invertido** em
-relação à §10, o que mata a família "assimetria de critic" / "erro de sinal na
-guinada": erro de sinal não troca de sinal.
+* * The unidirectional spin of §10 is not a controller defect. With valid plan the
+`cmd_wz` alternates 45,2% / 51,3% and the drift is +1,1° in four minutes. With meta
+behind wall back to be unidirectional — **and with the inverted sign** in relation to
+§ZZXQ005QXZZ, which kills the family "asymmetry of criticism" / "sign error in turn":
+signal error does not change signal.
 
-**Consequência para o portão.** "Goal Nav2 `SUCCEEDED` com o robô de pernas,
-Nav2 no módulo" foi cumprido **oito vezes numa corrida**. O que reprovava era o
-protocolo de 8 m sobre metas de patrulha. O portão do F5 tem de ser reescrito
-sobre rota conectada ou sobre mapa persistido antes de voltar a ser cobrado.
+* *Consequence to the gate. ** "Goal Nav2 `SUCCEEDED` with the leg robot, Nav2 in the
+module" was completed eight times in a race**. What I failed was the 8 m protocol on
+patrol targets. The F5 gate has to be rewritten on connected route or on persisted map
+before being charged again.
 
-**Resta déficit real, agora mensurável:** 37,5% e 0,0454 m/s médio ainda estão
-abaixo de `vx_max` 0,15 m/s. Sintonia de critic só faz sentido a partir daqui.
+* ==References====External links== 37,5% and 0,0454 m/s are still below `vx_max` 0,15
+m/s. Critical tune only makes sense from here.
 
-**Armadilha nova:** toda meta do maze11 tem `x` negativo, e
-`--goals -1.50,...` é lido pelo argparse como flag — o script imprime `usage` e
-sai **0**. Com `2>/dev/null` vira corrida silenciosa que não faz nada. Use
-sempre `--goals=`. Documentado no próprio `nav_trial.py`.
+* *New armadilla:**Every target of the Maze11 has negative `x`, and `--goals -1.50,...`
+is read by the argparse as flag — the script prints `usage` and exits **0**. With
+`2>/dev/null` turns silent race that does nothing. Always use ZZXQ005QXZZ. Documented in
+`nav_trial.py` itself.
 
-### Sessão 27/08 (parte 1) — as metas do ensaio estão atrás de parede; o plano global atravessa parede
+### 27/08 (Part 1) — the test targets are behind the wall; the global plan crosses the wall
 
-Evidência e números: `docs/ml35/proximos-passos-navegacao.md` §11. Medido
-**offline**, sem bancada, sem ROS e sem Gazebo — só leitura do STL do maze11,
-com a ferramenta nova `scripts/maze_geodesic.py` (6 guardas em
-`tests/test_maze_geodesic.py`, três verificadas por mutação).
+Evidence and numbers: `docs/ml35/proximos-passos-navegacao.md` §11. Measure **offline**,
+without bench, without ROS and without Gazebo — read only the STL of the Maze11, with
+the new tool `scripts/maze_geodesic.py` (ZZXQ005QXZZ guards in ZZXQ006QXZZ, three
+verified by mutation).
 
-**As quatro `MAZE11_GOALS` têm parede na linha reta.** A geodésica pelo espaço
-navegável é 1,53× a 4,22× a reta, e do spawn o robô enxerga, com oclusão,
-**19,6%** do espaço livre dentro dos 8 m de `obstacle_max_range`.
+* *The four `MAZE11_GOALS` have a straight wall. The geodesic for navigable space is
+1,53× the 4,22× the straight, and from spam the robot sees, with occlusion, **19,6%**
+the free space within the 8 m ZZX005QXZZ.
 
-Com `global_costmap` rolante **sem `static_layer` e sem mapa** e o NavFn em
-`allow_unknown: true`, o plano dessas metas atravessa parede não observada —
-`SUCCEEDED`, caminho bonito no RViz e no cockpit, **zero erro ou log**.
-Corrobora com dado já no repositório: o caminho medido na §8 tinha ~7,0 m para
-uma meta cuja rota real é 12,23 m e cuja própria reta é 8,00 m.
+With `global_costmap` escalator **without `static_layer` and without map** and the NavFn
+in `allow_unknown: true`, the plan of these goals crosses unobserved wall — `SUCCEEDED`,
+beautiful path in the RViz and in the cockpit, **zero error or log**. Corroborates with
+data already in the repository: the path measured in §8 had ~ZZXQ005QXZZ m for a goal
+whose real route is ZZXQ006QXZZ m and whose own straight is 8,00 m.
 
-**Consequência de método:** as §§7–10 mediram o MPPI com uma entrada inválida.
-Isso não reabre as cinco hipóteses refutadas da §1, mas nenhuma conclusão sobre
-critics sobrevive — o teste de desligar critic desce de prioridade.
+* ==References== ** §§7–10 measured MPPI with an invalid entry. This does not reopen the
+five refuted hypotheses of §1, but no conclusion about critics survives — the critical
+off test goes down from priority.
 
-**A ordenação que a §9 procurou por bearing e não achou** é por distância até a
-primeira parede na reta: 0,96 m → 0,00 m de deslocamento; 3,88 m → 0,07 m;
-3,90 m → 0,10 m. O corte cai no horizonte do MPPI (1,44 m).
+* * The ordination that ¢Ü9 searched for bearing and did not find** is by distance to
+the first wall on the line: 0,96 m → 0,00 m displacement; ZZX0003QXZZ m → 0,07 m;
+ZZXQ005QXZZ m → ZZXQ006QXZZ m. The cut falls on the horizon of MPPI (ZZXQ008QXZZ m).
 
-**Próximo passo, barato e decisivo, no host, sem tocar em imagem:** rodar a rota
-conectada do `maze_route.py` (0 de 9 pernas com parede na reta, 100% visível em
-todas, contra 4 de 4 bloqueadas na patrulha). Comando pronto na §11.
+* *Next step, cheap and decisive, in the host, without touching the image: ** Rotate the
+connected route of `maze_route.py` (0 of ZZX0002QXZZ legs with wall on the straight,
+100% visible in all, against 4 of ZZXQ005QXZZ blocked on patrol). Command ready at §11.
 
-**Persistir o mapa — pedido do operador — não é frente nova: é ligar o que já
-está na árvore.** O `static_layer` do Go2 já está definido e inerte com o
-procedimento ao lado, e o caminho diff-drive já navega sobre
-`maps/warehouse.{pgm,yaml}`. Os dois bloqueios reais: `slam_params.yaml` tem
-`base_frame: base_link` (parâmetro, não arquitetura) e o `slam_toolbox` consome
-`LaserScan`, enquanto o `/demo/scan` do Go2 é o anel degenerado que o delta 3 do
-`nav2_params_go2.yaml` já mediu como **zero obstáculos**. O dado bom é
-`/demo/scan_cloud`, e achatá-lo é `ros-jazzy-pointcloud-to-laserscan` (estoque,
-2.0.2 no apt do Jazzy, ainda não em imagem nenhuma). **Sem AMCL** nesta
-topologia: a odometria do Gazebo é verdade de terreno e `map`→`odom` já é a
-identidade do `odom_tf`.
+* *Persisting the map — operator's request — is not a new front: it is connecting what
+is already in the tree.** Go2 `static_layer` is already set and inert with the procedure
+next door, and the diff-drive path already navigates over `maps/warehouse.{pgm,yaml}`.
+The two real locks: `slam_params.yaml` has `base_frame: base_link` (parameter,
+non-architecture) and `slam_toolbox` consumes ZZXQ005QXZZ, while Go2's ZZXQ006QXZZ is
+the degenerate ring that 3 delta of ZZXQ008QXZZ has already measured as **zero
+obstacles**. The good data is `/demo/scan_cloud`, and flattening it is
+`ros-jazzy-pointcloud-to-laserscan` (touch, 2.0.2 in Jazzy's apt, not yet in any image).
+**No AMCL** in this topology: Gazebo's odometry is true of terrain and `map`→`odom` is
+already the identity of `odom_tf`.
 
-### Sessão 26/08 (tarde) — reset do cockpit, telemetria do alvo, protocolo de campanha
+### 26/08 (late) — cockpit reset, target telemetry, campaign protocol
 
-Evidência completa: `docs/results/cockpit-reset-nao-destrutivo.md`.
+Full evidence: `docs/results/cockpit-reset-nao-destrutivo.md`.
 
-**Defeito grave fechado: o botão de reset do cockpit apagava o robô.**
-`/demo/sim/reset` usava `ControlWorld.reset.all`, que devolve o mundo ao SDF de
-origem — e o robô e as duas câmeras de cena são INSERIDOS depois da carga
-(`ros_gz_sim create`), logo não estão nele. Medido: `/joint_states` 999 Hz →
-morto, `/demo/imu` 996 Hz → morto, `/demo/odom` 49,6 Hz → morto,
-`gz model -m demo_robot` → `No model named <demo_robot>`.
+* * Closed serious defect: the cockpit reset button erased the robot. `/demo/sim/reset`
+used `ControlWorld.reset.all`, which returns the world to SDF of origin — and the robot
+and the two scene cameras are INSERIDOS after loading (`ros_gz_sim create`), so they are
+not on it. Measure: `/joint_states` 999 Hz → dead, `/demo/imu` ZZXQ008QXZZ Hz → dead,
+`/demo/odom` 49,6 Hz → dead, `gz model -m demo_robot` → `No model named <demo_robot>`.
 
-O modo de falha era o pior deste projeto: relógio seguia a 999 Hz e os sensores
-órfãos a 10 Hz, então **o cockpit ficava inteiro verde apontando para uma planta
-inexistente**, sem uma linha de log. Recuperar exigia reiniciar o `sim`.
+The failure mode was the worst of this project: clock followed 999 Hz and orphaned
+sensors at 10 Hz, then **The cockpit became whole green pointing to a nonexistent
+plant** without a log line. Recover required rebooting of `sim`.
 
-Agora o reset TELEPORTA o robô para a pose de nascimento do cenário, pelo mesmo
-`/demo/sim/set_entity_pose` que as câmeras já usavam. Verificado: robô volta de
-(2,0; −1,5) para (0,00003; −0,010), `/joint_states` 1000 Hz, `/demo/imu` 974 Hz,
-`/demo/odom` 49,9 Hz, e os cinco modelos seguem no mundo. O relógio **não** volta
-a zero, de propósito: um salto de tempo para trás invalidaria o buffer de TF do
-Nav2 e o `controller_manager`.
+Now the reset TELEPORTA the robot for the birth pose of the scenario, by the same
+`/demo/sim/set_entity_pose` that the cameras already used. Verified: robot lap from
+(2,0; −1,5) to (0,00003; −ZZXQ005QXZZ), ZZXQ00006QXZZ 1000 Hz, ZZXQ008QXZZ 974 Hz,
+ZZXQ0010QZZ 49,9 Hz, and the five models follow in the world. The watch **does not**
+return to zero, on purpose: a jump backwards would invalidate Nav2's TF buffer and
+`controller_manager`.
 
-> "reassenta sozinho" estava escrito aqui e era falso — corrigido na sessão
-> seguinte, ver abaixo.
+> "Resent alone" was written here and was false — corrected in session
+> Next, see below.
 
-**Telemetria do alvo no cockpit, medida no AM69 real.** `target_monitor` publica
-`/demo/target/status` (CPU, memória, temperatura, load) e
-`/demo/target/ops_log` (eixos comandados em SI, manche e odom, em texto curto).
-O painel de logs deixou de depender de `/rosout` bruto — `/rosout` segue
-assinado só como reserva filtrada para avisos e erros. Temperatura conferida
-contra o sensor: 34,974 °C reportado contra `thermal_zone1/6` lendo 34498
-milésimos no mesmo instante; as sete zonas entre 32,1 e 34,5 °C. Custo do nó:
-**4,3% de um núcleo** em 800% disponíveis (`use_sim_time: False` mantém isso
-barato — ele não assina `/clock`).
+* *Telemetry of the target in the cockpit, measured in the actual AM69. `target_monitor`
+publishes `/demo/target/status` (CPU, memory, temperature, load) and
+`/demo/target/ops_log` (axis commanded in ZZXQ005QXZZ, manche and odom, in short text).
+The log panel no longer depends on crude `/rosout` — ZZX0007QXZZ is signed only as
+filtered reservation for warnings and errors. Temperature checked against sensor:
+ZZXQ008QXZZ °C reported against `thermal_zone1/6` reading 34498 thousandths at the same
+time; the seven zones between 32,1 and 34,5 °C. Cost of the node: **4,3% of a core** in
+800% available (`use_sim_time: False` keeps it cheap — it does not sign `/clock`).
 
-**As telas sobrevivem aos dois reinícios.** Sonda com o cliente rosbridge do
-próprio cockpit, um assinante por painel: restart do `sim` e restart da
-aplicação no alvo não perdem painel nenhum, e o WebSocket não cai (nesta
-topologia `cockpit` e `hmi` rodam no host). O único zero é `/demo/cmd_vel_si`
-sem meta ativa, que **não é defeito** — o Nav2 subiu `Managed nodes are active`
-e o `velocity_smoother` só publica depois da primeira meta; o canal novo diz
-isso em texto.
+**The screens survive the two restarts.** Probe with the rosbridge client of the cockpit
+itself, a panel subscriber: `sim` restore and restore of the application on the target
+do not lose any panel, and WebSocket does not fall (in this topology `cockpit` and
+ZZX0002QXZZ run on the host). The only zero is `/demo/cmd_vel_si` without active target,
+which **is not a defect** — Nav2 went up `Managed nodes are active` and ZZXQ005QXZZ only
+publishes after the first target; the new channel says so in text.
 
-Uma hipótese foi **testada e descartada**: religar o `<img>` do MJPEG depois que
-o publicador volta. Medido com `curl` na mesma resposta HTTP através de um
-restart do `sim`, os bytes crescem sem interrupção (1,01 MB → 4,61 MB). O
-`web_video_server` mantém inscrição e resposta abertas. Não gaste código nisso.
+One hypothesis was tested and discarded**: reconnect the `<img>` of MJPEG after the
+publisher returns. Measured with `curl` in the same response HTTP through a restort of
+`sim`, bytes grow unbroken (ZZXQ005QXZZ ZZX006QXZZ → 4,61 ZZXQ008QXZZ).
+`web_video_server` keeps registration and response open. Don't spend code on it.
 
-**Protocolo de campanha entregue: `scripts/nav_campaign.py`.** É o elo que
-faltava entre `nav_trial.py` (uma corrida) e `summarize_trials.py` (resume
-replicatas): decide a ORDEM e o que acontece entre pernas. Intercala
-`A B A B A B` em vez de blocar, e repõe robô e costmap antes de cada perna.
-**Só é possível por causa do conserto do reset acima** — uma campanha que
-chamasse o reset antigo entre pernas mediria, da perna 2 em diante, um mundo sem
-robô e sem nada acusando. Dez guardas em `tests/test_nav_campaign.py`, incluindo
-o inverso (a ordem blocada tem de reprovar) e o fato de que `ros2 service call`
-sai 0 mesmo com `success=False`.
+* * Campaign protocol delivered: `scripts/nav_campaign.py`** It is the missing link
+between `nav_trial.py` (a race) and `summarize_trials.py` (resume replicatas): decides
+ORDEM and what happens between legs. Intercala `A B A B A B` instead of blocking, and
+replace robot and costmap before each leg. **It is only possible because of the repair
+of the reset above** — a campaign that called the old reset between legs would measure,
+from the leg ZZXQ005QXZZ onward, a world without robot and with nothing accusing. Ten
+guards in ZZXQ006QXZZ, including the reverse (the blocked order has to fail) and the
+fact that `ros2 service call` leaves ZZXQ008QXZZ even with `success=False`.
 
-Perna de fumaça de 45 s, para provar o laço: trabalho de `cmd_vx` **0,0%**,
-`vx`≈0 em **99,6%**, velocidade 0,0022 m/s. Reproduz o sintoma; n=1 e 45 s não
-decidem nada.
+45 s smoke leg to prove the loop: work by `cmd_vx` **0,0%**, `vx` It reproduces the
+symptom; n=1 and ZZXQ008QXZZ s do not decide anything.
 
-**Duas coisas que esta sessão NÃO fez:**
+**Two things this session didn't do:**
 
-- **O cockpit não foi aberto num navegador.** Não há Chrome nesta máquina e o
-  MCP de automação não dirige o Firefox instalado. Tudo acima foi medido no
-  caminho de dados. O gate visual continua pendente de passada manual.
-- **Controle manual (F4) segue não implementado**, e há um bloqueio novo e
-  concreto: `twist_mux` **não está em nenhuma imagem** e o módulo **não tem rota
-  default** (só a `10.22.1.0/24`), então `apt` não resolve nada lá. O gateway da
-  LAN `10.22.1.1` responde em 0,337 ms e o módulo já tem DNS corporativo — falta
-  só `sudo ip route add default via 10.22.1.1 dev ethernet0`, que precisa ser
-  rodado por quem tem a permissão.
+- * *The cockpit was not opened in a browser.** There is no Chrome on this machine and the
+  MCP automation does not drive Firefox installed. Everything above was measured in
+  the data path. The visual gate is still pending from manual pass.
+- **Manual control (F4) is not implemented**, and there is a new lock and
+  concrete: `twist_mux` ** is not in any image** and the module ** has no default
+  route** (only the `<LAN_CIDR>`), so `apt` does not solve anything there. LAN
+  ZZX0004QXZZ gateway responds to ZZXQ005QXZZ ms and the module already has
+  ZZXQ006QXZZ corporate — only `sudo ip route add default via <LAN_GATEWAY> dev
+  ethernet0` is missing, which needs to be run by those who have permission.
 
-**Próximo portão, na ordem pedida pelo operador:** (1) rota default no módulo e
-F4; (2) campanha A/B real com `nav_campaign.py`, n≥3 intercalado, começando por
-`PathAlignCritic` 14,0 — que é o crítico de maior peso e o suspeito nomeado no
-próprio YAML como quem torna girar melhor que avançar.
+* *Next gate, in order requested by the operator:** (1) default route in module and F4;
+(2) real A/B campaign with `nav_campaign.py`, n
 
-### Sessão 26/08 (noite) — reset não reassentava sozinho: robô colapsava ou se arrastava
+### 26/08 (night) — reset did not reset itself: robot collapsed or dragged
 
-Evidência completa: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
+Full evidence: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
 
-Reportado pelo operador: depois do reset o robô fazia guinada de volta à
-orientação anterior. Investigado com o robô em movimento — não parado, o único
-caso testado na sessão da tarde — e achados DOIS defeitos, ambos silenciosos:
+Reported by the operator: after reset the robot made turn back to the previous
+orientation. Investigated with the robot in motion — not stopped, the only case tested
+in the afternoon session — and found DOIS defects, both silent:
 
-- **teleportar sem reancorar o gait**: `StateTrotting` (controlador C++) captura
-  sua referência de postura (`pcd_`, `yaw_cmd_`) uma única vez, atrás de um
-  trinco que só um comando de caminhada limpa. Com `/demo/cmd_vel*` zerados e a
-  meta cancelada — para excluir o Nav2 como causa — o robô ainda assim se
-  arrastou 0,87 m e girou 135° em 26 s sem nenhum comando publicado;
-- **teleportar sem parar**: `SetEntityPose` preserva a velocidade. Com um fluxo
-  de `/demo/cmd_vel` vivo a 10 Hz durante o reset (o caso real, com o Nav2
-  conduzindo), o robô COLAPSA — `z` de 0,337 m para 0,162 m em 1 s — e fica
-  contorcendo-se 40 s.
+- **Teleport without reanchoring the gait**: `StateTrotting` (C++ controller) capture
+  his posture reference (`pcd_`, `yaw_cmd_`) once, behind a lock that only a clean
+  walk command. With `/demo/cmd_vel*` zeroed out and the target canceled — to exclude
+  Nav2 as a cause — the robot still dragged 0,87 m and turned 135° in ZZXQ005QXZZ s
+  without any published commands;
+- **Teleport non-stop**: `SetEntityPose` preserves speed. With a flow
+  from `/demo/cmd_vel` alive to 10 Hz during reset (the real case, with nav2 driving),
+  the robot COLAPSA — `z` by 0,337 m for 0,162 m in 1 s — and is writhing 40 s.
 
-Corrigido com dois serviços novos no `twist_to_inputs` (único escritor de
-`/control_input`): `/demo/gait/hold` (trotting → fixed stand, robô imóvel,
-`GAIT_STOP_S = 2,0 s` de espera) chamado ANTES do teleporte, `/demo/gait/resume`
-(fixed stand → trotting, `StateTrotting::enter()` reancora `pcd_`/`yaw_cmd_` na
-pose nova) chamado DEPOIS. Melhor esforço: numa planta diferencial os dois
-serviços não existem e isso é caminho normal — mas a ausência entra na própria
-mensagem do `Trigger` de reset, nunca fica silenciosa.
+Fixed with two new services in the `twist_to_inputs` (only ZZX0001QXZZ writer):
+`/demo/gait/hold` (trotting → fixed stand, immobile robot, `GAIT_STOP_S = 2,0 s`
+waiting) called teleporte ANTES, ZZXQ005QXZZ (fixed stand → trotting, ZZXQ006QXZZ
+reancora ZZX0007QXZZ/ZZXQ008QXZZ in new pose) called ZZXQ009QXZZ. Better effort: in a
+differential plant the two services do not exist and this is normal way — but the
+absence enters the message itself of the `Trigger` reset, never stays silent.
 
-Verificado repetindo o caso que falhava (comando vivo a 10 Hz durante o reset):
-robô nunca sai de 0,35-0,36 m de altura, volta a obedecer o mesmo comando depois
-do reset, um segundo reset re-arma. **Verificado também com o robô CAÍDO**
-(tombado 180°, preso em `mode=RECOVER` com `tilt=131°` — esse modo não sai
-sozinho de cabeça para baixo): o reset o recupera de pé, `mode=HOLD`,
-`tilt=0,2°`, `yawSat=0%`, e ele volta a andar normalmente.
+Verified repeating the case that failed (living command to 10 Hz during reset: robot
+never leaves 0,35-ZZX0002QXZZ m in height, again obeys the same command after reset, a
+second reset re-arm. **Checked also with the robot CAIDO** (tombed 180°, stuck in
+`mode=RECOVER` with ZZXQ005QXZZ — this mode does not come out upside down alone): the
+reset recovers it standing, ZZXQ006QXZZ, `tilt=0,2°`, ZZXQ008QXZZ, and it goes back to
+walking normally.
 
-Guardas novos em `test_sim_reset.py` e `test_twist_to_inputs.py`: a ordem
-parar→teleportar→retomar tem de estar nessa sequência no fonte, o comando de
-descida (`2`) sai exatamente uma vez, o hold não tem prazo próprio, e todo
-caminho de saída do handler de reset — inclusive os de erro — tem de retomar o
-gait.
+New guards in `test_sim_reset.py` and `test_twist_to_inputs.py`: the order to
+stop→teleport→retake has to be in this sequence at the source, the drop command (`2`)
+leaves exactly once, the hold has no time limit, and every way out of the reset handler
+— including those of error — has to resume the gait.
 
-### Sessão 26/08 (madrugada) — onde retomar
+### 26/08 (early) — where to resume
 
-Evidência completa: `docs/results/ml35-f5-clock-fanout.md`.
+Full evidence: `docs/results/ml35-f5-clock-fanout.md`.
 
-**O item 1 da sessão anterior (CPU do módulo) está FECHADO.** Não o reabra pelo
-caminho antigo: não é o laço do MPPI (refutado em `ml35-f5-mppi-amostragem.md`) e
-não é a taxa do `/clock` (refutado em 21/08 — estrangular matou a navegação).
+* *The item 1 of the previous session (CPU of the module) is FECHADO.** Do not reopen it
+by the old path: it is not the MPPI loop (refuted in `ml35-f5-mppi-amostragem.md`) and
+it is not the ZZXQ005QXZZ rate (refuted in ZZXQ006QXZZ/08 — strangulation killed
+navigation).
 
-**Era fan-out de assinatura de `/clock`.** Perfilando `/proc/<tid>/stat` por
-thread, o container `nav` gastava **367% de 800% com o robô PARADO**, e 111%
-disso eram três republicadores em Python — `odom_tf`, `cmd_vel_si_to_stick` e
-`nav_control_relay` — que **não chamam o relógio uma única vez** e assinavam
-`/clock` a ~870 Hz só porque `use_sim_time: true` faz o rclpy criar a assinatura.
+* *It was `/clock` subscription fan-out.**Profiling `/proc/<tid>/stat` by thread, the
+`nav` container spent **367% by 800% with the robot ZZXQ005QXZZ**, and 111% of this were
+three republishers in Python — `odom_tf`, ZZXQ008QXZZ and `nav_control_relay` — who did
+not call the clock once** and signed ZZXQ0010QZZ to ~870 Hz just because `use_sim_time:
+true` makes rclpy create the signature.
 
-Corrigido com `use_sim_time: False` nos três. Os três caíram de **111% para
-17,7%**, e `ros2 topic info /clock -v` confirma que nenhum deles assina mais.
-Quatro testes em `demo_bringup/test/test_sim_time_scope.py`, verificados por
-mutação, travam a invariante nos dois sentidos — inclusive o inverso, que é o
-que importa: **nó sem `use_sim_time` não pode chamar `get_clock()`**.
+Fixed with `use_sim_time: False` on all three. The three fell from **111% to 17,7%**,
+and `ros2 topic info /clock -v` confirms that none of them sign anymore. Four
+`demo_bringup/test/test_sim_time_scope.py` tests, verified by mutation, lock the
+invariant in both directions — including the reverse, which is what matters: **No
+ZZXQ005QXZZ cannot call `get_clock()`**.
 
-**O que isso comprou, medido:**
+* * What it bought, measured: *
 
-| | antes | depois |
+|  | before | later |
 | --- | ---: | ---: |
-| recusas `Ignoring the source` | 16 | **0** |
+| refusals `Ignoring the source` | 16 | **0** |
 | `Robot to stop due to invalid source` | 4 | **0** |
-| descartes de costmap | — | **0** |
-| folga da máquina sob navegação | nenhuma | **307% de 800%** |
+| costmap discards | — | **0** |
+| machine clearance under navigation | none | **307% of 800%** |
 
-**O que isso NÃO comprou: movimento.** A corrida de confirmação deu 0,0246 m/s,
-`vx` em zero em **90,7%** das amostras, girando em **90,3%**, e **0 de 2 metas de
-8 m**. Dentro da faixa de ruído já conhecida. Zero quedas.
+* * What it didn't buy: movement. * The confirmation race gave 0,0246 m/s, `vx` at zero
+at **90,7%** of the samples, rotating in **90,3%**, and **0 at ZZXQ005QXZZ targets of 8
+m**. Inside the known noise range. Zero falls.
 
-**Portanto o item 2 da sessão anterior — decisão de trajeto — está agora
-sozinho e sem confundidor.** Com CPU sobrando e sem uma única recusa de sensor, o
-robô continua girando em vez de transladar. Isso não era efeito colateral da CPU.
+* *So the item 2 of the previous session — decision of the route — is now alone and
+without confusion.** With CPU remaining and without a single sensor refusal, the robot
+continues to rotate rather than relocate. This was no side effect of CPU.
 
-**Duas armadilhas descobertas nesta sessão:**
+**Two traps discovered in this session**
 
-- `docker/.env` ainda carrega `MODULE_IP=10.22.1.130`, endereço antigo de
-  bancada, e ele **vence os defaults**. `ssh` funciona assim mesmo porque usa o
-  nome mDNS, então o erro só aparece em `sync`/`build` (`não identifiquei a
-  interface do módulo que carrega 10.22.1.130`). Passe `MODULE_IP=` e `HOST_IP=`
-  explícitos, ou conserte o `.env`.
-- Uma hipótese foi testada e **descartada**: `inflation_radius` 0,55 num corredor
-  de 1,20 m deixaria 10 cm de faixa livre e tornaria girar mais barato que
-  avançar. Medido no `local_costmap`: **64,1% das células com custo 0**, e o que
-  estava à frente era parede real. Não gaste sintonia nisso sem medir de novo.
+- `docker/.env` still loads `MODULE_IP=<MODULE_IP>`, old address of
+  bench, and he beats the defaults**. `ssh` works like this because it uses the mDNS
+  name, so the error only appears in `sync`/`build` (`não identifiquei a interface do
+  módulo que carrega <MODULE_IP>`). Pass explicit `MODULE_IP=` and ZZXQ005QXZZ, or fix
+  ZZXQ006QXZZ.
+- One hypothesis was tested and ** discarded**: `inflation_radius` 0,55 in a corridor
+  from 1,20 m would leave 10 cm of free track and would turn cheaper than advance.
+  Measured in `local_costmap`: **64,1% of cells at cost 0**, and what was ahead was
+  real wall. Don't spend tune on this without measuring again.
 
-**Próximo portão, na ordem:**
+* Next gate, in order:
 
-1. **Consertar o protocolo antes de sintonizar.** n ≥ 3 por condição,
-   intercalado, mediana e faixa. A dispersão de 2,4× em configuração idêntica
-   continua valendo e nenhuma corrida única decide — a desta sessão inclusive.
-2. **Trocar a métrica primária** para razão de trabalho de `cmd_vx` e fração de
-   `vx` ≈ 0. Deram 0,6% e 0,6% em duas corridas distintas, contra 2,4× de
-   dispersão na velocidade média, e medem diretamente o sintoma.
+1. * * Fix protocol before tuning. ** n ≥ 3 by condition,
+   interspersed, median and range. The dispersion of 2,4× in identical configuration
+   remains valid and no single race decides — this session included.
+2. ** Change the primary metric** for `cmd_vx` working ratio and fraction of
+   `vx`  They gave 0,6% and 0,6% in two separate races, against 2,4× of medium
+   velocity dispersion, and measure the symptom directly.
 
-**Instrumentação entregue nesta retomada:** `scripts/nav_trial.py` agora
-imprime e grava o ensaio com as duas métricas, usando as bandas fixas
-`|cmd_vx| <= 0,005 m/s` (quase zero) e `cmd_vx > 0,05 m/s` (trabalho para
-frente). `scripts/summarize_trials.py` resume replicatas por condição sem
-agrupar amostras, mostrando `n`, mediana e faixa observada. O resumo reproduz
-os números históricos (RAW 5,8% de trabalho; comprimido 0,6%), portanto a
-definição nova não muda a linha de base.
+* *Instrument delivered on this resume:** `scripts/nav_trial.py` now prints and records
+the test with both metrics, using fixed bands
+`|cmd vx| <= 0,005 m/s` (quase zero) e `cmd vx > 0,05 m/s` (work for
+front). `scripts/summarize_trials.py` summarizes replications by condition without
+grouping samples, showing `n`, median and range observed. The summary reproduces
+historical numbers (RAW ZZX0003QXZZ working; 0,6% tablet), so the new definition does
+not change the baseline.
 
-O rebuild nativo da imagem arm64 foi concluído no Aquila e os containers foram
-recriados. `module.sh verify` voltou a **3/3**, e o log do `route_server` da
-imagem nova contém somente `AdjustSpeedLimit` (não contém o antigo
-`ReroutingService`). O ensaio n≥3/A-B continua deliberadamente pendente de
-orçamento: cada perna dura até 420 s e a campanha completa exige seis pernas.
-3. **Só então MPPI** (`PathAlignCritic` 14,0 × `PathAngleCritic` 2,0), agora em
-   ensaio limpo, com o costmap medido a cada condição.
+The native rebuild of the arm64 image was completed in Aquila and the containers were
+recreated. `module.sh verify` returned to **3/3**, and the `route_server` log of the new
+image contains only `AdjustSpeedLimit` (does not contain the old ZZXQ005QXZZ). Test n
+3. * *Only then MPPI** (`PathAlignCritic` ZZX0002QXZZ × `PathAngleCritic` 2,0), now in
+   clean test, with costmap measured at each condition.
 
-### Sessão 25/08 (noite) — onde retomar (leia isto antes de tocar em qualquer coisa)
+### 25/08 (night) — where to resume (read this before touching anything)
 
-Evidência completa: `docs/results/ml35-f5-ethernet0-repeticao.md`.
-A orientação anterior desta seção (consertar PHY, trocar cabo, medir depois)
-**foi cumprida e está vencida** — não a repita.
+Full evidence: `docs/results/ml35-f5-ethernet0-repeticao.md`. Previous orientation of
+this section (fix PHY, switch cable, measure later) ** It has been accomplished and is
+unsuccessful** — do not repeat it.
 
-**O enlace está resolvido e comprovado.** `enp0s31f6` a 1000 Mb/s full,
-host `192.168.15.74` ↔ Aquila `192.168.15.122` por `ethernet0`, RTT 0,400 ms,
-rota simétrica nos dois sentidos, `scripts/module.sh verify` retornando **0** com
-as três etapas. A assimetria sumiu de forma estrutural: o Wi-Fi ficou em métrica
-600 contra 100 do cabo, então a `/24` inteira prefere o cabo.
+* *The link is resolved and proven. `enp0s31f6` to 1000 Mb/s full, host `<HOST_IP>` ↔
+Aquila `<MODULE_IP>` by `ethernet0`, ZZXQ005QXZZ ZZXQ006QXZZ ms, symmetric route in both
+directions, `scripts/module.sh verify` returning **ZZXQ008QXZZ** with the three steps.
+The asymmetry disappeared structurally: Wi-Fi remained in metrics 600 versus cable 100,
+so the entire `/24` prefers cable.
 
-**O portão de 8 m continua REPROVADO, e a rede não é a causa.** A hipótese
-`ethernet1`/`ethernet0` que estava aberta aqui está **refutada por medição**: com
-rota correta e enlace limpo, as duas metas de 8 m estouraram o prazo igual.
+* * The 8 m gate continues REPROVADO, and the network is not the cause.** The
+ZZX0002QXZZ/`ethernet0` hypothesis that was open here is **refuted by measurement**:
+with correct route and clean link, the two goals of 8 m burst the same deadline.
 
-**As duas causas medidas, em ordem de tamanho:**
+* * The two causes measured in order of size:**
 
-1. **CPU do módulo.** O Nav2 sozinho consome **600–727% de 800%** no AM69. A
-   percepção soma ~187% e passa da capacidade. Aí a frescura do sensor colapsa:
-   o `collision_monitor` recusou a nuvem do LiDAR 16 vezes com 1,0–1,2 s de
-   defasagem. Com o Nav2 ocioso essa defasagem é de 42 ms — ou seja, é
-   enfileiramento por contenção, **não** transporte. Custo medido: **2,8×** na
-   velocidade média (0,0429 → 0,0155 m/s).
-2. **Decisão de trajeto.** No HIL completo o robô tem `vx` em zero em **79%** das
-   amostras e gira em **93,9%** delas: ele passa o ensaio **girando em vez de
-   transladar**. Sem a câmera o padrão alivia mas não some, e o custo migra para
-   a rota — 18,00 m de caminho para 5,20 m líquidos, **28,9% de eficiência**
-   contra 57% no host. Bate com a hipótese já registrada de `PathAlignCritic`
-   14,0 contra `PathAngleCritic` 2,0, que **segue sem teste de correção**.
+1. **CPU of the module.** Nav2 alone consumes **600–ZZX0002QXZZ by ZZX0003QXZZ** no AM69. A
+   perception adds ~187% and passes capacity. Then the coolness of the sensor
+   collapses: the `collision_monitor` refused the cloud of LiDAR ZZX0002QXZZ times
+   with 1,0–1,2 s lag. With the idle Nav2 this lag is 42 ms — that is, it is line by
+   containment, **no** transport. Measured cost: **2,8×** at average speed (0,0429 →
+   ZZXQ008QXZZ m/s).
+2. **Decision of route.** In the complete HIL the robot has `vx` at zero at **79% ** of
+   samples and rotates in **93,9% ** of them: he passes the essay by spinning instead
+   of transferring**. Without the camera the standard relieves but does not
+   disappear, and the cost migrates to the route — 18,00 m of way to ZZX0002QXZZ m
+   liquids, **28,9% of efficiency** against 57% in the host. It matches the already
+   registered hypothesis of `PathAlignCritic` ZZXQ00006QXZZ against ZZX0007QXZZ
+   ZZXQ008QXZZ, which is followed without correction test**.
 
-**Tirar a câmera do fio NÃO faz a meta passar.** Foi medido: 0,0429 m/s e ainda
-assim 0 de 2 metas. São dois limites independentes, e só um é CPU.
+* *Getting the wire camera doesn't make the goal pass. It was measured: 0,0429 m/s and
+yet 0 by 2 targets. It's two independent limits, and only one is CPU.
 
-**Estabilidade:** zero quedas nas duas corridas, mas o tilt de pico vai de 0,94°
-para **15,66°** justamente na corrida em que o robô anda. O valor baixo do HIL
-completo descreve um robô quase parado, não um robô estável. Folga de carcaça
-segue em **+6,5 cm**.
+* *Stability: ** Zero falls in both races, but the peak tilt goes from 0,94° to
+**15,66°** precisely in the race where the robot runs. The low value of the complete HIL
+describes a robot almost stopped, not a stable robot. Casting off follows in **+6,5
+cm**.
 
-**Corridas 2 e 3 do protocolo n=3 não foram executadas** — a 1 reprovou e o
-mecanismo ficou identificado; repetir gastaria bancada sem informação nova.
+* * 2 and 3 of protocol n=3 were not executed** — 1 failed and the mechanism was
+identified; repeat would spend bench without new information.
 
-**Uma armadilha de método fechada nesta sessão:** `verify` reprovava por
-`/clock` ausente contra um módulo que lia `/clock` a 616 Hz. A etapa 2 coletava
-com `grep /demo/` e depois exigia `/clock`, que não está sob `/demo/`. O teste
-que existia passava o tempo todo porque só checava se a string aparecia no
-arquivo. Corrigido, com teste que falha por mutação.
+* *A closed method trap in this session:** `verify` disapproved by `/clock` absent from
+a module that reads `/clock` to 616 Hz. The 2 stage collected with ZZXQ005QXZZ and then
+required ZZXQ006QXZZ, which is not under `/demo/`. The test that existed passed all the
+time because it only checked if the string appeared in the file. Corrected, with
+mutation failure test.
 
-**FASE 2 DO PLANO JÁ FOI EXECUTADA (25/08, noite).** A câmera comprimida está
-implementada, validada e medida: `docs/results/ml35-f5-camera-comprimida.md`.
-Ela entrega a engenharia (~82× menos fio, CPU do módulo ~711% → ~600%) e **não
-move o portão** — velocidade não melhorou de forma confiável e a razão de
-trabalho piorou (2,1–2,7% contra 5,8%). O `collision_monitor` segue recusando a
-nuvem com ~1,0 s de defasagem e emitindo `Robot to stop due to invalid source`.
-A variável dominante é a **presença** da percepção, não o formato do transporte:
-com percepção no módulo a razão fica em 2–6% em qualquer formato; sem ela, 16,8%.
-Não repita a fase 2 e não volte a discutir formato de imagem.
+**FASE 2 ZZX0002QXZZ ZZX0003QXZZ JÁ FOI ZZXQ005QXZZ (ZZXQ006QXZZ/08, night).** The
+compressed camera is implemented, validated and measured: ZZXQ008QXZZ. It delivers to
+engineering (~82× less yarn, CPU module ~711% → ~600%) and **does not move the gate** –
+speed has not improved reliably and the working reason has worsened (2,1–2,7% vs 5,8%).
+The `collision_monitor` continues to refuse the cloud with ~1,0 s of lag and emitting
+`Robot to stop due to invalid source`. The dominant variable is the **presence** of
+perception, not the format of transport: with perception in the module the ratio is 2–6%
+in any format; without it, 16,8%. Do not repeat phase 2 and do not discuss image format
+again.
 
-**FASE 1 DO PLANO TAMBÉM JÁ FOI EXECUTADA (25/08, noite) E REPROVOU.**
-`time_steps` 96→64 com `model_dt` 0,10→0,15 (horizonte constante, 33% menos
-amostragem) **não reduziu CPU**: ~437% → ~439%. O custo do MPPI aqui não é
-dominado por `batch_size × time_steps`. Evidência:
-`docs/results/ml35-f5-mppi-amostragem.md`. Não adotada; YAML de volta ao
-baseline com o A/B fora do caminho default.
+**FASE 1 DO ZZX0003QXZZ ALSO FOI ZZXQ005QXZZ (ZZXQ006QXZZ/08, night) AND ZZXQ008QXZZ.**
+`time_steps` 96→64 with `model_dt` 0,10→0,15 (constant horizon, 33% less sampling) **
+did not reduce CPU**: ~437% → ~439%. The cost of MPPI here is not dominated by
+`batch_size × time_steps`. Evidence: `docs/results/ml35-f5-mppi-amostragem.md`. Not
+adopted; YAML back to baseline with A/B out of default path.
 
-**LEIA ISTO ANTES DE RODAR QUALQUER ENSAIO NOVO — o método atual não decide.**
-Duas corridas na configuração **idêntica** deram **0,0109 e 0,0265 m/s**,
-dispersão de **2,4×**. O ruído entre corridas é maior que os efeitos procurados,
-então **A/B de n=1 nesta bancada é ininterpretável**. Antes de sintonizar
-qualquer coisa: n ≥ 3 por condição, intercalado, mediana e faixa reportadas.
+**LEIA ISTO ANTES ZZX0003QXZZ RODAR ZZXQ005QZZ ENSAIO NOVO — the current method does not
+decide.** Two races in the **identical** configuration gave **ZZXQ008QXZZ and 0,0265
+m/s**, dispersion of **2,4×**. The noise between races is greater than the desired
+effects, so **A/B of n=1 on this bench is ininterpretable**. Before tuning anything: n ≥
+3 per condition, interspersed, median and reported range.
 
-**As quedas deixaram de ser variância:** 2 em 3 corridas depois da câmera
-comprimida, contra 0 em 2 antes. Sem mecanismo identificado e sem causa
-demonstrada, mas é item de investigação, não nota de rodapé — estabilidade é
-pré-requisito de qualquer meta.
+* * Falls are no longer variance:** 2 in 3 races after camera compressed, against 0 in 2
+before. No mechanism identified and no cause demonstrated, but it is research item, not
+footnote — stability is prerequisite of any goal.
 
-**Ordem sugerida pelos dados para a próxima sessão:** reduzir CPU do Nav2 no
-módulo → tirar a imagem RAW do fio (transporte comprimido até a percepção) →
-só então mexer no MPPI → repetir 420 s / 200 s com n=3.
+* * Order suggested by the data for the next session: ** Reduce Nav2 CPU in the module →
+take the RAW image from the wire (compressed transport to perception) → only then touch
+the MPPI → repeat 420 s / 200 s with n=ZZXQ005QXZZ.
 ---
 
-**Decisão tomada: alvo trocado de A1 para Go2** (ver "F2 — verificação
-executada"; a justificativa de licença dada em F2 estava incompleta e foi
-corrigida em F3 — ver "F3 — o rastreamento de licença"). **F3 rodou e o portão
-bateu**: Go2 em pé, estável, andando por `/demo/cmd_vel` com os pacotes e o
-launch do projeto, não mais com o spike. A falha de HOLD de F4 foi corrigida em
-20/08 e o contrato completo com perception foi revalidado em 24/08. Evidência
-de marcha em `docs/results/ml35-postura-parada.md` e do fechamento abaixo.
+* *Take decision: target changed from A1 to Go2** (see "F2 — verification executed";
+license justification given on F2 was incomplete and corrected on F3 — see "F3 — license
+tracking"). **F3 rotated and the gate crashed**: Go2 standing, stable, walking by
+`/demo/cmd_vel` with the packages and the project launch, no longer with the spike. HOLD
+failure of ZZXQ008QXZZ was corrected in 20/08 and the full perception contract was
+revalidated in 24/ZZX0012QXZZ. Evidence of gait in `docs/results/ml35-postura-parada.md`
+and closing below.
 
-Plano de movimentação vigente: **`docs/ml35/plano-movimentacao.md`** (19/08/2026).
-Substitui `plano-proximos-passos.md`, cujas Fases 1-3 já foram executadas.
+Current drive plan: **`docs/ml35/plano-movimentacao.md`** (19/ZZX0002QXZZ/2026). The
+previous phase plan 1–ZZX0005QXZZ has been removed because it is fully overcome; its
+results remain in `docs/results/ml35-f4-parcial.md`.
 
-Trabalho paralelo em aberto — **cockpit unificado**: plano aprovado em
-24/08/2026 e **F1 concluído no mesmo dia**. Eixo trocado de "capturar janelas
-X11" (quatro tentativas falhas) para "renderizar a partir de tópicos ROS 2", num
-cockpit web que depois vira o HMI do M3. Decisões, evidências e fases em
-**`docs/ml35/plano-cockpit-web.md`**; evidência do F1 (capturas de tela, taxas,
-reconexão) em **`docs/results/cockpit-web-f1.md`**. O checkpoint anterior
-(`docs/results/cockpit-standalone-parcial.md`) está marcado como superado; não
-retomar a recomendação dele.
+Open parallel work — ** Unified cockpit**: plan approved at 24/08/2026 and **F1
+completed on the same day**. Axle changed from "capture X11" windows (four failed
+attempts) to "render from ROS 2 topics" on a web cockpit that then turns HMI from
+ZZXQ008QXZZ. Decisions, evidence and phases in **`docs/ml35/plano-cockpit-web.md`**;
+evidence from F1 (screen captures, fees, reconnection) in
+**`docs/results/cockpit-web-f1.md`**. The previous checkpoint
+(`docs/results/cockpit-standalone-parcial.md`) is marked as overwritten; do not resume
+his recommendation.
 
-Estado do cockpit por fase: **F1 e F3b fechados** (24/08/2026). O F1 subiu os
-serviços `cockpit` e `hmi` em `compose.host.yml`, o bundle em `hmi/`, a câmera ao
-vivo e a reconexão automática. O **F3b** fechou o painel azul (duas câmeras de
-cena estáticas, alternáveis) e o verde (costmap, plano, laser, pegada, e clique
-que manda meta), com o portão cumprido: uma meta clicada no canvas foi aceita e
-executada pelo Nav2. Evidência em **`docs/results/cockpit-web-f3b.md`**; como rodar e o que cada
-painel faz, em **`docs/guia-completo.md`** (Parte II).
+Cockpit status by phase: **F1 and F3b closed** (24/08/2026). F1 has risen the services
+ZZXQ005QXZZ and ZZXQ006QXZZ in `compose.host.yml`, the bundle in ZZXQ008QXZZ, the live
+camera and automatic reconnection. **F3b** closed the blue panel (two static, alternable
+scene cameras) and the green one (costmap, plane, laser, footprint, and click sending
+goal), with the gate completed: a target clicked on canvas was accepted and executed by
+Nav2. Evidence on **`docs/results/cockpit-web-f3b.md`**; how to run and what each panel
+does in **`docs/guia-completo.md`** (Part II).
 
-Em 25/08/2026, três **ajustes de UI** pedidos na bancada, fora da numeração de
-fases e sem abrir fase nova: marca Toradex ao dobro, câmeras de cena seguindo o
-robô nas duas vistas, e "reiniciar nav" a partir do cockpit. Evidência em
-**`docs/results/cockpit-web-ui-ajustes.md`**. Um achado com peso próprio saiu daí:
-`RESET`+`STARTUP` no `lifecycle_manager` do Nav2 **derruba o container** com
-`SIGSEGV` ao configurar o `route_server`, reproduzido duas vezes — por isso o
-reset usa `PAUSE`/`RESUME`. Candidato a issue upstream; ver a armadilha 8 da
-Parte II de `guia-completo.md`. **Próximo do cockpit segue sendo o F4** (controle manual atrás
-do `twist_mux`).
+In 25/08/ZZX0002QXZZ, three **adjustments of UI**orders on the bench, outside of the
+phase numbering and without opening new phase: double Toradex brand, scene cameras
+following the robot in both views, and "restart nav" from the cockpit. Evidence in
+**`docs/results/cockpit-web-ui-ajustes.md`**. A finding with its own weight came out:
+`RESET`+`STARTUP` on Nav2 ZZX0007QXZZ**drops the container** with `SIGSEGV` while
+setting up `route_server`, played twice — so reset uses `PAUSE`/`RESUME`. Candidate for
+upstream issue; see 8 trap of Part II of `guia-completo.md`. **Next to the cockpit is
+F4** (manual control behind the `twist_mux`).
 
-Na mesma data entraram, a pedido do operador: controle da simulação pelo cockpit
-(play/pause/reset), controle de câmera (girar, inclinar, mover, zoom,
-recentrar), a identidade visual Toradex (fundo branco, `#00508c`, `#96c837`,
-`#ff5a00`, com as marcas Toradex e ROS na barra) e o aumento de qualidade das
-câmeras de cena. Três pontos que valem carregar para a próxima sessão:
+On the same date they entered, at the operator's request: control of simulation by
+cockpit (play/pause/reset), camera control (turn, tilt, move, zoom, refocus), visual
+identity Toradex (white background, `#00508c`, `#96c837`, ZZX0002QXZZ, with the brands
+Toradex and ROS in the bar) and the increase in the quality of the scene cameras. Three
+points worth loading for the next session:
 
-1. **"Iniciar a simulação no target" não é possível** e não foi feito. O Gazebo
-   é OGRE 2; o AM69 só tem OpenGL ES 3.2/Vulkan 1.2 (regra 1). O que existe é
-   play/pause/reset **a partir do** cockpit, agindo sobre o Gazebo do host.
-2. **O navegador não fala tipos do Gazebo.** Chamar `ControlWorld` direto pelo
-   rosbridge falha com `InvalidModuleException` — o container do cockpit não tem
-   `ros_gz_interfaces`, e no M3 ele roda no módulo. A fronteira é `std_srvs`, e a
-   tradução mora no nó `sim_control_relay`, do lado do simulador.
-3. **Resolução de câmera custa RTF.** Com as duas câmeras de cena a 1600x1200,
-   `update_rate 15` entrega 9,43 Hz com fator de tempo real **0,59**, e
-   `update_rate 10` entrega 9,77 Hz com **0,97** — pedir 15 não rende um quadro
-   a mais e custa 40% da velocidade da simulação. Adotado 10. Ver a seção 5 de
-   `cockpit-web-f3b.md`.
+1. **"Start simulation on target" is not possible** and was not done. The Gazebo
+   is OGRE 2; AM69 only has OpenGL ES 3.2/Vulkan ZZXQ005QXZZ (rule ZZXQ006QXZZ). What
+   exists is play/pause/reset ==References====External links==
+2. * * The browser does not speak Gazebo types.** Call `ControlWorld` direct by
+   rosbridge fails with `InvalidModuleException` — the cockpit container does not
+   have `ros_gz_interfaces`, and the M3 runs in the module. The border is `std_srvs`,
+   and the translation lives on the `sim_control_relay` node, next to the simulator.
+3. * *Camera resolution costs RTF.** With the two scene cameras at 1600x1200,
+   `update_rate 15` delivery 9,43 Hz with real-time factor **0,59**, and `update_rate
+   10` delivers 9,77 Hz with **0,97** — ask ZZXQ00006QXZZ does not yield an extra
+   frame and costs 40% the speed of the simulation. Adopted ZZXQ008QXZZ. See section
+   5 of `cockpit-web-f3b.md`.
 
-Nada disso foi executado em arm64 nem no Aquila. **F2 e F4 do cockpit seguem
-abertos** (kiosk no módulo e controle manual com `twist_mux`).
+None of this was executed in arm64 or Aquila. **F2 and Cockpit F4 remain open** (kiosk
+in module and manual control with `twist_mux`).
 
-### 21/08/2026 — qualidade de navegação no maze11 (dentro de F5)
+### 21/08/2026 — navigating quality in the maze11 (within F5)
 
-Cenário S6 passou para o **`maze11`**, com partida no canto inferior direito
-(`docs/results/ml35-labirinto.md`). Em seguida, a qualidade de decisão do Nav2
-foi medida e corrigida: **0,0399 → 0,0650 m/s (+63%)**, ré **11–62% → 0%**,
-eficiência de trajeto **13% → 57%**, e a **primeira meta cumprida** (8 m em 96 s).
-Evidência e limites em **`docs/results/ml35-navegacao-maze11.md`**.
+Scenario S6 passed to **`maze11`**, starting in the lower right corner
+(`docs/results/ml35-labirinto.md`). Next, Nav2's decision-making quality was measured
+and corrected: **0,0399 → 0,0650 m/s (+63%)**, re **11–62% → ZZXQ008QXZZ**, route
+efficiency **13% → 57%**, and the first meta accomplished** (8 m at ZZX0012QXZZ s).
+Evidence and limits in **`docs/results/ml35-navegacao-maze11.md`**.
 
-Três defeitos, todos de decisão e nenhum de sensor:
+Three faults, all decision and no sensor:
 
-1. `vx_min: -0.10` produzia **deadlock**: o robô recuava, encostava na parede e ré
-   continuava ótima. Medido em 100% das amostras com o robô parado em 0,00 m.
-   Agora `vx_min: 0.0`, com `wz_max` 0,12 → 0,20 para o giro ser alternativa real.
-2. **Nenhum behavior tree do Nav2 Jazzy chama `SmoothPath`**, então o
-   `smoother_server` estava ativo e ocioso e o MPPI perseguia a escada crua do
-   NavFn. Agora há `demo_navigation/behavior_trees/nav_to_pose_smoothed.xml`.
-3. NavFn escolhia rota por comprimento. Inflação do costmap **global** foi para
-   0,85 / 2,0 — divergindo do local de propósito, no sentido seguro.
+1. `vx_min: -0.10` produced **deadlock**: the robot retreated, leaned against the wall and back
+   It was still great. Measured in 100% samples with the robot stopped at 0,00 m. Now
+   ZZX0002QXZZ, with `wz_max` ZZX0004QXZZ → ZZXQ005QXZZ for the spin to be a real
+   alternative.
+2. * *No behavior tree of the Nav2 Jazzy calls `SmoothPath`**, then the
+   `smoother_server` was active and idle and the MPPI was pursuing the raw ladder of
+   the NavFn. Now there's `demo_navigation/behavior_trees/nav_to_pose_smoothed.xml`.
+3. NavFn chose route by length. Costmap inflation **global** went to
+   0,85 / 2,0 — diverge from the site on purpose in the safe direction.
 
-Lidar e odometria foram verificados a pedido e **estão sãos** (odom vs TF com erro
-0,0000 m; sem auto-colisão de lidar). Ferramentas novas: `scripts/sensor_check.py`,
+Handle and odometry were verified on request and **are sound** (odom vs TF error with
+0,0000 m; no self-collision to handle). New Tools: ZZX0002QXZZ,
 `scripts/costmap_probe.py`, `scripts/selfhit.py`.
 
-**Não fechado:** folga de carcaça segue em **+6,5 cm** e é o portão de qualquer
-aumento futuro de velocidade. Vem de `robot_radius: 0.38` modelar o tronco como
-círculo; a correção é footprint poligonal com `consider_footprint: true`.
+* * Not closed: ** Carcase clearance follows in **+6,5 cm** and is the gate of any
+future speed increase. It comes from `robot_radius: 0.38` model the trunk as a circle;
+the correction is polygonal footprint with `consider_footprint: true`.
 
-### 21/08/2026 — HIL de pé no Aquila AM69 (dentro de F5)
+### 21/08/2026 — HIL standing in Aquila AM69 (within ZZXQ005QXZZ)
 
-**A aplicação roda no módulo.** Nav2 arm64 ativo no Aquila AM69, composto num
-processo único, simulador no host, enlace DDS bidirecional verificado. Build
-arm64 **nativo no módulo**, regra 1 verificada nas quatro imagens.
-Evidência e limites em **`docs/results/ml35-hil-aquila.md`**.
+* *The application runs in the module. ** Nav2 arm64 active in Aquila AM69, composed in
+a single process, host simulator, DDS bidirectional link verified. Build arm64 **Native
+in module**, 1 rule verified in the four images. Evidence and limits in
+**`docs/results/ml35-hil-aquila.md`**.
 
-**O módulo não é o gargalo.** O gargalo é o stream de câmera de **74,2 Mbit/s**
-(640×480 rgb8 a 10,1 Hz, medido no fio) atravessando o Wi-Fi:
+* *The module is not the bottleneck. The bottleneck is the camera stream of **74,2
+Mbit/s** (640×480 rgb8 to 10,1 Hz, measured on the wire) crossing the Wi-Fi:
 
-| Condição | Módulo | Câmera no fio | Vel. média |
+| Condition | Module | Camera on wire | Medium vel. |
 |---|---|---|---|
-| host-only, DDS multicast default | parado | não | 0,0720 m/s |
-| host-only, DDS de HIL | parado | não | **0,0725 m/s** |
-| HIL, Nav2 + perception | ativo | sim | 0,0197 m/s |
-| HIL, só Nav2 | ativo | não | **0,0427 m/s** |
+| host-only, DDS multicast default | stopped | no | 0,0720 m/s |
+| host-only, DDS by HIL | stopped | no | **0,0725 m/s** |
+| HIL, Nav2 + perception | active | Yeah. | 0,0197 m/s |
+| HIL only Nav2 | active | no | **0,0427 m/s** |
 
-A configuração de CycloneDDS com peers explícitos **não custa nada** — hipótese
-levantada e refutada. Nav2 no módulo custa 1,7×; a câmera custa outros 2,2×.
+The CycloneDDS configuration with explicit peer ** costs nothing** — hypothesis raised
+and refuted. Nav2 in the module costs 1,7×; the camera costs other 2,2×.
 
-**Composição do Nav2**: `nav_quadruped.launch.py` passou a criar o
-`nav2_container`. Memória do container `nav` **6,89 GiB → 307 MiB**, load **21,9
-→ 9,5**, ativação em **~10 s**. CPU total não mudou.
+**Composition of Nav2**: `nav_quadruped.launch.py` started creating `nav2_container`.
+Container memory ZZX0002QXZZ **6,89 GiB → 307 MiB**, load **ZZXQ005QXZZ → 9,5**,
+activation at **~10 s** ZZXQ008QXZZ total has not changed.
 
-**Estrangular o `/clock` foi tentado, medido e revertido**: a 100 Hz a CPU caiu
-de 470% para 324% e a navegação morreu (0,0039 vs 0,0251 m/s). O nó fica no
-pacote com o A/B no cabeçalho, fora do caminho default.
+**Strangulate `/clock` was tried, measured and reversed**: the 100 Hz CPU dropped from
+470% to 324% and navigation died (ZZXQ005QXZZ vs ZZXQ006QXZZ m/s). The node stays in the
+package with A/B in the header, out of default path.
 
-**Não fechado, localizado:** a razão de trabalho do `cmd_vx` é baixa nas duas
-máquinas — pico normal (0,10–0,14), médio 0,006–0,008. A largada do maze11 exige
-giro parado de ~85° e o MPPI comanda `wz = 0,035` rad/s, 17% do teto. Loop de
-controle, TF, costmap e `collision_monitor` foram descartados por medição.
-Hipótese sem medida: `PathAlignCritic` em 14,0 contra `PathAngleCritic` em 2,0.
+* * Not closed, located: ** The working ratio of `cmd_vx` is low in both machines —
+normal peak (0,10–0,14), medium 0,006–0,008. The start of the Maze11 requires spinning
+stop of ~ZZXQ005QXZZ and the ZZXQ006QXZZ commands `wz = 0,035` rad/s, ZZXQ008QXZZ from
+the ceiling. Control loop, TF, costmap and `collision_monitor` were discarded by
+measurement. Unmeasured hypothesis: `PathAlignCritic` in 14,0 against `PathAngleCritic`
+in 2,0.
 
-**Decisão do operador em 24/08/2026:** preservar 640×480 a 10 Hz e migrar o HIL
-para Ethernet. F5 só fecha depois da corrida real nesse enlace; não inferir o
-resultado a partir da banda medida no Wi-Fi.
+* * Operator decision at 24/08/2026:** preserve 640×480 a ZZXQ005QXZZ Hz and migrate HIL
+to Ethernet. F5 only closes after the real race in this link; do not infer the result
+from the band measured in Wi-Fi.
 
-### 24/08/2026 — HIL Ethernet executado, portão longo ainda aberto
+### 24/08/2026 — HIL Ethernet executed, long gate still open
 
-O enlace foi executado de verdade: host `enp0s31f6` e Aquila `ethernet1`, com
-peers CycloneDDS fixados em `10.22.1.190` e `10.22.1.130`. As duas portas do
-Aquila na mesma sub-rede anunciam o mesmo hostname mDNS; deixar `MODULE_IP`
-implícito alternou entre os dois endereços. A configuração local agora fixa uma
-porta antes de `module.sh sync`.
+The link was actually executed: Host `enp0s31f6` and Aquila `ethernet1`, with
+`<HOST_IP>` and `<MODULE_IP>` peer cycloneDDDS. The two Aquila ports in the same subnet
+announce the same hostname mDNS; leaving `MODULE_IP` implied switched between the two
+addresses. The local configuration now fixes a port before `module.sh sync`.
 
-Dois defeitos de QoS só apareceram com amostras fragmentadas no HIL. A câmera
-RAW de 921600 bytes precisava de leitor `RELIABLE`; a nuvem LiDAR precisava de
-produtor `SENSOR_DATA` para os leitores `BEST_EFFORT` do Nav2. Depois das duas
-correções, câmera, detecções e nuvem de detecções fluíram a ~10 Hz, e o
-`collision_monitor` deixou de rejeitar comandos por fonte antiga.
+Two QoS defects only appeared with fragmented samples in HIL. RAW camera from 921600
+bytes needed a ZZX0003QXZZ reader; the LiDAR cloud needed a `SENSOR_DATA` producer for
+Nav2 ZZXQ005QXZZ readers. After the two fixes, camera, detections and detection cloud
+flowed to ~ZZXQ00006QXZZ Hz, and `collision_monitor` stopped rejecting commands by old
+font.
 
-Uma meta curta fechou `SUCCEEDED` em **28 s**, com Nav2 + percepção no AM69,
-Gazebo/RViz/câmera no host e zero queda. O protocolo final, porém, não bateu o
-portão: **419,9 s, 8,31 m de caminho, 0,0198 m/s, 0 metas de 8 m concluídas**
-(dois prazos de 200 s). O valor repete o Wi-Fi com percepção (0,0197 m/s),
-refutando a hipótese de que trocar apenas o meio físico removeria o gargalo. O
-custo restante está no caminho de processamento/cópias/fragmentação da câmera e
-na baixa razão de trabalho do MPPI.
+A short goal closed `SUCCEEDED` in **28 s**, with Nav2 + perception in AM69,
+Gazebo/RViz/camera in the host and zero fall. The final protocol, however, did not close
+the gate: **419,9 s, 8,31 m by way, ZZXQ005QXZZ m/s, ZZXQ00006QXZZ 8 m goals completed**
+(two ZZXQ008QXZZ s deadlines). The value repeats Wi-Fi with perception (0,0197 m/s),
+refuting the hypothesis that changing only the physical medium would remove the
+bottleneck. The remaining cost is on the camera processing/copying/fragmentation path
+and on the low working ratio of MPPI.
 
-Evidência completa e CSVs em **`docs/results/ml35-hil-ethernet.md`**. F5 segue
-aberta até uma meta de 8 m terminar `SUCCEEDED` no protocolo de 420/200 s.
+Full evidence and CSVs in **`docs/results/ml35-hil-ethernet.md`**. F5 remains open until
+a 8 m finish `SUCCEEDED` in 420/ZZXQ005QXZZ s protocol.
 
-**Atenção ao ler aquele plano:** o bloqueador que ele registra — "a árvore TF não
-fecha, não existe frame `odom`" — **foi resolvido em 20/08/2026**. A árvore agora
-tem 22 arestas, 9 estáticas, raiz `map`, e o Nav2 planeja e desvia sobre o
-quadrúpede. Ver a seção "F5 — Nav2 sobre pernas" abaixo.
+* *Watch out when you read that plan: ** the blocker he records — "the TF tree does not
+close, there is no frame `odom`" — ** was solved in 20/08/2026**. The tree now has
+ZZXQ005QXZZ edges, ZZXQ00006QXZZ static, root `map`, and the Nav2 plans and deflects
+over the quadruped. See section "ZZXQ008QXZZ — Nav2 on legs" below.
 
-Fase A (parametrizar a marcha + banco de ensaio versionado) concluída em
-19/08/2026.
+Phase A (parametrix gait + versioned test bench) completed at 19/08/2026.
 
-Fase B (Defeito 2, queda em `HOLD` prolongado) **concluída em 20/08/2026** com
-`hold.settle_rate: 0.02`, que virou default em `gait_go2.yaml`. A correção que
-parecia óbvia — baixar só a entrada de guinada de `balance.weight_moment` de 450
-para 100 — foi ensaiada e **REJEITADA**: adiantou o colapso de 161,7 s para 91,1 s
-e levou `RECOVER` de 74 para 357 na mesma janela. O `gait_go2.yaml` registra isso
-ao lado do parâmetro para que ninguém retente. Evidência em
-`docs/results/ml35-postura-parada.md`.
+Phase B (Defect 2, drop in `HOLD` prolonged) **Completed in 20/08/2026** with
+ZZXQ005QXZZ, which became default in ZZXQ006QXZZ. The correction that seemed obvious —
+download only `balance.weight_moment` input from ZZXQ008QXZZ to 100 — was tested and
+**REJEITADA**: advanced the collapse of 161,7 s to 91,1 s and took `RECOVER` from 74 to
+357 in the same window. `gait_go2.yaml` records this next to the parameter so no one can
+retain it. Evidence on `docs/results/ml35-postura-parada.md`.
 
-Note que F3 **não foi retarget de cinemática**. A troca A1→Go2 eliminou esse
-trabalho: o Go2 é o robô nativo da base upstream. F3 virou vendorização
-criteriosa + integração.
+Note that F3** was not a kinematic delay**. The A1→Go2 exchange eliminated this work:
+Go2 is the native robot of the upstream base. F3 became a careful vendor + integration.
 
 ---
 
-## Regras invioláveis desta task
+## Inviolable rules of this task
 
-Somam-se às do `CLAUDE.md` do projeto, não as substituem.
+In addition to the project's `CLAUDE.md`, they do not replace them.
 
-1. Gazebo é OGRE 2. Roda no host x86, nunca no módulo. Nenhum container com
-   `ros-jazzy-ros-gz` vai para arm64.
-2. `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` em todos os containers, host e módulo,
-   sem exceção.
-3. Contrato de tópicos preservado byte a byte: `/demo/cmd_vel`, `/demo/odom`,
-   `/demo/scan`, `/demo/camera/image_raw`. Nav2 e percepção não podem saber que o
-   robô tem pernas.
-4. Nada aqui mede desempenho. QEMU constrói imagem arm64 e nada além disso.
-   Latência, jitter e estabilidade de marcha só valem medidos no hardware, e isso
-   está fora do escopo do ML3.5.
-5. Diff-drive continua selecionável por launch arg, no padrão do `use_meshes`.
-6. `demo_perception` não é tocado em nenhuma fase.
+1. Gazebo is OGRE 2. Run the x86 host, never in the module. No container with
+   `ros-jazzy-ros-gz` goes to arm64.
+2. `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp` in all containers, hosts and module,
+   No exception.
+3. Topic contract preserved byte a byte: `/demo/cmd_vel`, `/demo/odom`,
+   `/demo/scan`, `/demo/camera/image_raw`. Nav2 and perception cannot know that the
+   robot has legs.
+4. Nothing here measures performance. QEMU builds arm64 image and nothing else.
+   Latency, jitter and gait stability are only worth measured in hardware, and this
+   is outside the scope of ML3.5.
+5. Diff-drive remains selectable by arg launch, in the `use_meshes` pattern.
+6. `demo_perception` is not played in any phase.
 
-**Comportamento:** mudança cirúrgica. Cada linha alterada rastreia até uma fase.
-Não melhorar código adjacente, não refatorar o que não está quebrado. Quando uma
-premissa cair, **parar e dizer** — premissa que cai em silêncio no meio de
-retarget de cinemática é a classe de erro que o ML3.1 já pagou.
-
----
-
-## Portões
-
-Cada fase para no portão e espera. Não emendar fases.
-
-- **F0** — `colcon build` limpo, 39 testes, árvore limpa, changelog do ML3.1
-  descrevendo o que está na árvore. ✅
-- **F1** — demo diff-drive de hoje roda inteira em containers, com o mesmo
-  resultado de goal Nav2 `SUCCEEDED`. Nenhuma mudança de comportamento.
-- **F2** — Go2 upstream, sem modificação, em pé e andando por `cmd_vel` dentro do
-  container `sim`. **Falhou aqui, C morre** e voltamos para B (quadrúpede visual
-  sobre diff-drive), com F0 e F1 já commitados e válidos.
-- **F3** — Go2 (não A1, ver decisão de F2) em pé, estável, responde a `cmd_vel`
-  sem cair, com os pacotes e o launch do projeto. ✅
-- **F4** — contrato idêntico ao de hoje, verificado por `ros2 topic list` e por
-  tipo de mensagem, com `demo_perception` intocado.
-- **F5** — goal Nav2 `SUCCEEDED` com o robô de pernas: primeiro tudo no host,
-  depois com Nav2 rodando no módulo.
-- **F6** — `robot_type:=quadruped|diffdrive` funcionando nos dois sentidos,
-  testes estendidos passando.
+* *Behaviour:** surgical change. Each altered line tracks to a phase. Do not improve
+adjacent code, do not refactor what is not broken. When a premise falls, **stop and
+say** — a premise that falls silent in the middle of kinematics delay is the error class
+that ML3.1 has already paid for.
 
 ---
 
-## F0 — concluída (commit `3885f2e`)
+## Gates
 
-29 arquivos, +2870/−655. Portão batido: `colcon build` limpo (6 pacotes),
-`colcon test` 39 testes 0 falhas, árvore limpa.
+Every phase stops at the gate and waits. Do not amend phases.
 
-**Entregue:**
-
-- Changelog do ML3.1 reescrito. A entrada anterior descrevia a montagem peça a
-  peça por mesh (com medição via `pycollada` e um `_visuals.xacro`) que **não
-  existe na árvore** — foi tentada e abandonada. O que existe é o wrapper sobre
-  o TurtleBot 4 upstream.
-- Reconciliação de documentação para o eixo host/módulo: `CLAUDE.md` e
-  `.ai/CLAUDE.md` atualizados; `compose/{learn,emul,target}.yaml` (os três
-  vazios, verificado antes de remover) deletados.
-- O modo `emul` foi **descartado** junto. Imagens arm64 seguem construídas sob
-  QEMU, mas não há mais compose dedicado para rodar a stack emulada.
-
-**Pendente do operador, herdado do ML3.1:** confirmação visual em RViz2/Gazebo
-com GUI (exige sessão gráfica interativa). Não bloqueia F1.
+- **F0** — `colcon build` clean, 39 tests, clean tree, ML3.1
+  describing what's in the tree.
+- **F1** — today's diff-drive demo full wheel in containers with the same
+  goal result Nav2 `SUCCEEDED`. No change of behavior.
+- **F2** — Go2 upstream, unmodified, standing and walking by `cmd_vel` inside the
+  container `sim`. ** Failed here, C dies** and we return to B (visual quadruped on
+  diff-drive), with F0 and F1 already committed and valid.
+- **F3** — Go2 (not A1, see decision of F2) standing, stable, responds to `cmd_vel`
+  without falling, with the packages and the project launch.
+- **F4** — contract identical to today, verified by `ros2 topic list` and by
+  message type, with `demo_perception` untouched.
+- **F5** — goal Nav2 `SUCCEEDED` with the leg robot: first everything in the host,
+  Then with Nav2 running on the module.
+- **F6** — `robot_type:=quadruped|diffdrive` working in both directions,
+  Extended tests coming through.
 
 ---
 
-## F1 — concluída 14/08/2026
+## F0 — completed (commit `3885f2e`)
 
-Portão batido: **goal Nav2 `SUCCEEDED`** (`error_code: 0`) com a demo inteira em
-containers, enviado do container `tools`. `colcon build` limpo (6 pacotes),
-`colcon test` **46 testes 0 falhas** (eram 39; +7 do `wait_for_clock`).
-Evidência de execução em `docs/results/ml35-f1-execucao.md`.
+29 files, +2870/−655. Gate slammed: ZZX0003QXZZ clean (6 packages), ZZXQ005QXZZ
+ZZXQ006QXZZ tests 0 failures, clean tree.
 
-Taxas medidas, learn mode, host x86: `/clock` 334 Hz, `/demo/odom` 27,8 Hz,
-`/demo/scan` 10,0 Hz, `/demo/camera/image_raw` 10,0 Hz,
-`/demo/perception/detections` 10,0 Hz. AMCL, bt_navigator, controller_server e
-planner_server todos `active`. Contrato de tópicos preservado, `demo_perception`
-intocado (regra 6).
+* * Surrender:
 
-**Criado:** `docker/{base,sim,nav,perception,viz,tools}/Dockerfile`,
+- Changelog ML3.1 rewritten. The previous entry described the assembly part to
+  part by mesh (with measurement via `pycollada` and a `_visuals.xacro`) which ** does
+  not exist in the tree** — was attempted and abandoned. What exists is the wrapper on
+  TurtleBot 4 upstream.
+- Reconciliation of documentation for the host/module axis: `CLAUDE.md` and
+  `.ai/CLAUDE.md` updated; `compose/{learn,emul,target}.yaml` (the three empty,
+  checked before removing) deleted.
+- The `emul` mode was** discarded** together. Arm64 images are still built under
+  QEMU, but there is no more dedicated compose to run the emulated stack.
+
+* *Operator pendant, inherited from ML3.1:** Visual confirmation on RViz2/Gazebo with
+GUI (requires interactive graphical session). It does not block F1.
+
+---
+
+## F1 — completed 14/ZZX0002QXZZ/2026
+
+Beaten gate: **good Nav2 `SUCCEEDED`** (`error_code: 0`) with full demo in containers,
+sent from container `tools`. ZZX0003QXZZ clean (6 packages), ZZXQ005QXZZ **ZZXQ006QXZZ 0
+faults** (was ZZXQ008QXZZ; +7) Evidence of execution in
+`docs/results/ml35-f1-execucao.md`.
+
+Measured rates, learn mode, host x86: `/clock` 334 Hz, `/demo/odom` ZZX0003QXZZ Hz,
+`/demo/scan` ZZXQ005QXZZ Hz, ZZXQ006QXZZ 10,0 Hz, ZZXQ008QXZZ ZZXQ0009QZZ Hz. AMCL, bt
+navigator, controller server and planner server all `active`. Topics contract preserved,
+`demo_perception` untouched (rule 6).
+
+** Created:** `docker/{base,sim,nav,perception,viz,tools}/Dockerfile`,
 `docker/hw/README.md`, `docker/compose.{host,module}.yml`,
-`docker/cyclonedds/{host,module}.xml`, `docker/entrypoint.sh`,
-`docker/.env.example`. Os diretórios do scaffold antigo (`navigation`,
-`simulation`, `hmi`) eram todos vazios e não rastreados pelo git — não houve
-rename, foi criação.
+`docker/cyclonedds/{host,module}.xml`, `docker/entrypoint.sh`, ZZXQ005QXZZ. The old
+scaffold directories (ZZXQ006QXZZ, `simulation`, ZZXQ008QXZZ) were all empty and
+untraceable by git — there was no rename, it was created.
 
-**Tocado:** `demo_bringup/launch/{sim,nav,perception,viz}.launch.py` (novos),
+** `demo_bringup/launch/{sim,nav,perception,viz}.launch.py` (new),
 `demo_bringup/{setup.py,package.xml}`, `demo_bringup/demo_bringup/wait_for_clock.py`
-(novo) e seu teste. `demo_navigation/{setup.py,package.xml}` e
-`navigation.launch.py` — ver "vendorização" abaixo.
+(new) and its test. `demo_navigation/{setup.py,package.xml}` and `navigation.launch.py`
+— see "winding" below.
 
-### O risco número um se confirmou, e a decisão foi trocar os timers
+### Risk number one was confirmed, and the decision was to change the timers.
 
-Os delays por timer do `learn.launch.py` (20 s perception, 25 s nav) medem o
-tempo desde a subida do **próprio** container, que não tem relação fixa com o
-momento em que o Gazebo terminou de carregar o mundo. `docker compose up` sobe
-tudo junto.
+`learn.launch.py` (20 s perception, ZZX0002QXZZ s nav) delays measure the time since the
+rise of the **own** container, which has no fixed relationship with the moment when
+Gazebo finished loading the world. `docker compose up` all goes up together.
 
-Substituídos pelo nó **`wait_for_clock`** (`demo_bringup`), que aguarda `/clock`
-existir **e avançar** antes de liberar Nav2 e perception. Exige duas amostras com
-timestamp estritamente crescente: uma só amostra passaria com Gazebo pausado
-(`gz sim` sem `-r` inicia pausado), trocando uma falha silenciosa por outra.
-Timeout de 120 s, sai != 0 — container que espera para sempre parece travamento,
-não falha.
+Replaced by the **`wait_for_clock`** (`demo_bringup`), waiting for `/clock` to exist **
+and advance** before releasing Nav2 and perception. It requires two samples with
+strictly increasing timestamp: one sample would pass with paused Gazebo (`gz sim`
+without `-r` starts paused), exchanging a silent failure for another. Timeout of 120 s,
+exits != 0 — container waiting forever seems locking, does not fail.
 
-Isto **amplia o escopo de F1** em relação ao "nenhuma mudança de comportamento"
-do portão: é código novo, não só empacotamento. Decisão do operador, tomada com
-a alternativa (portar os timers como estavam) na mesa. Os 12 s de spawn e 15 s de
-bridge **dentro** de `simulation.launch.py` continuam intocados — são
-intra-container e o timer ali ainda mede o que deve.
+This** extends the scope of F1** in relation to the "no behavior change" of the gate: it
+is new code, not just packing. Operator's decision, taken with the alternative (carry
+the timers as they were) on the table. The 12 s of spawn and 15 s of bridge**within** of
+`simulation.launch.py` remain untouched — they are intra-container and the timer there
+still measures what it should.
 
-### Três armadilhas encontradas na execução, todas silenciosas
+### Three traps found in the execution, all silent
 
-Nenhuma destas aparece como erro que nomeie a causa. Ficam registradas porque
-custaram tempo e vão reaparecer.
+None of these appear as a mistake to name the cause. They're registered because they
+cost time and will reappear.
 
-**1. `${HOST_IP}` em arquivo bind-mounted nunca expande.** O XML do guia §5 usa
-`<Peer address="${HOST_IP}"/>`. Docker não substitui variáveis dentro de arquivo
-montado, então o CycloneDDS recebe a string literal `${HOST_IP}` como endereço.
-Combinado com `AllowMulticast=false`, resultado: **nenhum mecanismo de descoberta
-sobrou**, nem entre processos do mesmo container. Sintoma: `ros2 node list` vazio,
-`ros2 topic list` só com `/rosout`, e o spawner do Gazebo em
-`Waiting messages on topic [robot_description]` para sempre — enquanto o
-`robot_state_publisher` logava `Robot initialized` no mesmo container. Correção:
-`<Peer address="127.0.0.1"/>`, que é **load-bearing**, não redundante. O IP do
-módulo entra em F5 (ver `module.xml`, que hoje só fala consigo mesmo, de
-propósito).
+**1. `${HOST_IP}` in bind-mounted file never expands.** XML from the §5 guide uses
+`<Peer address="${HOST_IP}"/>`. Docker does not replace variables within mounted file,
+so CycloneDDS receives the literal string `${HOST_IP}` as address. Combined with
+`AllowMulticast=false`, result: **no discovery mechanism left**, neither between
+processes of the same container. Symptoms: `ros2 node list` empty, ZZXQ008QXZZ only with
+`/rosout`, and Gazebo spawner in `Waiting messages on topic [robot_description]` forever
+— while `robot_state_publisher` logged `Robot initialized` into the same container.
+Correction: `<Peer address="127.0.0.1"/>`, which is **load-bearing**, non redundant. The
+IP of the module enters F5 (see `module.xml`, which today only speaks to itself on
+purpose).
 
-Não confundir com forçar `<NetworkInterface name="lo"/>`: isso foi testado e é
-**errado** — isola o cliente dos nós que já selecionaram a interface real
-(aqui `wlp0s20f3`). Mantém-se `autodetermine`; o peer localhost só adiciona
-endereço de descoberta.
+Do not confuse with forcing `<NetworkInterface name="lo"/>`: this has been tested and
+is**wrong** — isolates the client from nodes that have already selected the actual
+interface (here `wlp0s20f3`). Stays `autodetermine`; peer localhost only adds discovery
+address.
 
-**2. `eth0` do guia não existe nesta máquina.** `ip -br link` no host dá `lo`,
-`enp0s31f6` (DOWN), `wlp0s20f3` (UP, Wi-Fi), `tailscale0`, `docker0`. Os dois
-XMLs usam `autodetermine` em vez de nome fixo, com o procedimento de verificação
-comentado no arquivo. Como o host está em Wi-Fi, o caso "multicast morre" é o
-esperado, não o excepcional.
+**2. Guide ZZX0001QXZZ does not exist on this machine.** `ip -br link` in the host gives
+ZZX0003QXZZ, `enp0s31f6` (ZZXQ005QXZZ), `wlp0s20f3` (UP, Wi-Fi), ZZXQ008QXZZ, `docker0`.
+Both XMLs use `autodetermine` instead of a fixed name, with the verification procedure
+commented on in the file. As the host is in Wi-Fi, the case "multicast dies" is
+expected, not the exceptional.
 
-**3. `GZ_SIM_RESOURCE_PATH` vazio no container.** `demo_description` referencia
-as malhas como `model://nav2_minimal_tb4_description/meshes/*.dae`. Nativamente
-resolve pelo ambiente ROS ambiente; no container não. Sintoma: robô spawna com
-colisão e inércia corretas — física e navegação funcionam — e **sem corpo
-visível**. Robô invisível na GUI mas presente para o planner. Corrigido com
-`ENV GZ_SIM_RESOURCE_PATH=/opt/ros/jazzy/share` no `sim/Dockerfile`; erros de
-mesh de N para 0.
+**3. `GZ_SIM_RESOURCE_PATH` empty in container.** `demo_description` references mesh as
+`model://nav2_minimal_tb4_description/meshes/*.dae`. Natively solves by environment ROS
+environment; in container not. Symptoms: correct collision and inertiaal spawna robot —
+physics and navigation work — and **no visible body**. Invisible robot on ZZXQ005QXZZ
+but present for planner. Fixed with ZZXQ006QXZZ no `sim/Dockerfile`; N mesh errors for
+ZZXQ008QXZZ.
 
-### Vendorização de quatro launch files do Nav2 (regra 1)
+### Vendorization of four Nav2 files (rule 1)
 
-`ros-jazzy-nav2-bringup` **hard-depends** de `nav2-minimal-tb3-sim`,
-`nav2-minimal-tb4-sim`, `ros-gz-sim` e `navigation2`. Medido: colocou
-`libogre-1.9`, `gz-ogre-next-vendor`, `gz-rendering`, `gz-gui` e 30+ pacotes na
-imagem `nav` — **3,7 GB e OGRE 2 numa imagem que vai para o AM69**, violação
-direta da regra 1. `--no-install-recommends` não ajuda: são `Depends`.
+`ros-jazzy-nav2-bringup` **hard-depends** by `nav2-minimal-tb3-sim`,
+`nav2-minimal-tb4-sim`, `ros-gz-sim` and `navigation2`. Measure: put ZZXQ005QXZZ,
+ZZXQ006QXZZ, `gz-rendering`, ZZXQ008QXZZ and 30+ packages in the image `nav` — **3,7 GB
+and OGRE 2 in an image that goes to AM69**, direct violation of the 1 rule.
+`--no-install-recommends` does not help: are `Depends`.
 
-`ros-jazzy-navigation2` (o metapacote) tem o mesmo problema um nível abaixo, via
+`ros-jazzy-navigation2` (the metapackage) has the same problem one level below, via
 `nav2-rviz-plugins` → `rviz-ogre-vendor`.
 
-Solução: os quatro launch files que `navigation.launch.py` precisa
-(`bringup`, `localization`, `navigation`, `slam`) estão vendorizados em
-`demo_navigation/launch/nav2_vendored/`, Apache-2.0, cabeçalhos de copyright
-intactos, **só os caminhos de raiz de pacote re-rooteados**. Os servidores Nav2
-entram individualmente no Dockerfile. Provenance e as edições exatas em
+Solution: The four Launch files that `navigation.launch.py` need (`bringup`,
+`localization`, `navigation`, `slam`) are sold in ZZXQ005QXZZ, Apache-ZZXQ006QXZZ,
+copyright headers intact, **only the root paths of rerouted package**. Nav2 servers
+enter the Dockerfile individually. Provenance and exact editions on
 `nav2_vendored/README.md`.
 
-Resultado: `nav` de 3,7 GB → **2,48 GB**, e **zero** pacotes OGRE/RViz/Gazebo.
-Verificados os 18 plugins declarados em `nav2_params.yaml` — todos resolvem via
-pluginlib na imagem (plugin ausente não é erro de build: falha na transição de
-lifecycle).
+Result: `nav` by 3,7 ZZX0002QXZZ → **2,48 GB**, and **zero** OGRE/RViz/Gazebo packages.
+Verified ZZXQ006QXZZ plugins declared in `nav2_params.yaml` — all resolve via pluginlib
+in the image (missing plugin is not build error: lifecycle transition failure).
 
-**Custo aceito:** a lista de servidores no `nav/Dockerfile` e em
-`demo_navigation/package.xml` agora acopla com `nav2_params.yaml`. Plugin novo
-de pacote não listado exige crescer as duas listas. Está comentado nos dois
-lugares.
+* *Cost accepted:** the list of servers on `nav/Dockerfile` and
+`demo_navigation/package.xml` now docks with `nav2_params.yaml`. Unlisted new package
+plugin requires growing both lists. It's commented on both places.
 
-### Tamanhos das imagens
+### Image sizes
 
-| Imagem | Tamanho | Vai para o módulo? |
+| Image | Size | Are you going to the module? |
 |---|---|---|
-| `base` | 912 MB | é a base de todas |
-| `perception` | 912 MB | **sim** (arm64) |
-| `tools` | 952 MB | sim (arm64) |
-| `nav` | 2,48 GB | **sim** (arm64) |
-| `sim` | 2,47 GB | não, x86 apenas |
-| `viz` | 2,7 GB | não, x86 apenas |
+| `base` | 912 MB | is the basis of all |
+| `perception` | 912 MB | ** Yes** (arm64) |
+| `tools` | 952 MB | Yes (arm64) |
+| `nav` | 2,48 GB | ** Yes** (arm64) |
+| `sim` | 2,47 GB | No, x86 only |
+| `viz` | 2,7 GB | No, x86 only |
 
-`nav` a 2,48 GB continua gordo para partição de dados do Torizon. Não é violação
-de regra nenhuma (não há mais nada gráfico), é peso. Dieta adicional, se
-necessária, é trabalho de F5 — é quando `nav` de fato promove para arm64 e vai
-ao módulo.
+`nav` a 2,48 ZZX0002QXZZ remains fat for Torizon data partition. It is no violation of
+any rule (there is nothing more graphic), it is weight. Additional diet, if necessary,
+is the work of F5 — that's when `nav` actually promotes for arm64 and goes to the
+module.
 
-### Não validado nesta fase
+### Not validated at this stage
 
-- **Nada em arm64.** Nenhuma imagem arm64 foi construída em F1; os `platform:`
-  estão declarados e o `compose.module.yml` está escrito, mas não executado.
-  Regras 5 e 7.
-- **Módulo inacessível** nesta sessão. `compose.module.yml` e
-  `cyclonedds/module.xml` são código não executado.
-- **Confirmação visual em GUI.** Mapear `/dev/dri` não bastava: `renderD128` é do
-  grupo `render` (gid 992 neste host) e o usuário `ubuntu` do container está em
-  `video`. Sintoma: `libEGL warning: failed to open /dev/dri/renderD128:
-  Permission denied` e queda silenciosa para render em software — a demo roda, só
-  devagar. Corrigido com `group_add: ["${RENDER_GID:-992}"]` em `sim` e `viz`;
-  verificado que com o gid o device é legível e sem ele o open falha. Após a
-  correção: 0 erros de libEGL, 0 erros de mesh, goal `SUCCEEDED`.
+- * Nothing in arm64. No arm64 images were built in F1; the `platform:`
+  are declared and `compose.module.yml` is written but not executed. Rules 5 and 7.
+- **Unable module** in this session. `compose.module.yml` and
+  `cyclonedds/module.xml` are code not executed.
+- * * Visual confirmation on GUI.** Mapping `/dev/dri` was not enough: `renderD128` is from
+  group `render` (gid 992 on this host) and container user `ubuntu` is in `video`.
+  Symptoms: `libEGL warning: failed to open /dev/dri/renderD128: Permission denied`
+  and silent fall to render into software — the demo runs, just slowly. Fixed with
+  `group_add: ["${RENDER_GID:-992}"]` in `sim` and ZZX0007QXZZ; verified that with gid
+  the device is readable and without it the open fails. After correction: 0 libEGL
+  errors, 0 mesh errors, goal `SUCCEEDED`.
 
-  **`RENDER_GID` é específico do host** (`getent group render | cut -d: -f3`). O
-  default 992 no compose vale para esta máquina. **Pendência aberta:** o
-  `docker/.env.example` não documenta a variável. O arquivo está bloqueado por
-  regra de permissão do ambiente (`.env*` é negado para leitura e para shell),
-  confirmado em duas sessões — não é transiente. **Correção é manual, do
-  operador:** acrescentar ao `docker/.env.example`
+  **`RENDER_GID` is host-specific** (`getent group render | cut -d: -f3`). The default
+  992 no compose applies to this machine. **Open thinking:** `docker/.env.example`
+  does not document the variable. The file is blocked by environmental permission rule
+  (`.env*` is denied for reading and shell), confirmed in two sessions — it is not
+  transient. **Correction is manual, operator:** add to ZZXQ005QXZZ
 
   ```
   # gid do grupo `render` DESTE host: getent group render | cut -d: -f3
@@ -1012,40 +977,39 @@ ao módulo.
   RENDER_GID=992
   ```
 
-  O comentário explicativo já está nos dois serviços do `compose.host.yml`, que
-  é onde a variável é consumida.
+  The explanatory comment is already in the two services of `compose.host.yml`, which
+  is where the variable is consumed.
 
-  O que continua **não verificado por olho humano**: se o robô aparece correto no
-  Gazebo e no RViz2. Os erros de mesh zeraram e o render é acelerado, mas
-  ninguém olhou a tela. Herdado do ML3.1 e ainda pendente do operador.
+  What remains **not verified by human eye**: if the robot appears correct in Gazebo
+  and RViz2. Mesh errors have zeroed and render is accelerated, but no one has looked
+  at the screen. Inherited from ML3.1 and still pending from the operator.
 
 ---
 
-## F2 — verificação executada 14/08/2026, parada em bloqueador
+## F2 — verification executed 14/ZZX0002QXZZ/2026
 
-Clone raso de `legubiao/quadruped_ros2_control` em `/tmp/f2-spike`, HEAD
-`5434c58` ("x30 repaint"). A tabela "A confirmar em F2" foi percorrida inteira
-**antes** de escrever qualquer código, e é bom que tenha sido: duas afirmações do
-plano caíram, e uma delas bloqueia.
+`legubiao/quadruped_ros2_control` in `/tmp/f2-spike`, HEAD ZZX0003QXZZ ("x30 repaint").
+The table "To be confirmed in F2" was traveled whole** before** writing any code, and it
+better have been: two claims of the plan fell, and one of them blocks.
 
-### Resultado da tabela de verificação
+### Check table result
 
-| Afirmação do plano | Verificado na árvore | Veredito |
+| Statement of the plan | Checked in Tree | verdict |
 |---|---|---|
-| Branch default é Jazzy | branch default é `main`; README linha 10 diz "developed under ROS2 Jazzy", Humble tem branch própria | ✅ na prática |
-| Suporta Harmonic | `gz_quadruped_hardware` depende de `gz_sim_vendor`/`gz_plugin_vendor`; `descriptions/README.md` §2 pede `ros-jazzy-ros-gz` + `ros-jazzy-gz-ros2-control` | ✅ |
-| Licença Apache-2.0 | raiz é Apache-2.0, e **todo o código** (controllers, commands, libraries, hardwares) declara Apache-2.0 | ✅ **só para o código** |
-| Não tem config do A1 | **falso.** `descriptions/unitree/a1_description/` existe, completa | ❌ premissa caiu |
-| O que vem de `chvmp/robots` | **nada.** As descrições não vêm de `chvmp/robots`; o A1 tem maintainer `laikago@unitree.cc`, ou seja, origem Unitree direta | ❌ premissa caiu |
+| Branch default is Jazzy | default branch is `main`; README line ZZX0002QXZZ says "developed under ROS2 Jazzy", Humble has own branch |  |
+| Supports Harmonic | `gz_quadruped_hardware` depends on `gz_sim_vendor`/`gz_plugin_vendor`; `descriptions/README.md` §2 asks ZZXQ005QXZZ + ZZXQ006QXZZ | ✅ |
+| Apache-2.0 License | root is Apache-2.0, and **all code**(controllers, commands, libraries, hardware) declares Apache-2.0 | ** only for code** |
+| No A1 config | **False. ** `descriptions/unitree/a1_description/` exists, complete |  |
+| What comes from `chvmp/robots` | Nothing. Descriptions do not come from `chvmp/robots`; A1 has maintainer ZZX0002QXZZ, i.e. direct Unitree origin |  |
 
-### O bloqueador: `a1_description` declara `<license>TODO</license>`
+### The blocker: `a1_description` declares `<license>TODO</license>`
 
-Este é o achado que para a fase. A licença **por pacote**, medida no
-`package.xml` de cada um dos 24 pacotes:
+This is the find that for the phase. The licence **per package**, measured in the
+`package.xml` of each of the 24 packages:
 
-| Pacote | Licença declarada |
+| Package | Licence declared |
 |---|---|
-| todo o código (11 pacotes: controllers, commands, libraries, hardwares) | `Apache-2.0` |
+| all code (11 packages: controllers, commands, libraries, hardware) | `Apache-2.0` |
 | `go2_description` | `BSD` |
 | `b2_description`, `magicdog_description` | `BSD` |
 | `anymal_c_description` | `BSD-3` |
@@ -1053,577 +1017,567 @@ Este é o achado que para a fase. A licença **por pacote**, medida no
 | **`a1_description`** | **`TODO`** |
 | `go1_description`, `aliengo_description`, `cyberdog_description` | `TODO` |
 
-A raiz ser Apache-2.0 **não cobre** o `a1_description`: licença de repo-pai não
-se herda por suposição — é a regra que já matou o Tugbot no ML3.1 e os dois repos
-Go2 na escolha da base. Não há header de copyright em nenhum arquivo do
-`a1_description` (nem no `robot.xacro`, nem no `robot.urdf` autogerado). O único
-sinal de origem é o maintainer `laikago@unitree.cc`. `LICENSES/` na raiz cobre só
-`legged_control` e `unitree_guide` — nenhuma descrição de robô.
+The root being Apache-2.0 ** does not cover** the `a1_description`: Repo-father license
+does not inherit by assumption — it is the rule that already killed Tugbot in ML3.1 and
+the two repos Go2 in choosing the base. There is no copyright header in any
+`a1_description` file (nor ZZXQ005QXZZ or ZZXQ006QXZZ self-generated). The only source
+sign is the maintainer `laikago@unitree.cc`. ZZXQ008QXZZ in root covers only
+`legged_control` and `unitree_guide` — no description of robot.
 
-**Consequência prática:** o A1 é o robô-alvo da demo. F3 vendoriza justamente
-essa descrição. Vendorizar arquivo sem licença declarada numa demo comercial da
-Toradex é exatamente o risco que o projeto já decidiu não correr, duas vezes.
+* * Practical consequence:** A1 is the target robot of the demo. F3 sells precisely this
+description. Vendorizing file without license declared in a commercial demo of Toradex
+is exactly the risk the project has already decided not to take twice.
 
-### O que isso *não* bloqueia
+### What that doesn't block
 
-O portão de F2 é **Go2**, e `go2_description` declara **BSD** — licença válida,
-e é a descrição que o spike usaria. O bloqueio é de F3 em diante, não do spike em
-si. Mas rodar F2 sem resolver isto significa gastar a fase de spike para provar
-uma base cujo destino (A1) está juridicamente indefinido.
+The F2 gate is **Go2**, and `go2_description` declares **BSD** — valid license, and is
+the description that the spike would use. The lock is from F3 onward, not the spike
+itself. But running F2 without solving this means spending the spike phase to prove a
+base whose destination (ZZXQ005QXZZ) is legally indefinite.
 
-Não escrevi código porque a decisão muda o alvo do trabalho, não só a ordem dele.
+I didn't write code because the decision changes the target of the job, not just his
+order.
 
-### Caminhos possíveis — **decisão tomada: caminho 1**
+### Possible paths — **decision taken: path 1**
 
-1. **[ESCOLHIDO] Trocar o robô-alvo de A1 para Go2.** `go2_description` é BSD,
-   tem config de `ocs2`, `legged_gym`, `himloco` e `robot_lab`, e é o robô mais
-   exercitado do repo — inclusive com `gazebo_rl_control.launch.py` próprio, que
-   o A1 não tem. Elimina o bloqueador e reduziu o risco de F3, que é retarget.
-   Custo aceito: o pedido original nomeia A1; a demo passa a chamar-se
-   quadrúpede Go2.
-2. Rastrear a licença real do A1 upstream (`unitree_ros`) e seguir se for
-   BSD-3 — não seguido, custo de rastreamento não compensava com Go2 disponível.
-3. Aceitar o risco explicitamente — não seguido.
-4. Voltar para a opção B (quadrúpede visual sobre diff-drive) — não seguido.
+1. **[ESCOLHIDO] Switch the target robot from A1 to Go2.** `go2_description` is BSD,
+   has `ocs2`, `legged_gym`, `himloco` and `robot_lab`, and is the most exercised
+   robot in the repo — including with `gazebo_rl_control.launch.py` itself, which
+   ZZXQ005QXZZ does not have. Eliminates the blocker and reduces the risk of F3,
+   which is delayed. Accepted cost: the original request names A1; the demo is now
+   called Go2 quadruped.
+2. Track the actual license of A1 upstream (`unitree_ros`) and follow if it is
+   BSD-3 — not followed, tracking cost did not compensate with Go2 available.
+3. Accept the risk explicitly — not followed.
+4. Back to option B (visual quadruped on diff-drive) — not followed.
 
-Se o A1 for requisito duro de nome da demo, o caminho 2 vira pré-requisito antes
-de F3 vendorizar a descrição — mas nada em F2/F3 tecnicamente exige A1
-especificamente; o contrato de tópicos (F4) não distingue os dois.
+If A1 is a hard demo name requirement, the 2 path becomes a prerequisite before F3 turns
+out the description — but nothing in F2/F3 technically requires ZZXQ005QXZZ
+specifically; the topic contract (ZZXQ006QXZZ) does not distinguish the two.
 
-## F2 — spike executado 14/08/2026, portão batido
+## F2 — spike executed 14/08/2026, slammed gate
 
-Imagem descartável `demo-sim:spike-go2` (Dockerfile em `/tmp/f2-spike`, **não
-commitado** — é spike, não entra na árvore). `ros:jazzy-ros-base` +
-`ros-gz-sim`/`ros-gz-bridge`/`ros2-control`/`ros2-controllers`/`gz-ros2-control`
-do apt (só para satisfazer headers de build; o plugin que roda de fato é o
-`gz_quadruped_hardware` **do próprio clone**, não o do apt — ver achado abaixo),
-clone raso de `quadruped_ros2_control` com os pacotes que o spike não builda
-removidos antes do `rosdep install` (só remoção do que não se builda: nada do
-que o spike usa foi tocado). Build via `colcon build --packages-up-to
-go2_description unitree_guide_controller keyboard_input gz_quadruped_playground`.
-7 pacotes, build limpo.
+Disposable image `demo-sim:spike-go2` (Dockerfile in `/tmp/f2-spike`, **not committed**
+—is spike, does not enter the tree). ZZX0002QXZZ + apt
+`ros-gz-sim`/`ros-gz-bridge`/`ros2-control`/ZZXQ00006QXZZ/`gz-ros2-control` (only to
+satisfy build headers; the plugin that actually runs is ZZXQ008QXZZ ** from the clone
+itself**, not from the apt — see found below), ZZX0009QXZZ clone with the packages that
+the non-builda spike removed before the ZZX0010QXZZ (only removal from what does not
+build: nothing the spike uses has been touched). Build via `colcon build
+--packages-up-to go2_description unitree_guide_controller keyboard_input
+gz_quadruped_playground`. 7 packages, clean build.
 
-**Launch de spike** (`/spike/spike_go2.launch.py`, também não commitado) reflete
-`unitree_guide_controller/launch/gazebo.launch.py` upstream sem modificá-lo,
-com duas mudanças deliberadas: RViz2 removido (regra 1 — o `viz` do projeto real
-fica no host, fora do container `sim`) e Gazebo headless (`-s`, sem GUI). Uma
-**ponte de spike** (`twist_to_inputs.py`, idem) traduz `/demo/cmd_vel`
-(`geometry_msgs/Twist`, o nome real do contrato) para `/control_input`
-(`control_input_msgs/Inputs`), que é o que o controlador de fato aceita —
-achado já registrado abaixo. A ponte também percorre a máquina de estados
-(`PASSIVE → FIXEDDOWN → FIXEDSTAND → TROTTING`) com 5 s de espera real entre
-cada comando — insuficiente na primeira tentativa (ver "armadilha" abaixo).
+**Spike Launch** (`/spike/spike_go2.launch.py`, also uncommitted) reflects
+`unitree_guide_controller/launch/gazebo.launch.py` upstream without modifying it, with
+two deliberate changes: RViz2 removed (rule 1 — the `viz` of the actual project is in
+the host, outside the `sim` container) and Gazebo headless (ZZX0005QXZZ, without
+ZZX006QXZZ). A ** spike bridge** (`twist_to_inputs.py`, idem) translates ZZXQ008QXZZ
+(`geometry_msgs/Twist`, the actual name of the contract) to `/control_input`
+(`control_input_msgs/Inputs`), which is what the controller actually accepts — found
+already registered below. The bridge also runs the state machine (`PASSIVE → FIXEDDOWN →
+FIXEDSTAND → TROTTING`) with real waiting 5 s between each command — insufficient in the
+first attempt (see "trap" below).
 
-### Resultado, medido por `gz topic -e -t .../dynamic_pose/info`, não por log
+### Result, measured by `gz topic -e -t .../dynamic_pose/info`, not by log
 
-| Momento | z (altura) | Orientação | Interpretação |
+| Moment | z (height) | Guidance | Interpretation |
 |---|---|---|---|
-| Antes de qualquer comando (spawn) | ~0.5 (spawn height) | — | — |
-| Após FIXEDSTAND, antes de TROTTING | **0.353 m** | quase identidade | **em pé, estável** |
-| Em TROTTING parado (`cmd_vel`=0) | 0.15 m | identidade | marcha em posição mais baixa, mas não caiu |
-| Andando, `linear.x=0.03` (ganho baixo), 8 s contínuos | **0.343 m sustentado** | quase identidade | **anda de pé, estável, sem cair** |
-| Andando, `linear.x=0.15–0.3` (ganho alto) | cai para 0.07–0.24 m, orientação tomba | robô perde equilíbrio | **sintonia, não falha estrutural** |
+| Before any spawn command | ~0.5 (spawn height) | — | — |
+| After FIXEDSTAND before TROTTING | **0.353 m** | near identity | * Standing, steady * |
+| In TROTTING stopped (`cmd_vel`=ZZX0002QXZZ) | 0.15 m | identity | march in lower position, but did not fall |
+| Walking, `linear.x=0.03` (low win), 8 s continuous | **0.343 m sustained** | near identity | * Standing, stable, without falling * |
+| Walk, `linear.x=0.15–0.3` | drops to 0.07–0.24 m, tipping orientation | robot loses balance | **Symptom, no structural failure** |
 
-**Portão batido no ganho baixo**: Go2 upstream, sem modificação, em pé e
-andando por `cmd_vel` dentro de um container moldado como `sim`. Zero erros no
-log da execução inteira (`grep -c "Err\]"` = 0).
+**Gate beaten in low gain**: Go2 upstream, unmodified, standing and walking by `cmd_vel`
+within a container shaped as `sim`. Zero errors in the entire execution log (`grep -c
+"Err\]"` = 0).
 
-**A queda em ganho alto não bloqueia o portão.** O guia já registrava o risco
-antes de rodar: *"parâmetro de marcha sintonizado... produz robô que anda mal
-sem gerar erro... O portão de F3 é robô em pé e estável respondendo a `cmd_vel`,
-não build limpo."* A causa provável é a ponte de spike ser um mapeamento linear
-ingênuo de `Twist` para o joystick normalizado `-1..1` do `Inputs`, sem os
-limites de velocidade (`v_x_limit_`) que a UI de joystick real respeitaria —
-**isto é responsabilidade de F4** (a ponte real do contrato), não de F2.
+* The fall in high gain does not block the gate. The guide already recorded the risk
+before running: *"Studented gait parameter... produces robot that walks badly without
+generating error... The F3 gate is robot standing and stable responding to `cmd_vel`,
+not built clean."* The probable cause is the spike bridge being a naive linear mapping
+of `Twist` for the ZZX0003QXZZ standard joystick of `Inputs`, without the speed limits
+(ZZXQ005QXZZ) that ZZXQ006QXZZ of real joystick would respect — ** this is the
+responsibility of F4** (the actual bridge of the contract), not ZZXQ008QXZZ.
 
-### Uma armadilha silenciosa nesta fase também
+### A silent trap at this stage too
 
-Testar a máquina de estados manualmente via `ros2 topic pub .../control_input`
-**enquanto a ponte de spike do launch ainda rodava em paralelo** produziu dois
-publishers competindo pelo mesmo tópico e um retrocesso de estado
-(`trotting → fixed stand → fixed down`) que parecia instabilidade do
-controlador e não era — era dois processos de teste disputando o mesmo
-`/control_input`. Diagnosticado lendo `StateTrotting::checkChange()`
-diretamente (linha 76-84 do arquivo): `command==2` força volta a
-`FIXEDSTAND` mesmo em trote estável. Corrigido isolando um único publisher por
-teste. Registrado porque é o tipo de falha que "parece o robô caindo" quando na
-verdade é o harness de teste.
+Test the state machine manually via `ros2 topic pub .../control_input` **while the spike
+bridge of the launch still ran in parallel** produced two publishers competing for the
+same topic and a state setback (`trotting → fixed stand → fixed down`) that seemed to be
+controller instability and was not — it was two test processes competing for the same
+`/control_input`. Diagnosed by reading `StateTrotting::checkChange()` directly (file
+line 76-ZZQ005QXZZ): ZZXQ006QXZZ force returns to `FIXEDSTAND` even in stable trot.
+Corrected by isolating a single publisher by test. Registered because it's the kind of
+failure that "seems the robot falling" when it's actually the test harness.
 
-### Outros fatos coletados no clone, para F3 em diante
+### Other facts collected in the clone, for F3 on
 
-- **`gz_quadruped_hardware` é do próprio repo**, versão 2.0.6, licença
-  `Apache 2`, mantido por Alejandro Hernández / Bence Magyar (é um fork do
-  `gz_ros2_control` upstream). O plano supunha usar `gz_ros2_control` 1.2.19 do
-  apt — **não é isso que a base usa**. Confirmar qual dos dois entra na imagem
-  `sim` antes de F2 rodar; instalar o do apt e esperar que a base o use é uma
-  suposição não verificada.
-- `unitree_guide_controller/launch/gazebo.launch.py` sobe **RViz2 dentro do mesmo
-  launch** (nó `rviz_ocs2`). Isso é OGRE 2: na nossa arquitetura o RViz vive no
-  container `viz`, não no `sim`. O spike terá de desligar esse nó — é regra 1.
-- O launch aceita `pkg_description:=<pacote>` e `height:=<z inicial>`. O README do
-  A1 usa `height:=0.43`; o parâmetro é o z de spawn, e existe porque quadrúpede
-  spawnado no chão cai.
-- A colisão CycloneDDS × `unitree_sdk2` está **confirmada no README** (linhas
-  37-40), recomendando FastDDS. Segue não bloqueando o ML3.5 — o SDK só entra com
-  A1 físico, fora do escopo — e o container `hw` já existe para isso.
+- **`gz_quadruped_hardware` is from the repo**, version 2.0.6, license
+  `Apache 2`, maintained by Alejandro Hernández / Bence Magyar (is a `gz_ros2_control`
+  upstream fork). The plan was supposed to use apt's `gz_ros2_control` ZZX0003QXZZ —
+  ** that's not what the base uses**. Confirm which of the two enters the image `sim`
+  before F2 runs; install apt's and expect the base to use it is an unverified
+  assumption.
+- `unitree_guide_controller/launch/gazebo.launch.py` climbs **RViz2 within it
+  Launch** (no `rviz_ocs2`). This is OGRE 2: In our architecture, RViz lives in the
+  `viz` container, not the `sim`. The spike will have to unplug that node — it's rule
+  1.
+- The lunch accepts `pkg_description:=<pacote>` and `height:=<z inicial>`. The README of
+  A1 uses `height:=0.43`; the parameter is the z of spawn, and there is because
+  quadruped spawnado on the floor falls.
+- The CycloneDDS × `unitree_sdk2` collision is confirmed on README** (lines
+  37-40), recommending FastDDS. Still not blocking the ML3.5 — the SDK only enters
+  with ZZXQ005QXZZ physical, out of scope — and the ZZXQ006QXZZ container already
+  exists for that.
 
 ---
 
-## F3 — concluída 17/08/2026 (commits `db4e6f3`, `ae3d9a1`)
+## F3 — completed 17/ZZX0002QXZZ/ZZX0003QXZZ (commits `db4e6f3`, ZZXQ005QXZZ)
 
-Portão batido, medido por `gz topic -e -t .../dynamic_pose/info`, nunca por log:
+Batted gate, measured by `gz topic -e -t .../dynamic_pose/info`, never by log:
 
-| Momento | z (altura) | x | Interpretação |
+| Moment | z (height) | x | Interpretation |
 |---|---|---|---|
-| Em pé após a FSM | **0,352 m** | 0,041 | em pé, estável |
-| Andando, `linear.x=0.03`, 12 s | **0,351 m sustentado** | 0,041 → **0,216** | anda de verdade, sem perder altura |
-| Orientação final | `-7,2e-05` | — | praticamente nivelado |
+| Standing after FSM | **0,352 m** | 0,041 | standing, stable |
+| Walk, `linear.x=0.03`, 12 s | **0,351 m sustained** | 0,041 → **0,216** | Walks real, without losing height |
+| Final Guideline | `-7,2e-05` | — | practically level |
 
-0 erros no Gazebo, 3 controladores `active`. **Melhor que F2**, que via a altura
-cair de 0,353 para 0,343 durante a marcha — a troca de timers por cadeia de
-eventos deixou a subida mais limpa.
+0 errors in Gazebo, 3 drivers `active`. **Better than F2**, who saw the height drop from
+0,353 to 0,343 during the march — changing timers for a chain of events made the climb
+cleaner.
 
-### F3.0 — o spike de F2 tinha sumido
+### F3.0 — the spike of F2 was gone
 
-`/tmp/f2-spike` foi levado pela limpeza do `/tmp`. Os três arquivos nunca foram
-commitados (decisão de F2: spike não entra na árvore). Recuperados da imagem
-`demo-sim:spike-go2`, que sobreviveu: os dois fontes por `docker cp`, e o
-Dockerfile reconstruído camada a camada de `docker history --no-trunc`. Cópia em
-`scratchpad/f2-recovered/`.
+`/tmp/f2-spike` was taken by cleaning `/tmp`. The three files have never been committed
+(decision of F2: spike does not enter the tree). Recovered from `demo-sim:spike-go2`
+image, which survived: the two sources by `docker cp`, and the reconstructed Dockerfile
+layer by layer of ZZXQ005QXZZ. Copy to `scratchpad/f2-recovered/`.
 
-**Lição:** conhecimento que só existe em `/tmp` não existe. Se um spike futuro
-importar, ou se commita, ou se aceita perdê-lo.
+** Lesson:** knowledge that exists only in `/tmp` does not exist. If a future spike
+matters, either commit, or if you agree to lose it.
 
-### O rastreamento de licença — a justificativa de F2 estava incompleta
+### License tracking — the justification for F2 was incomplete
 
-F2 trocou A1 por Go2 registrando que "`go2_description` declara **BSD** —
-licença válida". Verdadeiro, mas insuficiente, e medido de novo na hora de
-vendorizar:
+F2 exchanged A1 for Go2 registering that "`go2_description` declares **BSD** — valid
+license". True, but insufficient, and measured again at the time of sale:
 
-| Evidência | `a1_description` (rejeitado em F2) | `go2_description` (escolhido) |
+| Evidence | `a1_description` (rejected at F2) | `go2_description` (chosen) |
 |---|---|---|
 | `<license>` | `TODO` | `BSD` |
-| Arquivo `LICENSE` | ausente | **ausente** |
-| Header de copyright | ausente | **ausente** |
-| Autor / maintainer | `laikago@unitree.cc` | **`TODO` / `TODO@email.com`** |
-| Coberto por `LICENSES/` da raiz | não | **não** |
+| `LICENSE` file | absent | ** Absent** |
+| Copyright Header | absent | ** Absent** |
+| Author/maintainer | `laikago@unitree.cc` | **`TODO` / `TODO@email.com`** |
+| Covered by root `LICENSES/` | no | ** No |
 
-O Go2 era melhor que o A1 em **um** campo, e pior em outro (o A1 ao menos
-apontava um maintainer rastreável). "BSD" sozinho não identifica a variante, e
-todas exigem reproduzir um aviso de copyright que não existia no pacote.
+Go2 was better than A1 in ** one** field, and worse in another (A1 at least pointed a
+traceable maintainer). "BSD" alone does not identify the variant, and all require
+playing a copyright notice that did not exist in the package.
 
-**Resolvido rastreando até a origem real:** `unitreerobotics/unitree_ros`,
-BSD 3-Clause com texto completo e titular identificado (HangZhou YuShu
-TECHNOLOGY CO.,LTD., 2016-2022). As **7 malhas são bit-idênticas** ao upstream,
-provado por hash git blob contra a API do GitHub. Tabela completa e comandos de
-reprodução em `ros2_ws/src/go2_description/README.md`.
+* ==References====External links== `unitreerobotics/unitree_ros`, BSD ZZX0002QXZZ-Claude
+with full text and identified holder (HangZhou YuShu TECHNOLOGY CO.,ZZXQ005QXZZ.,
+ZZXQ006QXZZ-2022). **ZZXQ008QXZZ meshes are bit-identical** to the upstream, proven by
+hash git blob against GitHub's API. Complete table and playback commands in
+`ros2_ws/src/go2_description/README.md`.
 
-A camada xacro **não** bate com o upstream (é port ROS 1 → ROS 2 do `legubiao`).
-Adotada como obra derivada coberta pelo BSD-3, com o risco residual registrado
-explicitamente no README em vez de apagado.
+The xacro layer**does not match the upstream (is port ROS ZZX0001QXZZ → ROS ZZX0003QXZZ
+from `legubiao`). Adopted as derivative work covered by BSD-3, with the residual risk
+explicitly registered in README instead of erased.
 
-Mesma coisa na camada de controle: os `package.xml` declaram Apache-2.0, mas os
-três pacotes derivados do `unitree_guide` são cobertos por
-`LICENSES/unitree_guide/LICENSE.txt` da raiz upstream, que é **BSD-3 da
-Unitree** — mesmo titular das malhas. Declarações corrigidas e o texto copiado
-para dentro de cada pacote. Ver `unitree_guide_controller/PROVENANCE.md`.
+Same thing in the control layer: `package.xml` declare Apache-2.0, but the three
+packages derived from `unitree_guide` are covered by
+`LICENSES/unitree_guide/LICENSE.txt` of the upstream root, which is **BSD-ZZXQ005QXZZ of
+Unitree** — same mesh holder. Corrected statements and copied text inside each package.
+See `unitree_guide_controller/PROVENANCE.md`.
 
-### A armadilha silenciosa desta fase
+### The silent trap of this phase
 
-Copiei do plant diff-drive a `TimerAction` de 12 s antes do spawn. Medido:
+I copied from the plant diff-drive to `TimerAction` from 12 s before spawn. Measure:
 
 ```
 spawn em z=0.49999 → z=0.0677 em menos de 1 s → controladores ativam ~3 s depois
 ```
 
-O robô passa a janela inteira em **queda livre sem controlador** e desaba.
-Estado final: colapsado no chão, **três controladores reportando `active`, zero
-erros no log**, e a FSM de marcha percorrendo `passive → trotting` em cima de um
-robô já caído.
+The robot passes the entire window in **free fall without controller** and collapses.
+Final status: collapsed on the ground, **three controllers reporting `active`, zero log
+errors**, and the FSM marching through `passive → trotting` on top of a fallen robot.
 
-Nenhum sinal de log denuncia isso. Só a pose lida direto do `gz`. É exatamente o
-que o portão de F3 existe para pegar — *"robô em pé e estável respondendo a
-`cmd_vel`, não build limpo"* — e valida a decisão de medir por pose.
+No sign of log reports that. Only the pose reads straight from `gz`. It's exactly what
+the F3 gate exists to catch — *"Robot standing and stable responding to `cmd_vel`, not
+build clean"* — and validates the decision to measure by pose.
 
-**Correção:** spawn imediato, encadeado por `OnProcessExit`
-(`spawn → broadcasters → controlador de marcha`), sem timer. É o que o
-`gazebo.launch.py` upstream já faz. O comentário longo em
-`quadruped.launch.py` explica por que ali não pode haver `TimerAction`.
+* *Correction:** immediate span, chained by `OnProcessExit` (`spawn → broadcasters →
+controlador de marcha`), no timer. That's what `gazebo.launch.py` upstream already does.
+The long comment on `quadruped.launch.py` explains why there can be no `TimerAction`
+there.
 
-### Criado / tocado
+### Created / touched
 
-**Vendorizados** (5 pacotes, nomes upstream preservados para que os `$(find)`
-resolvam sem edição): `go2_description` (25 MB), `control_input_msgs`,
-`controller_common`, `unitree_guide_controller`, `gz_quadruped_hardware`.
-Procedência em `go2_description/README.md` e
+**Vendorized** (5 packages, upstream names preserved for `$(find)` to resolve without
+editing): `go2_description` (25 MB), ZZXQ005QXZZ, ZZXQ006QXZZ,
+`unitree_guide_controller`, ZZXQ008QXZZ. Source: `go2_description/README.md` and
 `unitree_guide_controller/PROVENANCE.md`.
 
-**Nosso:** `demo_simulation/launch/quadruped.launch.py`,
-`demo_simulation/demo_simulation/twist_to_inputs.py` (promovido do spike),
-`demo_bringup/launch/sim.launch.py` (roteia `robot_type` → um launch por plant,
-sem conditionals), `docker/sim/Dockerfile`.
+** Ours:** `demo_simulation/launch/quadruped.launch.py`,
+`demo_simulation/demo_simulation/twist_to_inputs.py` (spike promotion),
+`demo_bringup/launch/sim.launch.py` (`robot_type` router → a launch per plant without
+conditionals), `docker/sim/Dockerfile`.
 
-**Lint de estilo desativado** nos dois pacotes C++ vendorizados: `ament_lint_auto`
-rodava sobre código de terceiro e produzia 98 falhas em código que a política
-manda não editar. Corrigir destruiria o byte-idêntico; deixar torna
-`colcon test` vermelho para sempre. Nossos pacotes mantêm os seus linters.
+**Deactivated style lint** on both sold C++ packages: `ament_lint_auto` ran on
+third-party code and produced 98 code failures that policy commands not to edit.
+Correcting would destroy byte-identical; leaving makes `colcon test` red forever. Our
+packages keep your linters.
 
-### Não validado nesta fase
+### Not validated at this stage
 
-- **Nada em arm64, nada no módulo.** Regras 5 e 7.
-- **RViz2 continua pendente.** A execução quantitativa do portão foi headless.
-  Em 17/08/2026 o operador repetiu o launch com `gui:=true` na imagem do spike
-  e confirmou o modelo Go2 visível no Gazebo, em `empty.sdf`. Isso fecha a
-  visualização do modelo no Gazebo, mas não valida a árvore TF e o RobotModel
-  no RViz2.
-- **O quadrúpede no mundo `warehouse.sdf`.** O portão rodou em `empty.sdf`. O
-  mundo do projeto carrega ~10 s e tem 50+ malhas; o spawn agora é imediato, o
-  que é seguro (`create` faz retry), mas não foi exercitado ali.
-- **Marcha em ganho alto.** Continua o que F2 mediu: acima de ~0,15 m/s o robô
-  perde equilíbrio. É sintonia do mapeamento em `twist_to_inputs`, e é **F4**.
-- **Nav2 sobre pernas.** F5. O plant não publica `odom → base_link`.
-
----
-
-## F4 — concluída 24/08/2026
-
-> **Continuidade:** esta seção registra o checkpoint de 18/08. A queda em HOLD
-> foi corrigida em 20/08 por `hold.settle_rate: 0.02`, com os três critérios de
-> marcha verdes; ver `docs/results/ml35-postura-parada.md`. A revalidação
-> conjunta do contrato e de perception foi executada em 24/08.
-
-Checkpoint detalhado em `docs/results/ml35-f4-parcial.md`. Nomes, tipos e
-mensagens reais de odom, scan e imagem atravessaram dois containers por DDS. O
-primeiro mapeamento SI → stick derrubou o Go2 e foi substituído por clamp no
-envelope `0.03` comprovado em F3, mas essa última edição ainda não foi
-revalidada em runtime. Perception, warehouse oficial e regressão diff-drive
-estavam pendentes naquele checkpoint.
-
-**Fechamento em 24/08/2026:** cold start do perfil `learn` com Go2, warehouse,
-Nav2 e perception em containers distintos. Os cinco tópicos foram descobertos
-com os tipos do contrato: `geometry_msgs/msg/Twist`, `nav_msgs/msg/Odometry`,
-`sensor_msgs/msg/LaserScan`, `sensor_msgs/msg/Image` e
-`vision_msgs/msg/Detection2DArray`. Foram recebidas mensagens reais de odom,
-scan, imagem 640 px e detecção sintética no consumidor. `/clock` avançou, a TF
-fechou e o Nav2 chegou a `Managed nodes are active`. Isso fecha o portão F4 sem
-fazer alegação de desempenho ou de hardware.
-
-**18/08/2026 — a marcha passou a existir.** `StateTrotting` foi separado em
-`WALK`, `HOLD` e `RECOVER`, e `twist_to_inputs` ganhou watchdog de comando. Três
-falhas estavam sobrepostas e uma escondia as outras:
-
-1. o gate de passada do upstream pedia `|v| > 0.03 m/s` e o caminho de comando
-   inteiro entrega no máximo `0.012 m/s` — nenhuma passada era pedida, e o
-   `contact=[1 1 1 1]` registrado antes era isso, não dinâmica;
-2. `pcd_` é referência integrada e não era recapturada ao parar, então o QP
-   continuava acelerando o corpo depois do comando zerar;
-3. `Inputs` não tem timeout: um publisher que simplesmente para deixava o robô
-   andando com um comando que ninguém enviava.
-
-Medido: `mode=WALK` já em `Twist linear.x=0.01`, pares diagonais alternando,
-`HOLD` estável por mais de 35 s com `posErrXY ≈ 0,005 m`.
-
-**18/08/2026 — o robô anda.** 30 s de trote contínuo a `v_cmd = 0,1 m/s`, 3,00 m
-percorridos, nenhuma entrada em `RECOVER`, tilt máximo 2,3°, velocidade média
-medida 0,106 m/s. Duas causas, ambas medidas antes de qualquer ajuste:
-
-1. **O comando estava fora do regime da marcha.** `_SAFE_STICK_LIMIT = 0.03`
-   estava documentado como "envelope estável de F3", mas foi medido enquanto a
-   marcha nunca ativava — descrevia o empurrão sobre um robô de pés plantados,
-   não velocidade de caminhada. A `v_cmd = 0,004 m/s` o passo pedido é de 4 mm
-   sob elevação de pé de 8 cm: o robô marchava no lugar. Elevado para `0.5`.
-2. **O rumo não é controlável pelo QP neste robô.** Instrumentando `bd_` contra
-   `A_ * F_`, o momento de guinada pedido ficava travado em ±5,3 N·m = o batente
-   `d_wbd(2) ±10 rad/s²` vezes `Izz`. Com `kp_w_ = 780` esse batente satura com
-   **0,73°** de erro de guinada, e acima disso o sinal passa a ser escolhido pela
-   ondulação do giroscópio, não pelo erro. Guinada em robô com pernas se controla
-   com onde o pé pousa: `k_yaw_` em `FeetEndCalc` valia 0,005 contra os 0,1125
-   que precisa cancelar no instante do pouso, então o padrão de apoio era
-   assentado girado e as pernas cruzavam para o centro. `k_yaw_ = 0.15` resolve.
-
-Alargar o batente (±25) e desmembrar os ganhos de atitude por eixo foram
-ensaiados e **rejeitados por medição** — evidência em `ml35-f4-parcial.md`.
-
-Esse era o estado em 18/08. A correção e os critérios substitutos estão no
-relatório de 20/08 citado acima; não usar este parágrafo histórico para escolher
-o próximo experimento.
+- * Nothing in arm64, nothing in the module. ** Rules 5 and 7.
+- ** RViz2 remains pending.** The quantitative execution of the gate was headless.
+  In 17/08/ZZX0002QXZZ the operator repeated the launch with `gui:=true` in the spike
+  image and confirmed the Go2 model visible in Gazebo in `empty.sdf`. This closes the
+  preview of the model in Gazebo, but does not validate the ZZXQ005QXZZ tree and the
+  RobotModel in RViz2.
+- * ==References====External links== The gate ran on `empty.sdf`. O
+  world of design carries ~10 s and has 50+ meshes; the spawn is now immediate, which
+  is safe (`create` does retry), but was not exercised there.
+- ** March in high gain. ** Continues what F2 measured: above ~0,15 the robot
+  You lose balance. It is mapping synchronous in `twist_to_inputs`, and is **F4**.
+- **Nav2 on legs.**F5. Plant does not publish `odom → base_link`.
 
 ---
 
-## Preparação do target — 20/08/2026
+## F4 — completed 24/ZZX0002QXZZ/2026
 
-**Não é uma fase.** É trabalho de infraestrutura para F5, feito em paralelo aos
-ensaios de F4 no host, porque o módulo ficou acessível. Evidência completa em
+> * *Continuity:** this section records the checkpoint of 18/08. The drop in HOLD
+> it was corrected in 20/08 by `hold.settle_rate: 0.02`, with the three criteria of
+> green gear; see `docs/results/ml35-postura-parada.md`. Revalidation
+> joint contract and perception was executed in 24/08.
+
+Detailed checkpoint on `docs/results/ml35-f4-parcial.md`. Real names, types and messages
+of odom, scan and image crossed two containers by DDS. The first mapping SI → stick
+overthrew Go2 and was replaced by clamp in the `0.03` envelope proven in F3, but this
+latest edition has not yet been revalidated in runtime. Perception, official warehouse
+and diff-drive regression were pending at that checkpoint.
+
+* *Close 24/08/ZZX0002QXZZ:** cold start profile `learn` with Go2, warehouse, Nav2 and
+perception in different containers. The five topics were discovered with the contract
+types: `geometry_msgs/msg/Twist`, ZZXQ005QXZZ, ZZXQ006QXZZ, `sensor_msgs/msg/Image` and
+ZZXQ008QXZZ. Real messages were received from odom, scan, image 640 px and synthetic
+detection in the consumer. `/clock` advanced, TF closed and Nav2 reached `Managed nodes
+are active`. This closes the F4 gate without making performance or hardware claims.
+
+**18/08/2026 — the march has taken place.** ZZX0003QXZZ was separated into `WALK`,
+ZZXQ005QXZZ and ZZXQ006QXZZ, and `twist_to_inputs` won watchdog command. Three flaws
+were overlapping and one hid the other:
+
+1. the upstream pass gate asked `|v| > 0.03 m/s` and the command path
+   entire delivery at most `0.012 m/s` — no pass was requested, and the `contact=[1 1
+   1 1]` registered before was that, not dynamic;
+2. `pcd_` is integrated reference and was not recaptured when stopping, so the QP
+   kept accelerating the body after the command zeroed;
+3. `Inputs` has no timeout: a publisher who simply left the robot
+   Walking with a command no one sent.
+
+Measure: `mode=WALK` already in `Twist linear.x=0.01`, alternating diagonal pairs,
+`HOLD` stable for more than 35 s with `posErrXY ≈ 0,005 m`.
+
+**18/08/2026 — the robot walks.**30 s of continuous trot to `v_cmd = 0,1 m/s`,
+ZZX005QXZZ m covered, no entry into ZZXQ006QXZZ, maximum tilt 2,3°, average speed
+measured ZZXQ008QXZZ m/s. Two causes, both measures before any adjustment:
+
+1. * *The command was outside the marching regime.** `_SAFE_STICK_LIMIT = 0.03`
+   was documented as a "stable envelope of F3", but was measured while the gait never
+   activated — described the push on a planted foot robot, not walking speed. The
+   `v_cmd = 0,004 m/s` step requested is 4 mm under standing elevation of 8 cm: the
+   robot marched in place. High to `0.5`.
+2. * *The course is not controllable by QP on this robot.**Instrumenting `bd_` against
+   `A_ * F_`, the time of turn request was locked in ±5,3 N·m = stop `d_wbd(2) ±10
+   rad/s²` times `Izz`. With ZZX0004QXZZ this stop satura with **0,73°** swivel
+   error, and above that the signal becomes chosen by the gyroscope wave, not by
+   error. Towing in robot with legs controls with where the foot lands: ZZXQ00006QXZZ
+   in `FeetEndCalc` was worth 0,005 against the 0,1125 that needs to cancel at the
+   moment of landing, so the support pattern was rotated and the legs crossed to the
+   center. `k_yaw_ = 0.15` solves.
+
+Extend the stop (±25) and dismember the attitude gains per axle were tested and
+**rejected by measurement** — evidence in `ml35-f4-parcial.md`.
+
+This was the state at 18/08. Correction and replacement criteria are in the
+20/ZZX0003QXZZ report cited above; do not use this historical paragraph to choose the
+next experiment.
+
+---
+
+## Preparation of target — 20/08/2026
+
+* It's not a phase. It is infrastructure work for F5, done in parallel to F4 trials on
+the host, because the module has become accessible. Full evidence on
 `docs/results/ml35-target-preparacao.md`.
 
-O que mudou de estado no projeto:
+What changed state in the project:
 
-1. **A premissa "o módulo não está acessível" caiu.** Aquila AM69 inventariado:
-   Torizon OS 7.7.0+build.40, 8 × Cortex-A72, 31 GiB RAM, 108 G livres, Docker
-   25.0.9 arm64, Compose 2.26.0, `torizon` no grupo `docker`. `ethernet0` em
-   `192.168.15.122/24`; host x86 em `192.168.15.98` na mesma /24.
-2. **A rede DDS foi medida, não assumida.** UDP nas duas direções em três portas
-   do domínio 69. `ufw` está ativo no host e **não bloqueia**. Nenhuma mudança de
-   firewall é necessária.
-3. **A regra 1 estava sendo violada pela árvore atual, em silêncio.** A camada de
-   container é de F1 (diff-drive); F3 trouxe `gz_quadruped_hardware`, que declara
-   `gz_sim_vendor` e `gz_plugin_vendor` como `<depend>`. Um `colcon build` cego
-   do `src` colocaria OGRE 2 nas imagens arm64. Corrigido por dois build args
-   (`SKIP_KEYS_EXTRA`, `COLCON_IGNORE_PACKAGES`), ambos default vazio — o lado
-   amd64/host não muda.
-4. **`autodetermine` no `module.xml` era uma armadilha real**, não teórica: a
-   bridge Docker do easy-pairing da Toradex (`br-*`, 172.18.0.1) está UP junto
-   com `ethernet0`. A interface agora é fixada em tempo de renderização, e o peer
-   do host é injetado ali também, então nenhum endereço entra no git.
-5. **`scripts/module.sh`** passou a ser a interface para o módulo:
-   `inventory | sync | build | up | down | status | verify | shell`.
-6. **Quatro imagens `arm64` existem no módulo**, construídas nativamente lá:
-   `base` 1,24 GB, `perception` 1,28 GB, `tools` 1,32 GB, `nav` 2,44 GB. Regra 1
-   verificada nas quatro por inspeção das bibliotecas instaladas.
-7. **O contrato atravessa a fronteira de máquina nas duas direções, medido.**
-   Domínio 69, `/demo/system/heartbeat`: módulo→host `count=11` recebido no host;
-   host→módulo `count=14` recebido dentro do container `tools`, com
-   `/demo/heartbeat_publisher` visível em `ros2 node list` do módulo. **Isto é o
-   pré-requisito de infraestrutura de F4/F5, não o portão deles.**
-8. **Descoberto que configurar só um lado do DDS falha idêntico a firewall.**
-   O default do CycloneDDS anuncia por multicast (que o módulo ignora) e não fixa
-   porta determinística (então o unicast do módulo não tem alvo). Os dois lados
-   precisam de config casada. `scripts/module.sh` renderiza os dois:
-   `module.xml` para o módulo e `docker/cyclonedds/host.rendered.xml` no host,
-   ambos com endereço injetado e gitignored/gerado.
-9. **`ROS_NAMESPACE` não funciona no ROS 2 Jazzy.** Verificado: a variável está
-   no ambiente do processo (`printenv` confirma) e o ROS a ignora; só
-   `--ros-args -r __ns:=` funciona. `scripts/env.sh` exporta
-   `ROS_NAMESPACE=/demo` como se funcionasse — **não foi alterado**, o arquivo
-   está em uso pelos ensaios de F4. Fica como achado a resolver.
+1. * * The premise "the module is not accessible" fell.** Aquila AM69 inventoried:
+   Torizon OS 7.7.0+build.40, 8 × Cortex-A72, ZZXQ005QXZZ GiB ZZXQ006QXZZ, 108 Free
+   G, Docker ZZXQ008QXZZ arm64, Compose 2.26.0, `torizon` in group `docker`.
+   `ethernet0` in `<MODULE_IP>/24`; host x86 in `<HOST_IP>` in the same /24.
+2. * *The DDS network was measured, not assumed.** UDP in both directions in three ports
+   69 domain. `ufw` is active in the host and ** does not block**. No firewall
+   changes are required.
+3. * *The 1 rule was being violated by the current tree in silence. The layer of
+   container is F1 (diff-drive); F3 brought in `gz_quadruped_hardware`, which
+   declares `gz_sim_vendor` and `gz_plugin_vendor` as ZZXQ005QXZZ. A blind
+   ZZXQ006QXZZ from `src` would put ZZXQ008QXZZ 2 on the arm64 images. Fixed by two
+   build args (`SKIP_KEYS_EXTRA`, `COLCON_IGNORE_PACKAGES`), both default empty — the
+   amd64/host side does not change.
+4. **`autodetermine` no `module.xml` was a real trap**, not theoretical: a
+   Toradex easy-pair bridge Docker (`br-*`, 172.18.0.1) is UP along with `ethernet0`.
+   The interface is now fixed in rendering time, and the host peer is injected there
+   too, so no address enters git.
+5. **`scripts/module.sh`** became the interface for the module:
+   'inventory | sync | build | up | down | status | verify | shell`.
+6. * *Four images `arm64` exist in the module**, built natively there:
+   `base` 1,24 GB, `perception` 1,28 ZZXQ005QXZZ, ZZXQ006QXZZ 1,32 ZZXQ008QXZZ,
+   ZZXQ0009QZZ 2,44 GB. 1 rule verified in the four by inspection of installed
+   libraries.
+7. * *The contract crosses the machine border in both directions, measured.**
+   69, `/demo/system/heartbeat`: module→host `count=11` received at the host;
+   host→module `count=14` received within the `tools` container, with ZZXQ005QXZZ
+   visible in ZZXQ006QXZZ of the module. **This is the prerequisite for
+   F4/ZZX0008QXZZ infrastructure, not their gate.**
+8. * *Discovered that setting only one side of DDS fails identical to firewall.**
+   CycloneDDS default announces by multicast (which the module ignores) and does not
+   fix deterministic port (then the module unicast has no target). Both sides need
+   married config. `scripts/module.sh` renders both: `module.xml` for the module and
+   `docker/cyclonedds/host.rendered.xml` on the host, both with injected address and
+   gitignored/generated.
+9. **`ROS_NAMESPACE` does not work on ROS ZZX0002QXZZ Jazzy.** Verified: variable is
+   in the process environment (`printenv` confirms) and ROS ignores it; only
+   `--ros-args -r __ns:=` works. `scripts/env.sh` exports `ROS_NAMESPACE=/demo` as if
+   it worked — ** has not been changed**, the file is in use by ZZXQ005QXZZ trials.
+   Stays as we find it.
 
-O que **não** mudou, e precisa ficar claro:
+What has not changed, and must be clear:
 
-- **F5 continua bloqueada pelo mesmo motivo de antes.** O target estar pronto não
-  resolve a árvore de TF que não fecha nem a ausência do frame `odom`
-  (`plano-movimentacao.md`). Nav2 sobre pernas não passa o portão de F5 por falta
-  de `odom`, independentemente de o módulo estar de pé.
-- **Nada de desempenho foi medido** (regra 5 e 7). As imagens foram construídas
-  nativamente no módulo em vez de sob QEMU, o que não é uma medição de nada.
-- **O módulo não vê os tópicos da simulação do host.** Não é defeito do módulo:
-  `scripts/run_quadruped_sim.sh` sobe a sim sem `CYCLONEDDS_URI`, então ela
-  anuncia por multicast e o módulo (multicast off) não tem como descobri-la. O
-  mecanismo está provado nas duas direções com publishers de teste; falta passar
-  o config renderizado ao produtor do host. **Não alterado nesta sessão porque
-  esse script está em uso pelos ensaios de F4.**
-- **`compose.host.yml` continua montando `cyclonedds/host.xml`**, o template sem
-  o peer do módulo. Para o `hil` containerizado ele precisa apontar para
+- **F5 remains blocked for the same reason as before.** The target is ready not
+  solves the TF tree that does not close nor the absence of the frame `odom`
+  (`plano-movimentacao.md`). Nav2 over legs does not pass the F5 gate due to lack of
+  `odom`, regardless of whether the module is standing.
+- **No performance was measured** (rule 5 and 7). The images were built
+  native to the module instead of under QEMU, which is not a measurement of anything.
+- * *The module does not see host simulation topics.** No module defect:
+  `scripts/run_quadruped_sim.sh` goes up to yes without `CYCLONEDDS_URI`, so it
+  announces by multicast and the module (multistat off) can't find it. The mechanism
+  is proven in both directions with test publishers; there is no passing the config
+  rendered to the host producer. **Not changed in this session because this script is
+  in use by F4 trials.**
+- **`compose.host.yml` continues to mount `cyclonedds/host.xml`**, the template without
+  the peer of the module. For the `hil` containerized it needs to point to
   `host.rendered.xml`.
-- **`nav` não foi subido no módulo.** Nav2 publica `/demo/cmd_vel`, e a simulação
-  do host roda no mesmo domínio 69: dois publishers no tópico que comanda o robô
-  corromperiam o ensaio em curso sem nada em log explicando. `scripts/module.sh
-  up` detecta a simulação ativa e recusa por default.
+- **`nav` was not raised in the module. ** Nav2 publishes `/demo/cmd_vel`, and simulation
+  the host runs in the same domain 69: two publishers in the topic that commands the
+  robot would corrupt the ongoing trial without anything in log explaining.
+  `scripts/module.sh up` detects active simulation and default refusal.
 
 ---
 
-## F5 — Nav2 sobre pernas: em andamento 20/08/2026
+## F5 — Nav2 on legs: ongoing 20/08/ZZX0003QXZZ
 
-Malha fechada e funcionando: nuvem 3D → costmap → planejador → MPPI → conversão de
-unidades → marcha → Gazebo → odometria → TF → costmap. Medido em
-`quadruped_objects.sdf`, o robô percorreu 8,36 m, deslocou 3,51 m líquidos, chegou
-a **3,8 cm** da meta e passou pelos quatro obstáculos com folga positiva, sem cair.
+Closed and functioning mesh: cloud 3D → costmap → planner → MPPI → unit conversion →
+march → Gazebo → odometry → TF → costmap. Measured in `quadruped_objects.sdf`, the robot
+traveled 8,36 m, displaced ZZXQ005QXZZ m liquids, reached **3,8 cm** of the goal and
+passed through the four obstacles with positive clearance, without falling.
 
-Evidência completa em **`docs/results/ml35-nav2-quadrupede.md`**; como rodar, em
+Full evidence on **`docs/results/ml35-nav2-quadrupede.md`**; how to run, on
 **`docs/guides/cenarios/s5-nav2-desvio.md`**.
 
-### Os três bloqueadores de F5 estão fechados
+### The three F5 blockers are closed
 
-| bloqueador | como foi fechado | consequência a lembrar |
+| blocker | How it was closed | consequence to remember |
 | --- | --- | --- |
-| árvore TF não fecha | `demo_bringup/odom_tf` publica `odom → base` e `map → odom` | **não é estimativa de estado** — é ground truth do Gazebo virando TF; sai quando o estimador com perna existir |
-| nome do frame base | quem cedeu foi o Nav2: `nav2_params_go2.yaml` usa `base` | `go2_description` é vendorizado byte-a-byte e não pode ser editado |
-| lidar de um anel | a ponte expõe `/scan/points` como `PointCloud2` em `/demo/scan_cloud` | `/demo/scan` continua existindo e continua inútil para costmap |
+| TF tree does not close | `demo_bringup/odom_tf` publishes `odom → base` and `map → odom` | ** is not a state estimate** — is Gazebo ground truth turning TF; leaves when the leg estimator exists |
+| Base frame name | Nav 2: `nav2_params_go2.yaml` uses `base` | `go2_description` is sold byte-a-byte and cannot be edited |
+| deal with a ring | the bridge exposes `/scan/points` as `PointCloud2` in `/demo/scan_cloud` | `/demo/scan` continues to exist and remains useless for costmap |
 
-O número que fecha o terceiro: no mundo dos objetos, `/demo/scan` dá **zero**
-obstáculos — idêntico ao mundo vazio — e `/demo/scan_cloud` dá **249**.
+The number closing the third: in the world of objects, `/demo/scan` gives **zero**
+obstacles — identical to the empty world — and `/demo/scan_cloud` gives **249**.
 
-### Seis defeitos encontrados por medição, todos corrigidos
+### Six defects found by measurement, all corrected
 
-Nenhum deles se anuncia em log. Estão listados porque cada um custaria horas de
-novo.
+None of them advertise in log. They're listed because each one would cost hours again.
 
-1. **`use_composition` sem container.** `navigation_launch.py` com composição
-   carrega os servidores em `/nav2_container`, que só o `bringup_launch.py` cria.
-   Incluindo apenas o primeiro: nada sobe, nada dá erro.
-2. **Metas concorrentes.** Entre `send_goal_async` e a aceitação, o handle é
-   `None`; o supervisor de 1 s reentrava e mandava outra meta.
-3. **`progress_checker` do TB4.** 0,5 m em 10 s, contra 13 s de giro a 0,12 rad/s
-   sem avanço: 22 abortos com **zero quedas**. Quando o verificador reprova e o
-   robô não cai, o suspeito é o verificador.
-4. **Horizonte do MPPI medido em tempo.** 2,8 s cobrem 1,4 m no TB4 e 0,42 m no
-   Go2 — abaixo da referência de ~1 m do `PathAlignCritic`, que tem o maior peso.
-   Horizonte se mede em distância.
-5. **`/demo/cmd_vel` não está em SI.** Carrega manche; o controlador multiplica
-   `linear.x` por 0,4 e `angular.z` por 0,5 (`StateTrotting.cpp:192` com
-   `invNormalize`, e `twist_to_inputs.py:283` com ganho unitário). O Nav2 é o
-   primeiro consumidor que não pode viver com isso, porque o MPPI **integra** `vx`
-   como m/s. Corrigido com `demo_bringup/cmd_vel_si_to_stick`, um nó de fronteira
-   — a planta e os comandantes existentes ficaram intactos.
-6. **Yaw da meta como rumo de saída.** Exigia 110–139° de giro parado na chegada,
-   e girar parado não fica parado: o robô derivou 0,78 m em y e saiu da tolerância
-   de posição que já havia satisfeito. O yaw tem de ser o rumo de **chegada**.
+1. **`use_composition` without container.** `navigation_launch.py` with composition
+   loads the servers on `/nav2_container`, which only `bringup_launch.py` creates.
+   Including only the first: nothing goes up, nothing goes wrong.
+2. ** Competing goals.** Between `send_goal_async` and acceptance, the handle is
+   `None`; 1 s supervisor reentered and sent another goal.
+3. **`progress_checker` of TB4.**0,5 m in 10 s, against 13 s in ZZXQ005QXZZ rad/s
+   no advance: 22 abortions with **zero falls**. When the verifier fails and the
+   robot doesn't fall, the suspect is the verifier.
+4. * ==References====External links== ZZX0001QXZZ s cover 1,4 m no TB4 e 0,42 m no
+   Go2 — below the reference of ~1 m of `PathAlignCritic`, which has the highest
+   weight. Horizon measures in distance.
+5. **`/demo/cmd_vel` is not in SI.** Loads manche; controller multiplies
+   `linear.x` by 0,4 and `angular.z` by 0,5 (`StateTrotting.cpp:192` with
+   ZZXQ005QXZZ, and ZZXQ006QXZZ with unit gain). Nav2 is the first consumer who
+   cannot live with it, because MPPI**integrate** ZZXQ008QXZZ as m/s. Fixed with
+   `demo_bringup/cmd_vel_si_to_stick`, a border node — the plant and the existing
+   commanders remained intact.
+6. **Yaw of the goal as the way out. ** Requires 110–139° to rotate stopped on arrival,
+   and turn stopped does not stand still: the robot derived 0,78 m in y and left the
+   position tolerance that had already satisfied. The yaw has to be the course
+   of**coming**.
 
-### Duas hipóteses refutadas por medição
+### Two hypotheses refuted by measurement
 
-Registradas para que ninguém as retente:
+Registered so no one can hold them:
 
-- **"O robô está dentro de região inflada."** Medido com o robô parado: custo
-  **0** na célula dele, **0** dentro de 0,6 m, 42 células letais nos obstáculos,
-  zero desconhecidas. O costmap está correto.
-- **"A dispersão de amostragem do MPPI limita a magnitude."** Só a correção de
-  unidades levou o comando de 0,006 para 0,119 m/s **com os mesmos desvios**.
-  `vx_std` e `wz_std` ficaram como estavam.
+- **"The robot is within an inflated region."**Measure with the robot stopped: cost
+  **0** in his cell, **0** within 0,6 m, 42 lethal cells in the obstacles, zero
+  unknown. The costmap is correct.
+- * *"The sampling dispersion of MPPI limits the magnitude."** Only the correction of
+  units took the command of 0,006 to 0,119 m/s**with the same deviations**. `vx_std`
+  and `wz_std` were as they were.
 
-### O que F5 ainda não tem
+### What F5 doesn't have yet
 
-- **Estimativa de estado com perna.** `odom_tf` republica ground truth. Enquanto
-  isso, nada aqui valida localização.
-- **Meta de 8 m no portão HIL Ethernet.** Ethernet, câmera RAW, percepção e uma
-  meta curta já passaram no Aquila. No protocolo de 420 s / 200 s por meta, as
-  duas metas longas expiraram. Isolar custo da câmera e razão de trabalho do
-  MPPI, sem reduzir 640×480 a 10 Hz, e repetir o mesmo protocolo.
+- **State estimate with leg.** `odom_tf` republic ground truth. While
+  Yeah, nothing here validates location.
+- * *Meta de 8 m at the gate HIL Ethernet.**Ethernet, camera RAW, perception and a
+  short meta has already passed in Aquila. In the 420 s / 200 s protocol per goal, the
+  two long goals expired. Isolate camera cost and working ratio of MPPI, without
+  reducing 640×480 to ZZXQ005QXZZ Hz, and repeat the same protocol.
 
-## F6 — fallback selecionável: concluída 24/08/2026
+## F6 — selectable fallback: completed 24/ZZX0002QXZZ/2026
 
-`ROBOT_TYPE=quadruped|diffdrive` agora seleciona em conjunto a planta do host e
-o launch Nav2 correspondente, tanto no Compose do host quanto no do módulo.
-`quadruped` é o padrão; valor desconhecido falha antes de iniciar Nav2. Os testes
-unitários verificam o pareamento e a rejeição de valores inválidos.
+`ROBOT_TYPE=quadruped|diffdrive` now selects together the host plant and the
+corresponding Nav2 launch, both in the Host Compose and in the module. `quadruped` is
+the default; unknown value fails before starting Nav2. Unit tests check the matching and
+rejection of invalid values.
 
-Portão executado a partir de subidas limpas do perfil `learn`:
+Gate run from clean `learn` profile climbs:
 
-- `quadruped`: TF fechada, Nav2 ativo e meta curta de x≈−1,59 para x=−0,8 com
+- `quadruped`: TF closed, active nav2 and short x
   `SUCCEEDED`, `error_code: 0`;
-- `diffdrive`, com `SIM_GUI=false`: odometria disponível e meta de x=0 para x=1
-  com `SUCCEEDED`, `error_code: 0`.
+- `diffdrive` with `SIM_GUI=false`: available odometry and x=0 target for x=1
+  with `SUCCEEDED`, `error_code: 0`.
 
-As imagens de base, simulação, navegação, percepção, ferramentas e visualização
-foram reconstruídas. O backend `gz_quadruped_hardware` existe apenas na imagem
-de simulação; `COLCON_IGNORE` mantém as funções headless isoladas também em
-builds e testes incrementais posteriores.
+Base images, simulation, navigation, perception, tools and visualization were
+reconstructed. The `gz_quadruped_hardware` backend exists only in the simulation image;
+`COLCON_IGNORE` keeps headless functions isolated also in builds and later incremental
+tests.
 
-## Decisões tomadas
+## Decisions taken
 
-### Base de locomoção: `legubiao/quadruped_ros2_control`
+### Moving base: `legubiao/quadruped_ros2_control`
 
-Apache-2.0, `ros2_control` nativo, branch default em ROS 2 Jazzy, suporta
-Harmonic. **Todas essas afirmações vêm do README e devem ser confirmadas na
-árvore em F2** (ver "A confirmar em F2").
+Apache-2.0, native `ros2_control`, default branch on ROS 2 Jazzy, supports Harmonic.
+**All these statements come from README and should be confirmed in the tree at
+ZZXQ005QXZZ** (see "To be confirmed in F2").
 
-Descartadas:
+Discarded:
 
-- **`chvmp/champ`** (BSD-3): ROS 1 apenas (Kinetic/Melodic), último update
-  ~jul/2024. Portar seria reescrever middleware + build + camada de controle.
-- **`khaledgabr77/unitree_go2_ros2`** e **`RobInLabUJI/unitree_go2_ros2_jazzy`**:
-  Jazzy + Harmonic + CHAMP, mas Nav2 marcado "coming soon" **e licença não
-  declarada** — bloqueador para demo comercial, mesmo critério que eliminou o
-  Tugbot do Fuel no ML3.1.
-- **`arjun-sadananda/go2_nav2_ros2`** (registrado no ML2): único CHAMP+Nav2
-  demonstrado, mas Humble + Gazebo **Classic**, e compensa erro de odometria
-  dobrando a velocidade linear no estimador de estado. Contorno, não calibração.
+- **`chvmp/champ`** (BSD-3): ZZX0003QXZZ 1 only (Kinetic/Melodic), latest update
+  ~Jul/2024. Porting would be to rewrite middleware + build + control layer.
+- **`khaledgabr77/unitree_go2_ros2`** and **`RobInLabUJI/unitree_go2_ros2_jazzy`**:
+  Jazzy + Harmonic + CHAMP, but Nav2 marked "coming soon" ** and undeclared license**
+  — commercial demo blocker, same criterion that eliminated Fuel Tugbot no ML3.1.
+- **`arjun-sadananda/go2_nav2_ros2`** (registered at ML2): single CHAMP+Nav2
+  demonstrated, but Humble + Gazebo **Classic**, and compensates odometry error by
+  doubling the linear velocity in the state estimator. Outline, not calibration.
 
-Verificado em 14/08/2026: continua **não existindo** quadrúpede A1 pronto em
-Jazzy + Harmonic + Nav2. A integração com Nav2 (F5) é nossa; ninguém entrega.
+Verified in 14/08/ZZX0002QXZZ: still no** quadruped A1 ready in Jazzy + Harmonic + Nav2.
+Integration with Nav2 (F5) is ours; no one delivers.
 
-### Layout de compose: eixo máquina, não modo
+### Compose layout: machine shaft, not mode
 
-`docker/compose.{host,module}.yml` em vez de `compose/{learn,emul,target}.yaml`.
-Decisão do operador. Modos viram profiles do Compose + qual arquivo se invoca em
-qual máquina. O modo `emul` foi descartado.
+`docker/compose.{host,module}.yml` instead of `compose/{learn,emul,target}.yaml`.
+Operator's decision. Modes have seen Profiles of Compose + which file is invoked on
+which machine. `emul` mode has been discarded.
 
-### F1 inserida antes do spike
+### F1 inserted before spike
 
-Adição do operador ao plano original. Justificativa no topo da seção F1.
+Addition of operator to original plan. Justification at the top of section F1.
 
-### F2/F3 revertem uma decisão do ML2
+### F2/F3 reverse a decision of ML2
 
-O ML2 decidiu **contra** `gz_ros2_control`, a favor do plugin nativo
-`gz-sim-diff-drive-system`, justamente porque o primeiro arrastaria
-`ros2_control` + `controller_manager`. F2/F3 revertem isso, e com razão:
-quadrúpede não tem plugin nativo equivalente. **Registrar a reversão no
-changelog quando F2 fechar**, para não parecer que a decisão do ML2 foi
-esquecida.
+The ML2 decided against** `gz_ros2_control`, in favor of the native plugin
+`gz-sim-diff-drive-system`, precisely because the first would drag `ros2_control` +
+`controller_manager`. F2/F3 reverse this, and with reason: quadruped has no equivalent
+native plugin. **Register the reversal in the changelog when F2 close**, so it does not
+appear that the decision of ZZXQ008QXZZ was forgotten.
 
 ---
 
-## A confirmar em F2 — ✅ EXECUTADO, ver "F2 — verificação executada" acima
+## To be confirmed on F2 — 
 
-A tabela abaixo é o que se pretendia verificar. Foi verificada em 14/08/2026 e
-**duas afirmações caíram**. Mantida como registro do que se perguntou; os
-resultados estão na seção de F2.
+The table below is what was intended to be verified. It was verified in
+14/08/ZZX0002QXZZ and **two statements fell**. Kept as a record of what was asked; the
+results are in the section of F2.
 
 
 
-Nada da descrição de `quadruped_ros2_control` entra como fato:
+Nothing from the description of `quadruped_ros2_control` enters as fact:
 
-| Afirmação | Como verificar |
+| Statement | How to check |
 |---|---|
-| Branch default é Jazzy | `package.xml` / CI na árvore, não o README |
-| Suporta Harmonic | dependência `gz-*` real e versão (Harmonic é `gz-sim8`) |
-| Licença Apache-2.0 | arquivo `LICENSE` na raiz **e** headers dos fontes vendorizados |
-| Não tem config do A1 | `find`/`ls` por `a1` em descrição e config |
-| O que vem de `chvmp/robots` | licença da descrição do A1 **e** a licença original de `unitree_ros` de onde deriva |
+| Branch default is Jazzy | `package.xml` / CI in the tree, not README |
+| Supports Harmonic | dependence `gz-*` real and version (Harmonic is `gz-sim8`) |
+| Apache-2.0 License | `LICENSE` file at root ** and** headers of vendorized fonts |
+| No A1 config | `find`/`ls` by `a1` in description and config |
+| What comes from `chvmp/robots` | A1 description license ** and** the original license of `unitree_ros` from where it is derived |
 
-Licença de repo-pai **não se herda por suposição**. Foi licença não declarada que
-matou o Tugbot no ML3.1 e os dois repos Go2 aqui.
+Repo-father license**is not inherited by assumption**. It was undeclared license that
+killed Tugbot at ML3.1 and the two repos Go2 here.
 
-Confirmar também: se a base carrega `controller_manager` dentro do processo do
-`gz sim` (é o que justifica `sim` ser um container só), e se `gz_ros2_control`
-1.2.19 casa com a versão que a base espera.
+Also confirm: if the base loads `controller_manager` within the `gz sim` process (this
+is what justifies `sim` being a single container), and if `gz_ros2_control` ZZX0004QXZZ
+home with the version that the base awaits.
 
 ---
 
-## Ambiente verificado (14/08/2026, host x86)
+## Verified environment (14/08/ZZX0002QXZZ, host x86)
 
-| Item | Estado |
+| Item | Status |
 |---|---|
-| ROS 2 Jazzy | instalado nativamente |
-| Gazebo Sim | 8.14.0 (Harmonic) |
-| `ros_gz`, `ros_gz_bridge`, `ros_gz_sim` | instalados |
-| `ros2_control` | **não instalado** — apt tem 4.45.2 |
-| `ros2_controllers` | **não instalado** — apt tem 4.40.1 |
-| `gz_ros2_control` | **não instalado** — apt tem 1.2.19 |
-| Módulo Aquila AM69 | **não acessível nesta sessão** |
+| ROS 2 Jazzy | natively installed |
+| Gazebo Yes | 8.14.0 (Harmonic) |
+| `ros_gz`, `ros_gz_bridge`, `ros_gz_sim` | installed |
+| `ros2_control` | ** not installed** — apt has 4.45.2 |
+| `ros2_controllers` | ** not installed** — apt has 4.40.1 |
+| `gz_ros2_control` | ** not installed** — apt has 1.2.19 |
+| Module Aquila AM69 | ** not accessible in this session** |
 
-Os três de `ros2_control` são pré-requisito de F2 e entram na imagem `sim` em F1.
-
----
-
-## Colisão de invariantes registrada
-
-`quadruped_ros2_control` documenta que **CycloneDDS conflita com `unitree_sdk2`**
-e recomenda FastDDS. A regra inviolável 2 do projeto é `rmw_cyclonedds_cpp`
-sempre.
-
-**Não bloqueia o ML3.5:** o SDK só entra com A1 físico, que está fora do escopo.
-O container `hw` existe vazio desde F1 para o problema ficar visível no lugar
-certo em vez de aparecer como surpresa no bring-up de hardware.
+The three of `ros2_control` are the prerequisite of F2 and enter the image `sim` in F1.
 
 ---
 
-## Premissas em vigor
+## Registered invariant collation
 
-- A spec é `guia-ml35-docker.md`. Onde ela e o plano original divergirem, **o
-  guia vence**.
-- ~~O módulo não está acessível~~ — **PREMISSA CAÍDA em 20/08/2026.** O Aquila
-  AM69 respondeu e foi inventariado; ver `docs/results/ml35-target-preparacao.md`
-  e a seção "Preparação do target" acima. `ssh torizon@` e `rsync` agora rodam
-  por `scripts/module.sh`. A regra 7 continua valendo integralmente: nada de
-  desempenho, latência, térmica ou FPS foi medido nem é reivindicado.
-- ~~`eth0` nos XMLs de DDS é placeholder~~ — **RESOLVIDO para o módulo.** As
-  interfaces verificadas são `ethernet0` e `ethernet1`; no HIL de 24/08 foi
-  escolhida explicitamente `ethernet1`, e ela é **fixada em tempo de
-  renderização**, detectada a partir de `MODULE_IP`, não escrita à mão:
-  `autodetermine` pode escolher a bridge Docker do easy-pairing
-  (`br-*`, 172.18.0.1), que está UP ao mesmo tempo. O `host.xml` é template; o
-  `module.sh sync` gera `host.rendered.xml` com `enp0s31f6` e o peer escolhido.
-  Com as duas portas na mesma sub-rede, `MODULE_IP` deve ser explícito porque o
-  mesmo hostname mDNS pode resolver para qualquer uma delas.
-- `tools` aparece em `docker compose exec tools` no guia §9 mas não está
-  declarado no compose §6. Será declarado com `profiles: ["tools"]` e um
-  `command` que não encerra.
+`quadruped_ros2_control` documents that **CycloneDDS conflicts with `unitree_sdk2`** and
+recommends FastDDS. The project's inviolable rule ZZX0002QXZZ is ZZX0003QXZZ always.
+
+* * Does not block ML3.5:** SDK only enters with physical A1, which is out of scope. The
+`hw` container has been empty since F1 for the problem to be visible in the right place
+instead of appearing as a surprise in the hardware ring-up.
+
+---
+
+## Premises in force
+
+- The spec is `guia-ml35-docker.md`. Where she and the original plan diverge,
+  Guide wins**.
+- ~~The module is not accessible~~ — **PREMISSA CAÍDA em 20/08/2026.** The Aquila
+  AM69 responded and was inventoried; see `docs/results/ml35-target-preparacao.md` and
+  the " Target Preparation" section above. `ssh torizon@` and `rsync` now run by
+  `scripts/module.sh`. The 7 rule remains fully valid: nothing performance, latency,
+  thermal or FPS has been measured or claimed.
+- ~~`eth0` in DDS XMLs is placeholder~~ — **RESOLVIDO for the module.** As
+  verified interfaces are `ethernet0` and `ethernet1`; HIL ZZX0003QXZZ/08 was
+  explicitly chosen ZZXQ005QXZZ, and it is fixed in rendering time**, detected from
+  ZZXQ006QXZZ, not written by hand: `autodetermine` can choose the bridge easy-pairing
+  docker (`br-*`, ZZX0009QXZZ), which is UP at the same time. `host.xml` is template;
+  `module.sh sync` generates `host.rendered.xml` with `enp0s31f6` and the chosen peer.
+  With both ports on the same subnet, `MODULE_IP` should be explicit because the same
+  hostname mDNS can solve for any of them.
+- `tools` appears on `docker compose exec tools` in the §ZZX0002QXZZ tab but is not
+  declared in the composition §6. It will be declared with `profiles: ["tools"]` and a
+  `command` that does not close.

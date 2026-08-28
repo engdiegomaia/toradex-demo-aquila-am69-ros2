@@ -28,6 +28,7 @@ frames.pdf
 # Editor / OS
 .vscode/
 .idea/
+.ai/
 *.swp
 .DS_Store
 

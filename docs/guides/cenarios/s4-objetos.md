@@ -1,105 +1,109 @@
-# S4 — Objetos no campo de visão
+# S4 — Objects in the field of view
 
-Mundo: `quadruped_objects.sdf` · Estação x86 · ~4 min
+World: `quadruped_objects.sdf` · x86 workstation · ~4 min
 
-## Para que serve
+## Purpose
 
-Exercita `/demo/camera/image_raw` e `/demo/camera/camera_info`, e o consumidor
-desse contrato, `demo_perception`.
+Exercises `/demo/camera/image_raw` and `/demo/camera/camera_info`, as well as
+the consumer of that contract, `demo_perception`.
 
-## ATENÇÃO antes de ler qualquer resultado
+## WARNING before reading any result
 
-`demo_perception` hoje é um **stub de detecção sintética e determinística**. Ele
-**não olha a imagem** — é o contrato de tópicos do `CLAUDE.md` sendo respeitado
-para que a inferência TIDL possa entrar depois sem refatoração.
+`demo_perception` is currently a **deterministic synthetic-detection stub**. It
+**does not inspect the image**—it honors the topic contract in `CLAUDE.md` so
+TIDL inference can be introduced later without refactoring.
 
-Portanto este cenário **não valida detecção**. Ele valida que a imagem chega, com
-a geometria e a taxa certas, e que `/demo/perception/detections` continua sendo
-publicado e consumido. Confundir as duas coisas é exatamente como o stub viraria
-"visão funcionando" num relatório.
+Therefore, this scenario **does not validate detection**. It validates that the
+image arrives with the correct geometry and rate, and that
+`/demo/perception/detections` continues to be published and consumed. Confusing
+the two is exactly how the stub would become "working vision" in a report.
 
-## Geometria
+## Geometry
 
-Quatro objetos em cores saturadas, distintas do chão cinza e do fundo azul:
+Four objects in saturated colors distinct from the gray ground and blue
+background:
 
-| objeto | posição (x, y) | forma |
+| object | position (x, y) | shape |
 | --- | --- | --- |
-| caixa vermelha | 1,5 · 0,0 | 0,30 m cúbica |
-| cilindro verde | 3,0 · +0,45 | r 0,18, h 0,50 |
-| caixa azul | 3,0 · −0,55 | 0,40 × 0,40 × 0,60 |
-| cilindro amarelo | 4,5 · 0,0 | r 0,12, h 0,80 |
+| red box | 1,5 · 0,0 | 0,30 m cube |
+| green cylinder | 3,0 · +0,45 | r 0,18, h 0,50 |
+| blue box | 3,0 · −0,55 | 0,40 × 0,40 × 0,60 |
+| yellow cylinder | 4,5 · 0,0 | r 0,12, h 0,80 |
 
-Três distâncias (1,5 / 3,0 / 4,5 m) para que uma futura inferência tenha alvos
-em escalas diferentes sem precisar de outro mundo.
+Three distances (1,5 / 3,0 / 4,5 m) give future inference targets at different
+scales without requiring another world.
 
-## Rodar
+## Run
 
 ```bash
 ./scripts/run_quadruped_sim.sh quadruped_objects.sdf
 python3 scripts/scenario_check.py --seconds 20
 ```
 
-Andar pouco — a caixa vermelha está a 1,5 m à frente:
+Walk only a short distance—the red box is 1,5 m ahead:
 
 ```bash
 ./scripts/gait_trial.sh /tmp/s4.csv --v-cmd 0.10 --w-cmd 0.0 \
   --cycles 1 --walk 8 --hold 5
 ```
 
-Para ver a imagem, com `demo_perception` rodando e o contrato fechado:
+To view the image with `demo_perception` running and the contract complete:
 
 ```bash
-ros2 launch demo_perception perception.launch.py   # ou o launch equivalente
+ros2 launch demo_perception perception.launch.py   # or the equivalent launch file
 ros2 topic hz /demo/perception/detections
 ros2 run rqt_image_view rqt_image_view /demo/camera/image_raw
 ```
 
-`rqt_image_view` e RViz2 rodam **só na estação x86** (regra 1 do `CLAUDE.md`).
+`rqt_image_view` and RViz2 run **only on the x86 workstation** (rule 1 in
+`CLAUDE.md`).
 
-## Aceitação
+## Acceptance
 
-Medido em 20/08/2026, robô parado, janela de 15 s.
+Measured on 20/08/2026 with the robot stationary over a 15 s window.
 
-| medida | valor | aceitação |
+| measurement | value | acceptance |
 | --- | --- | --- |
 | `/demo/camera/image_raw` | 10 Hz, 640×480 `rgb8`, 921600 bytes | > 5 Hz |
-| geometria contra `camera_info` | confere | igual |
-| intensidade média | 179,4 (contra 180,9 no mundo vazio) | — |
+| geometry versus `camera_info` | matches | equal |
+| average intensity | 179,4 (versus 180,9 in the empty world) | — |
 | `RECOVER` | 0 | 0 |
 
-A câmera passa. **O lidar não vê os objetos** — ver abaixo, e é o achado
-principal deste cenário.
+The camera passes. **The lidar does not see the objects**—see below; this is the
+scenario's main finding.
 
-### O lidar 2D não vê obstáculo isolado à frente
+### The 2D lidar does not see an isolated obstacle ahead
 
-| mundo | feixes válidos | alcance mínimo |
+| world | valid beams | minimum range |
 | --- | --- | --- |
-| S0 vazio | 46/640 (7%) | 4,80 m (só chão) |
-| **S4 objetos** | **46/640 (7%)** | **4,82 m** |
-| S3 corredor | 358/640 (56%) | 0,72 m |
+| S0 empty | 46/640 (7%) | 4,80 m (ground only) |
+| **S4 objects** | **46/640 (7%)** | **4,82 m** |
+| S3 corridor | 358/640 (56%) | 0,72 m |
 
-O S4 é **numericamente idêntico ao mundo vazio**: os quatro objetos, de 0,30 a
-0,80 m de altura, a 1,5–4,5 m à frente, contribuem **zero** retornos.
+S4 is **numerically identical to the empty world**: the four objects, 0,30 to
+0,80 m tall and 1,5–4,5 m ahead, contribute **zero** returns.
 
-Causa. O `L1_lidar` do Go2 (`go2_description/xacro/gazebo.xacro:288`) é um
-`gpu_lidar` **3D**: 640 amostras horizontais em 200° por **16 anéis verticais**
-em ±15°, montado em `trunk` com `rpy="0 2.8782 0"` — 164,9° de pitch, que é o
-domo do L1 real olhando para baixo e para frente.
+Cause. The Go2 `L1_lidar` (`go2_description/xacro/gazebo.xacro:288`) is a **3D**
+`gpu_lidar`: 640 horizontal samples over 200° across **16 vertical rings** at
+±15°, mounted on `trunk` with `rpy="0 2.8782 0"`—164,9° of pitch, matching the
+real L1 dome looking downward and forward.
 
-A bridge mapeia para `sensor_msgs/LaserScan`, que é **2D**. O `/demo/scan`
-carrega 640 ranges, ou seja **um anel dos 16** — os outros quinze são descartados
-na travessia, sem aviso. E o anel exposto aponta de tal forma que vê parede rente
-ao corpo (S3, mínimo 0,72 m) e chão a 5–10 m, mas não objeto isolado à frente.
+The bridge maps it to `sensor_msgs/LaserScan`, which is **2D**. `/demo/scan`
+carries 640 ranges, meaning **one of the 16 rings**; the other fifteen are
+discarded during the crossing without warning. The exposed ring points such
+that it sees a wall close to the body (S3, minimum 0,72 m) and ground at 5–10 m,
+but not an isolated object ahead.
 
-**Consequência de projeto:** um costmap do Nav2 alimentado por `/demo/scan` não
-veria justamente os obstáculos que o robô precisa desviar. Resolver isso é
-escolher entre expor o lidar como `PointCloud2` (os 16 anéis) em vez de
-`LaserScan`, ou remontar/reapontar o sensor. Nenhuma das duas foi feita.
+**Design consequence:** a Nav2 costmap fed by `/demo/scan` would fail to see the
+very obstacles the robot must avoid. Solving this requires choosing either to
+expose the lidar as `PointCloud2` (all 16 rings) instead of `LaserScan`, or to
+remount/reorient the sensor. Neither has been done.
 
-## Armadilha específica deste cenário
+## Scenario-specific pitfall
 
-**Câmera a 0 Hz com o tópico listado** é o modo de falha clássico, e a causa
-quase sempre é o mundo não carregar o sistema `Sensors` do Gazebo. Todos os
-mundos deste diretório carregam `gz-sim-sensors-system` com `ogre2` de propósito;
-se você criar um mundo novo copiando de `empty.sdf` do Gazebo, a câmera existe no
-modelo e não publica nada, **sem nenhum erro nomeando o plugin que falta**.
+**Camera at 0 Hz while its topic is listed** is the classic failure mode, and
+the cause is almost always a world that does not load Gazebo's `Sensors`
+system. Every world in this directory deliberately loads
+`gz-sim-sensors-system` with `ogre2`; if you create a new world by copying
+Gazebo's `empty.sdf`, the camera exists in the model but publishes nothing,
+**with no error identifying the missing plugin**.

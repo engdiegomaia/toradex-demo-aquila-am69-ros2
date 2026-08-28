@@ -11,7 +11,7 @@
         </p>
     </description>
     <author>Unitree Robotics</author>
-    <maintainer email="diego.maia@toradex.com">Diego Maia</maintainer>
+    <maintainer email="engdiegomaia@users.noreply.github.com">Diego Maia</maintainer>
     <license>BSD-3-Clause</license>
 
     <exec_depend>xacro</exec_depend>

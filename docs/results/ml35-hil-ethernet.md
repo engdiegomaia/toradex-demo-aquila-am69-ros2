@@ -2,8 +2,8 @@
 
 **Data:** 24/08/2026
 **Hardware:** Aquila AM69, Torizon OS 7.7.0+build.40, 8 × Cortex-A72, 31 GiB
-**Topologia:** host `enp0s31f6` (`10.22.1.190`) ↔ switch ↔ Aquila
-`ethernet1` (`10.22.1.130`), 1 Gbit/s físico
+**Topologia:** host `enp0s31f6` (`<HOST_IP>`) ↔ switch ↔ Aquila
+`ethernet1` (`<MODULE_IP>`), 1 Gbit/s físico
 **Plant e telas:** Gazebo, RViz e câmera no host x86
 **Aplicação:** Nav2 e `demo_perception` arm64 no Aquila
 
@@ -39,19 +39,19 @@ correção visual.
 ## Configuração de rede que faltava
 
 As duas portas do Aquila estavam ligadas ao mesmo switch e à mesma sub-rede. As
-duas anunciam `aquila-am69-12593525.local`; durante o bring-up, a resolução mDNS
-alternou entre `10.22.1.67` e `10.22.1.130`. Isso também produziu ARP flux: o
+duas anunciam `<MODULE_HOST>`; durante o bring-up, a resolução mDNS
+alternou entre `<MODULE_ALT_IP>` e `<MODULE_IP>`. Isso também produziu ARP flux: o
 host chegou a aprender os dois endereços no MAC de `ethernet1`.
 
 O ensaio fixou explicitamente, no `docker/.env` local e ignorado pelo Git:
 
-- `MODULE_IP=10.22.1.130`;
-- `HOST_IP=10.22.1.190`.
+- `MODULE_IP=<MODULE_IP>`;
+- `HOST_IP=<HOST_IP>`.
 
 Depois de `./scripts/module.sh sync`, os XMLs renderizados ficaram coerentes:
 
-- host: interface `enp0s31f6`, peer `10.22.1.130`;
-- módulo: interface `ethernet1`, peer `10.22.1.190`;
+- host: interface `enp0s31f6`, peer `<MODULE_IP>`;
+- módulo: interface `ethernet1`, peer `<HOST_IP>`;
 - `ROS_DOMAIN_ID=69`, `rmw_cyclonedds_cpp`, multicast desativado e localhost
   preservado para descoberta entre containers da mesma máquina.
 

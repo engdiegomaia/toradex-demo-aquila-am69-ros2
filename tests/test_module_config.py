@@ -48,27 +48,27 @@ def load_config(env_file: Path, **overrides: str) -> dict[str, str]:
 def test_environment_wins_over_dotenv(tmp_path: Path) -> None:
     env_file = tmp_path / '.env'
     env_file.write_text(
-        'HOST_IP=10.22.1.190\n'
-        'MODULE_IP=10.22.1.130\n'
+        'HOST_IP=192.0.2.190\n'
+        'MODULE_IP=192.0.2.130\n'
         'TAG=stale\n',
         encoding='utf-8',
     )
 
     config = load_config(
         env_file,
-        HOST_IP='10.22.1.109',
-        MODULE_IP='10.22.1.67',
+        HOST_IP='192.0.2.109',
+        MODULE_IP='192.0.2.67',
         TAG='candidate',
     )
 
-    assert config['HOST_IP'] == '10.22.1.109'
-    assert config['MODULE_IP'] == '10.22.1.67'
+    assert config['HOST_IP'] == '192.0.2.109'
+    assert config['MODULE_IP'] == '192.0.2.67'
     assert config['TAG'] == 'candidate'
 
 
 def test_explicit_empty_environment_value_is_not_replaced(tmp_path: Path) -> None:
     env_file = tmp_path / '.env'
-    env_file.write_text('HOST_IP=10.22.1.190\n', encoding='utf-8')
+    env_file.write_text('HOST_IP=192.0.2.190\n', encoding='utf-8')
 
     config = load_config(env_file, HOST_IP='')
 
@@ -79,7 +79,7 @@ def test_dotenv_fills_unset_values_and_defaults_fill_the_rest(
         tmp_path: Path) -> None:
     env_file = tmp_path / '.env'
     env_file.write_text(
-        '  export MODULE_IP="10.22.1.67"\n'
+        '  export MODULE_IP="192.0.2.67"\n'
         "REGISTRY='bench'\n"
         'not-a-key=ignored\n',
         encoding='utf-8',
@@ -87,9 +87,9 @@ def test_dotenv_fills_unset_values_and_defaults_fill_the_rest(
 
     config = load_config(env_file)
 
-    assert config['MODULE_IP'] == '10.22.1.67'
+    assert config['MODULE_IP'] == '192.0.2.67'
     assert config['REGISTRY'] == 'bench'
-    assert config['MODULE_HOST'] == 'aquila-am69-12593525.local'
+    assert config['MODULE_HOST'] == 'aquila-am69.local'
     assert config['ROS_DOMAIN_ID'] == '69'
     assert config['TAG'] == 'dev'
     assert config['ROBOT_TYPE'] == 'quadruped'

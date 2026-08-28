@@ -1,6 +1,6 @@
 # Preparação do target — Aquila AM69, primeiro acesso real
 
-Módulo `aquila-am69-12593525.local`, 2026-08-20. Primeira sessão em que o
+Módulo `<MODULE_HOST>`, 2026-08-20. Primeira sessão em que o
 hardware esteve acessível. Tudo abaixo foi **medido no módulo**, não inferido.
 
 Contexto: executado em paralelo aos ensaios de marcha do Go2 no host x86. Essa
@@ -29,13 +29,13 @@ Interfaces com endereço:
 
 | Link | Estado | Endereço |
 | --- | --- | --- |
-| `ethernet0` | UP | `192.168.15.122/24` + IPv6 global |
+| `ethernet0` | UP | `<MODULE_IP>/24` + IPv6 global |
 | `br-a00dfb945795` | UP | `172.18.0.1/16` (bridge do compose do easy-pairing) |
 | `docker0` | DOWN | `172.17.0.1/16` |
 | `wlan0`, `ethernet1`, `can0-3` | DOWN | — |
 
-Host x86: `192.168.15.98` em `wlp0s20f3` (Wi-Fi). Mesma /24 do módulo, rota
-direta (`ip route get 192.168.15.122` → `src 192.168.15.98`).
+Host x86: `<HOST_IP>` em `wlp0s20f3` (Wi-Fi). Mesma /24 do módulo, rota
+direta (`ip route get <MODULE_IP>` → `src <HOST_IP>`).
 
 Estado inicial dos containers: apenas `torizon-easy-pairing-bash-1` (Torizon
 Cloud). Nenhuma imagem `demo-aquila-*`. `~/` vazio.
@@ -54,9 +54,9 @@ datagramas UDP reais nas portas que o domínio 69 usa
 
 | Direção | Porta UDP | Resultado |
 | --- | --- | --- |
-| módulo → host | 24660 | **recebido** (de `192.168.15.122`) |
+| módulo → host | 24660 | **recebido** (de `<MODULE_IP>`) |
 | módulo → host | 24678 | **recebido** |
-| host → módulo | 24661 | **recebido** (de `192.168.15.98`) |
+| host → módulo | 24661 | **recebido** (de `<HOST_IP>`) |
 
 Conclusão: **nenhuma mudança de firewall é necessária.** Duas portas distintas
 foram testadas de propósito — uma única porta passando não distingue "política
@@ -204,7 +204,7 @@ sync` renderiza `docker/cyclonedds/module.xml` e escreve o resultado em
 ```
 <NetworkInterface name="ethernet0" priority="default"/>  <!-- fixado por scripts/module.sh -->
 <Peer address="127.0.0.1"/>
-<Peer address="192.168.15.98"/>  <!-- host x86, injetado por scripts/module.sh -->
+<Peer address="<HOST_IP>"/>  <!-- host x86, injetado por scripts/module.sh -->
 ```
 
 O peer `127.0.0.1` é *load-bearing* e continua lá: com `AllowMulticast=false`,
@@ -212,7 +212,7 @@ O peer `127.0.0.1` é *load-bearing* e continua lá: com `AllowMulticast=false`,
 `ml35-f1-execucao.md`).
 
 `~/demo/.env` é gerado, não sincronizado: `ROS_DOMAIN_ID=69`,
-`HOST_IP=192.168.15.98`, `MODULE_IP=192.168.15.122`, `REGISTRY=local`,
+`HOST_IP=<HOST_IP>`, `MODULE_IP=<MODULE_IP>`, `REGISTRY=local`,
 `TAG=dev`.
 
 ### Uma armadilha encontrada na própria renderização
@@ -419,13 +419,13 @@ datagrama"):
 
 ```
 1/3 alcance UDP no dominio 69, porta 24660
-    modulo -> host: OK (de 192.168.15.122)
+    modulo -> host: OK (de <MODULE_IP>)
 ```
 
 ### Por que a etapa 1 checa o payload
 
 Numa execução com a simulação ativa, a etapa 1 reportou
-`modulo -> host: OK (de 192.168.15.98)` — **o endereço do próprio host**, num
+`modulo -> host: OK (de <HOST_IP>)` — **o endereço do próprio host**, num
 teste cujo objetivo era provar que o módulo alcança o host. Aquelas são portas
 RTPS vivas: o primeiro datagrama a chegar foi tráfego SPDP de terceiros.
 

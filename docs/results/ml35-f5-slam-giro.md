@@ -1,7 +1,7 @@
 # ML3.5 F5 — o bloqueio era o amostrador do MPPI, não a planta
 
 Data: 27/08/2026. Topologia: **HIL real** — Gazebo Harmonic no host x86,
-Nav2 + percepção no Aquila AM69 (`10.22.1.130`, `enp0s31f6`), `slam_toolbox`
+Nav2 + percepção no Aquila AM69 (`<MODULE_IP>`, `enp0s31f6`), `slam_toolbox`
 como único autor de `map -> odom`.
 
 Amostras cruas: `ml35-f5-slam-giro.csv` (1200 amostras, 10 Hz).

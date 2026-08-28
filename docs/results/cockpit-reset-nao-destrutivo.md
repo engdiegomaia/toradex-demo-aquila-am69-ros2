@@ -258,7 +258,7 @@ quadros voltam sozinhos. Não gaste código religando o `<img>` sem medir de nov
 `/demo/target/status` e `/demo/target/ops_log`, publicados por `target_monitor`
 junto do Nav2 — no modo `hil` os números são do AM69.
 
-Lido do módulo real (`aquila-am69-12593525`):
+Lido do módulo real (`<MODULE_HOST>`):
 
 ```json
 {"cpu_percent": 54.53, "temp_c": 34.974, "load1": 7.575, "load5": 7.505,

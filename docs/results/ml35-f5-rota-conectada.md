@@ -1,7 +1,7 @@
 # ML3.5 F5 — a navegação não estava quebrada: as metas do ensaio estavam atrás de parede
 
 Data: 27/08/2026. Topologia: **HIL real** — Gazebo Harmonic no host x86,
-Nav2 + percepção no Aquila AM69 (`10.22.1.130`, `ethernet0`, RTT 0,156 ms),
+Nav2 + percepção no Aquila AM69 (`<MODULE_IP>`, `ethernet0`, RTT 0,156 ms),
 `bt_navigator` em `active`. Nada foi reconstruído, nenhum parâmetro mudou,
 nenhuma imagem foi tocada entre as duas corridas abaixo.
 

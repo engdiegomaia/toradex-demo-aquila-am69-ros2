@@ -1,71 +1,71 @@
-# S3 — Corredor com obstáculos
+# S3 — Obstacle corridor
 
-Mundo: `quadruped_corridor.sdf` · Estação x86 · ~5 min
+World: `quadruped_corridor.sdf` · x86 workstation · ~5 min
 
-## Para que serve
+## Purpose
 
-Exercita `/demo/scan` e o caminho que a F5 vai usar: scan → camada de custo do
-Nav2. **Não exercita marcha:** o chão é plano de propósito, para que qualquer
-coisa que apareça nos números de marcha seja atribuível ao S1/S2 e não a este.
+Exercises `/demo/scan` and the path F5 will use: scan → Nav2 costmap layer. It
+**does not exercise gait:** the ground is intentionally flat so anything that
+appears in gait figures can be attributed to S1/S2 rather than this scenario.
 
-## Geometria, e por que ela é assim
+## Geometry and rationale
 
-Corredor de 1,5 m de largura por 7 m, paredes de 0,10 m de espessura e
-**0,60 m de altura**, parede de fundo em x = 7,5, e dois cilindros de 0,15 m de
-raio desalinhados em x = 2,5 (y = +0,25) e x = 5,0 (y = −0,25).
+A 1,5 m-wide, 7 m-long corridor with walls 0,10 m thick and **0,60 m high**, an
+end wall at x = 7,5, and two offset cylinders with 0,15 m radii at x = 2,5
+(y = +0,25) and x = 5,0 (y = −0,25).
 
-A altura de 0,60 m é o número que importa. O lidar do Go2 fica no corpo, a
-~0,33 m do chão; uma parede de 0,30 m entra e sai do plano de varredura conforme
-o tronco oscila e produz um scan **intermitente**, que parece defeito de bridge e
-não é. 0,60 m garante retorno mesmo com o corpo balançando.
+The 0,60 m height is the figure that matters. The Go2 lidar is on the body at
+~0,33 m above the ground; a 0,30 m wall moves in and out of the scan plane as
+the trunk oscillates, producing an **intermittent** scan that looks like a
+bridge defect but is not. 0,60 m guarantees returns even while the body sways.
 
-1,5 m de largura é folgado o suficiente para o Nav2 planejar e estreito o
-suficiente para as duas paredes aparecerem no mesmo scan.
+1,5 m is wide enough for Nav2 to plan and narrow enough for both walls to
+appear in the same scan.
 
-## Rodar
+## Run
 
 ```bash
 ./scripts/run_quadruped_sim.sh quadruped_corridor.sdf
-# verificar o lidar ANTES de andar
+# check the lidar BEFORE walking
 python3 scripts/scenario_check.py --seconds 20
-# depois andar o corredor
+# then walk through the corridor
 ./scripts/gait_trial.sh /tmp/s3.csv --v-cmd 0.10 --w-cmd 0.0 \
   --cycles 1 --walk 50 --hold 5
 ```
 
-Inspeção direta do scan:
+Direct scan inspection:
 
 ```bash
 ros2 topic echo /demo/scan --once | head -20
 ros2 topic hz /demo/scan
 ```
 
-## Aceitação
+## Acceptance
 
-Medido em 20/08/2026, RTF 1,00, 50 s de caminhada a 0,10 m/s.
+Measured on 20/08/2026, RTF 1,00, 50 s of walking at 0,10 m/s.
 
-| medida | S0 plano | S3 corredor | aceitação |
+| measurement | S0 plane | S3 corridor | acceptance |
 | --- | --- | --- | --- |
-| lidar: feixes válidos | 45/640 (**7%**) | **358/640 (56%)** | > 30% |
-| lidar: alcance mínimo | 4,66 m (chão) | **0,72 m** (parede) | < 1,5 m |
-| lidar: alcance máximo | 9,76 m | 9,80 m | — |
+| lidar: valid beams | 45/640 (**7%**) | **358/640 (56%)** | > 30% |
+| lidar: minimum range | 4,66 m (ground) | **0,72 m** (wall) | < 1,5 m |
+| lidar: maximum range | 9,76 m | 9,80 m | — |
 | `RECOVER` | 0 | **0** | 0 |
-| tilt de pico andando | 1,08° | 1,38° | < 3° |
-| deriva de rumo | −0,7° | −0,4° | < 5° |
-| velocidade média | 0,1115 m/s | 0,0967 m/s | 97–115% |
+| peak tilt while walking | 1,08° | 1,38° | < 3° |
+| heading drift | −0,7° | −0,4° | < 5° |
+| average speed | 0,1115 m/s | 0,0967 m/s | 97–115% |
 
-Os 7% → 56% são o critério deste cenário. Um mínimo de 0,72 m confirma que a
-parede lateral está sendo vista a 0,75 m do eixo, que é onde ela está.
+The 7% → 56% change is this scenario's criterion. A minimum of 0,72 m confirms
+that the side wall is seen at 0,75 m from the centerline, which is its location.
 
-## Armadilhas específicas deste cenário
+## Scenario-specific pitfalls
 
-- **O robô vai bater na parede de fundo se você andar demais.** 50 s a 0,10 m/s
-  são ~5 m; a parede está em 7,5 m. Com RTF acima do esperado ou comando maior,
-  reduza o tempo.
-- **O caranguejo de ~2% leva o robô para a parede.** Em 5 m isso são ~10 cm de
-  desvio lateral num corredor de 1,5 m — tolerável, mas é a razão pela qual este
-  corredor não é mais estreito. Não interprete a aproximação da parede como
-  falha de navegação: não há navegação rodando aqui.
-- **Costmap vazio não é defeito de bridge se a TF não fecha.** Sem frame `odom` o
-  Nav2 não consegue colocar o scan num mapa. Verifique a árvore antes de
-  investigar o lidar.
+- **The robot will hit the end wall if it walks too long.** 50 s at 0,10 m/s is
+  ~5 m; the wall is at 7,5 m. Reduce the duration if RTF is higher than expected
+  or the command is greater.
+- **~2% crabbing takes the robot toward the wall.** Over 5 m that is ~10 cm of
+  lateral drift in a 1,5 m corridor—tolerable, but the reason this corridor is
+  not narrower. Do not interpret the approach to the wall as a navigation
+  failure: navigation is not running here.
+- **An empty costmap is not a bridge defect if TF does not connect.** Without an
+  `odom` frame, Nav2 cannot place the scan in a map. Check the tree before
+  investigating the lidar.

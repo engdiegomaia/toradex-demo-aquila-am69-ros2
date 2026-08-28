@@ -25,7 +25,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Diego Maia',
-    maintainer_email='diego.maia@toradex.com',
+    maintainer_email='engdiegomaia@users.noreply.github.com',
     description='Parameterized differential-drive robot model, TF tree, and RViz dev config.',
     license='Apache-2.0',
     tests_require=['pytest'],

@@ -16,7 +16,7 @@ set -euo pipefail
 # Configuration, in precedence order: environment, then docker/.env, then the
 # defaults below. Nothing here hard-codes an address (CLAUDE.md conventions).
 #
-#   MODULE_HOST   ssh target                    (default aquila-am69-12593525.local)
+#   MODULE_HOST   ssh target                    (default aquila-am69.local)
 #   MODULE_IP     module address on the LAN     (resolved from MODULE_HOST if unset)
 #   HOST_IP       this workstation, as the module sees it
 #   ROS_DOMAIN_ID DDS domain                    (default 69)
@@ -91,7 +91,7 @@ if [[ -f "${env_file}" ]]; then
   unset line env_key env_val
 fi
 
-MODULE_HOST="${MODULE_HOST:-aquila-am69-12593525.local}"
+MODULE_HOST="${MODULE_HOST:-aquila-am69.local}"
 MODULE_USER="${MODULE_USER:-torizon}"
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-69}"
 TAG="${TAG:-dev}"
@@ -563,7 +563,7 @@ except OSError as exc:
 # The payload IS checked. These are live RTPS discovery ports: with a simulation
 # running on the same domain, the first datagram to arrive is often real SPDP
 # traffic from another participant, and accepting it would report "OK" for a
-# port the module never reached. Measured once as "de 192.168.15.98" — the
+# port the module never reached. Measured once as "de <HOST_IP>" — the
 # host's own address — on a probe that was supposed to prove the module could
 # reach us.
 deadline = time.monotonic() + 15

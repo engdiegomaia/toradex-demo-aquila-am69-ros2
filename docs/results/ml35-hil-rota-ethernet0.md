@@ -2,8 +2,8 @@
 
 **Data:** 25/08/2026
 **Hardware:** Aquila AM69, Torizon OS 7.7.0+build.40, 8 × Cortex-A72, 31 GiB, 98 GiB livres
-**Topologia:** host `wlp0s20f3` (`10.22.1.109`) ↔ AP corporativo ↔ Aquila
-`ethernet0` (`10.22.1.67`) — **Wi-Fi, não cabo**
+**Topologia:** host `wlp0s20f3` (`<HOST_IP>`) ↔ AP corporativo ↔ Aquila
+`ethernet0` (`<MODULE_ALT_IP>`) — **Wi-Fi, não cabo**
 **Plant e telas:** Gazebo (`quadruped_maze11`), RViz e câmeras de cena no host x86
 **Aplicação:** Nav2 e `demo_perception` arm64 no Aquila
 
@@ -21,17 +21,17 @@ esperava um dongle USB-Ethernet ponto a ponto. **A premissa era falsa.** O
 módulo respondeu de imediato pela LAN:
 
 ```
-hostname: aquila-am69-12593525     Torizon OS 7.7.0+build.40     up 5:06
-ethernet0  UP  10.22.1.67/24
-ethernet1  UP  10.22.1.130/24
+hostname: <MODULE_HOST>     Torizon OS 7.7.0+build.40     up 5:06
+ethernet0  UP  <MODULE_ALT_IP>/24
+ethernet1  UP  <MODULE_IP>/24
 ```
 
-O host está em `10.22.1.109/24` pelo Wi-Fi — **a mesma /24**. As chaves de host
+O host está em `<HOST_IP>/24` pelo Wi-Fi — **a mesma /24**. As chaves de host
 SSH são idênticas nos dois IPs, o que prova que são duas interfaces da mesma
 máquina.
 
 A causa real da falha de `module.sh inventory`: `MODULE_HOST` tem por padrão
-`aquila-am69-12593525.local`, mDNS não resolve neste host, e `docker/.env` não
+`<MODULE_HOST>`, mDNS não resolve neste host, e `docker/.env` não
 define `MODULE_IP`. Com `MODULE_IP` explícito, funciona sem mais nada.
 
 **Método que não pode funcionar, e por quê.** Identificar o módulo esperando um
@@ -57,13 +57,13 @@ MODULE_HOST="${MODULE_HOST:-...}"        # guarda contra VAZIO, não contra .env
 `.env` e os dois casos são indistinguíveis. O guarda defende contra *não
 definido*, nunca contra o `.env` vencer.
 
-**Como isso se manifestou.** Um `HOST_IP=10.22.1.190` obsoleto no `.env`, de uma
-sessão cabeada anterior, venceu um `HOST_IP=10.22.1.109` explícito na linha de
+**Como isso se manifestou.** Um `HOST_IP=<HOST_IP>` obsoleto no `.env`, de uma
+sessão cabeada anterior, venceu um `HOST_IP=<HOST_IP>` explícito na linha de
 comando. Os dois XMLs do CycloneDDS foram renderizados para um host inexistente
 e para `enp0s31f6`, uma interface **sem portadora**:
 
 ```
-[module.sh] modulo 10.22.1.130 | host 10.22.1.190 | dominio 69
+[module.sh] modulo <MODULE_IP> | host <HOST_IP> | dominio 69
 [module.sh] renderizando cyclonedds/host.rendered.xml (iface enp0s31f6, ...)
 ```
 
@@ -95,11 +95,11 @@ subindo assim não teria caminho algum até o módulo, sem erro em lugar nenhum.
 O módulo tem duas interfaces na **mesma /24**, e o kernel tem duas rotas:
 
 ```
-10.22.1.0/24 dev ethernet0 src 10.22.1.67  metric 101   <- sempre escolhida
-10.22.1.0/24 dev ethernet1 src 10.22.1.130 metric 102
+<LAN_CIDR> dev ethernet0 src <MODULE_ALT_IP>  metric 101   <- sempre escolhida
+<LAN_CIDR> dev ethernet1 src <MODULE_IP> metric 102
 ```
 
-`ip route get 10.22.1.109` → `dev ethernet0 src 10.22.1.67`.
+`ip route get <HOST_IP>` → `dev ethernet0 src <MODULE_ALT_IP>`.
 
 O `module.xml` estava fixado em **`ethernet1`** desde o HIL de 24/08. Para
 qualquer destino nessa sub-rede, o caminho de bind e o de envio divergem por
@@ -107,12 +107,12 @@ construção. Depois de re-renderizar sobre `ethernet0`, o teste de alcance pass
 
 ```
 1/3 alcance UDP no dominio 69, porta 24666
-    modulo -> host: OK (de 10.22.1.67)      <- endereço de origem correto
+    modulo -> host: OK (de <MODULE_ALT_IP>)      <- endereço de origem correto
 ```
 
 **Hipótese não verificada, registrada para teste.** Essa divergência existia
-também em 24/08: o host estava em `10.22.1.190`, que é igualmente
-`10.22.1.0/24`, logo a rota do módulo também preferia `ethernet0` enquanto o DDS
+também em 24/08: o host estava em `<HOST_IP>`, que é igualmente
+`<LAN_CIDR>`, logo a rota do módulo também preferia `ethernet0` enquanto o DDS
 estava em `ethernet1`. `/demo/cmd_vel` corre **módulo→host**, exatamente a
 direção degradada. Entrega intermitente explicaria "meta curta passou, os dois
 alvos de 8 m estouraram" sem invocar a marcha. **Não** se afirma que esta é a
@@ -131,9 +131,9 @@ nos dois templates) e **está revertida**, porque o rastreamento de descoberta n
 host a refutou diretamente:
 
 ```
-dq.builtin: SPDP ST0 ... NEW (... aquila-am69-12593525/0.10.5/Linux/Linux)
-            (data udp/10.22.1.67:24673  meta udp/10.22.1.67:24672)
-            property_list={"__Hostname":"aquila-am69-12593525","__Pid":"43"}
+dq.builtin: SPDP ST0 ... NEW (... <MODULE_HOST>/0.10.5/Linux/Linux)
+            (data udp/<MODULE_ALT_IP>:24673  meta udp/<MODULE_ALT_IP>:24672)
+            property_list={"__Hostname":"<MODULE_HOST>","__Pid":"43"}
 ```
 
 O host **recebe** o SPDP do módulo. A descoberta módulo→host funciona; o que
@@ -143,7 +143,7 @@ participante anunciar para 33 portas por peer por período, e as escritas falhav
 justamente nas portas altas:
 
 ```
-ddsi_udp_conn_write to udp/10.22.1.67:24708 failed with retcode -3
+ddsi_udp_conn_write to udp/<MODULE_ALT_IP>:24708 failed with retcode -3
 ... 24710, 24712, ... 24722   (índices 24..31)
 ```
 

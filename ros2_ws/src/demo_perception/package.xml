@@ -10,7 +10,7 @@
     Separated from day one because it defines the OTA update granularity: the
     future TIDL/NPU inference replaces this package as a container swap.
   </description>
-  <maintainer email="diego.maia@toradex.com">Diego Maia</maintainer>
+  <maintainer email="engdiegomaia@users.noreply.github.com">Diego Maia</maintainer>
   <license>Apache-2.0</license>
 
   <depend>launch</depend>

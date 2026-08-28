@@ -97,7 +97,7 @@ progress" e recuperação `Spin`, que também não chegou
 ## Causa raiz 1 — descoberta DDS assimétrica
 
 `docker/cyclonedds/host.xml` selecionava a interface com
-`<NetworkInterface autodetermine="true"/>`. Este host tem quatro: `10.22.1.109`
+`<NetworkInterface autodetermine="true"/>`. Este host tem quatro: `<HOST_IP>`
 (LAN), `100.64.184.75` (Tailscale), `172.17.0.1` e `172.18.0.1` (bridges Docker).
 
 O próprio arquivo já previa a falha, no cabeçalho:
@@ -118,14 +118,14 @@ odometria e costmap suficientes para planejar e comandar, e o robô não se movi
 O log tinha, sim, uma pista — e ela é ilegível na prática:
 
 ```
-ddsi_udp_conn_write to udp/10.22.1.109:24672 failed with retcode -1
+ddsi_udp_conn_write to udp/<HOST_IP>:24672 failed with retcode -1
 ```
 
 **81 248 linhas** disso num único container, misturadas à saída do Gazebo. Não é
 um erro que alguém lê; é ruído que esconde o resto (evictou o log da marcha
 inteiro da janela de retenção do Docker).
 
-Havia também um par **obsoleto**, `192.168.15.98`, de quando este host estava em
+Havia também um par **obsoleto**, `<HOST_IP>`, de quando este host estava em
 outra rede: os containers estavam de pé desde antes da troca de IP. Reiniciar a
 pilha removeu esse par e **não** resolveu a assimetria — o que isolou a causa na
 seleção de interface, não no par velho.

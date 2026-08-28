@@ -4,11 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Read first
 
-The authoritative guides live in `.ai/`. Read them before editing:
+The authoritative, versioned guides live in `docs/`. Read them before editing:
 
-- `.ai/CLAUDE.md` — short operational contract in Portuguese. The invariants below come from it.
-- `.ai/AGENTS.md` (mirrored as `.ai/codex.md`) — full implementation contract: milestones (M0, ML1-ML4, M0-HW, M1-M5, MX-TIDL), Definition of Done, naming, launch/compose conventions, HMI/perception specs, ADR format, completion-report format.
-- `.ai/demo-ros2-aquila-am69.md` — project rationale, hardware/software premises, phases, risks.
+- `docs/README.md` — canonical documentation index and lifecycle policy.
 - `docs/guia-completo.md` — how to run and edit the demo, plus the web cockpit (Portuguese). Written for someone new to ROS 2; documents each known silent-failure trap at the point where it would be hit. Two parts: Part I is the demo itself, Part II is the cockpit (panels, buttons, how to switch scenario) — read Part II before touching `hmi/` or the cockpit services. Unified from the former `guia-operacao.md` + `guia-cockpit.md` on 26/08/2026.
 - `docs/ml35/estado-fases.md` — **read this first in a new session.** Per-phase state of the in-flight ML3.5 milestone (quadruped + containerization), the gate each phase must clear, decisions already taken, and what is still to confirm.
 - `docs/ml35/guia-ml35-docker.md` — the ML3.5 implementation spec. Where it and the original plan diverge, the spec wins.
@@ -110,7 +108,8 @@ ros2 run tf2_tools view_frames
 cat /etc/os-release && ostree admin status && tdx-info
 ```
 
-`.ai/AGENTS.md` §6 defines the stable Makefile UX (`make help`, `make validate-compose`, `make build-multiarch`, `make up-learn`, `make verify-dds`, etc.) — implement it under M0.
+The stable Makefile UX is `make help`, `make validate-compose`,
+`make build-multiarch`, `make up-learn` and `make verify-dds`.
 
 ## Current phase
 
@@ -143,7 +142,8 @@ HTML/CSS/ES-module bundle in `hmi/` served by nginx (service `hmi`). F1 closed o
 phases in `docs/ml35/plano-cockpit-web.md`; F1 evidence in
 `docs/results/cockpit-web-f1.md`. Next is F3b.
 
-When finishing a phase, update `.ai/CLAUDE.md` "Onde estamos" and `.ai/changelog.md`.
+When finishing a phase, update `docs/ml35/estado-fases.md` and the applicable
+report under `docs/results/`.
 
 ## When proposing solutions
 
@@ -151,4 +151,5 @@ When finishing a phase, update `.ai/CLAUDE.md` "Onde estamos" and `.ai/changelog
 - If the proposal involves GPU, device access, performance, or thermals, explicitly flag that it can only be validated on real hardware.
 - Distinguish verified facts from hypotheses. Do not invent device-tree bindings, overlay names, kernel `CONFIG_` options, or BSP versions.
 - Prefer the smallest change that resolves the issue. Do not refactor existing structure without being asked.
-- End substantial tasks with the completion report format from `.ai/AGENTS.md` §15.
+- End substantial tasks with a concise report of milestone, implementation,
+  changed files, validation, pending hardware checks and known limitations.

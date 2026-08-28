@@ -9,7 +9,7 @@
     launch used to generate that map. Architecture-neutral: this is the half of
     the demo that migrates to the module.
   </description>
-  <maintainer email="diego.maia@toradex.com">Diego Maia</maintainer>
+  <maintainer email="engdiegomaia@users.noreply.github.com">Diego Maia</maintainer>
   <license>Apache-2.0</license>
 
   <depend>launch</depend>

@@ -191,11 +191,11 @@ sintonia — é rara demais para discriminar entre condições.
 
 - **F4, controle manual no cockpit.** Bloqueado por infraestrutura, não por
   desenho: `twist_mux` não está em nenhuma imagem e o módulo **não tem rota
-  default** (só a `10.22.1.0/24`), então `apt` não resolve nada lá. O gateway da
-  LAN `10.22.1.1` responde em 0,337 ms e o módulo já tem DNS corporativo, então
+  default** (só a `<LAN_CIDR>`), então `apt` não resolve nada lá. O gateway da
+  LAN `<LAN_GATEWAY>` responde em 0,337 ms e o módulo já tem DNS corporativo, então
   falta um comando, que precisa de permissão para rodar:
 
-      sudo ip route add default via 10.22.1.1 dev ethernet0 metric 100
+      sudo ip route add default via <LAN_GATEWAY> dev ethernet0 metric 100
 
   Não é NAT: o módulo está na mesma `/24` do gateway, então não há o que
   masquerar e o firewall do host não precisa ser tocado. Para sobreviver a
@@ -641,7 +641,7 @@ Não seguir se o fim não disser
 ```bash
 scripts/module.sh up
 scripts/module.sh verify
-ssh torizon@10.22.1.130 'docker exec demo-nav-1 bash -lc '\''
+ssh torizon@<MODULE_IP> 'docker exec demo-nav-1 bash -lc '\''
   source /opt/ros/jazzy/setup.bash
   source /ws/install/setup.bash
   ros2 lifecycle get /slam_toolbox
@@ -676,7 +676,7 @@ campanha deve usar rota conectada ou o mapa já persistido. Depois medir
 ### Pendências fora desta frente, inalteradas
 
 - **Cockpit F4** (controle manual atrás do `twist_mux`): `twist_mux` ainda não
-  está em nenhuma imagem. A rota default do módulo via `10.22.1.1` foi
+  está em nenhuma imagem. A rota default do módulo via `<LAN_GATEWAY>` foi
   restaurada para o build do SLAM; confirmar que permaneceu após reboot antes
   de considerar a infraestrutura fechada.
 - **Gate visual do cockpit:** nada foi visto num navegador em nenhuma sessão
@@ -691,9 +691,9 @@ campanha deve usar rota conectada ou o mapa já persistido. Depois medir
 # host: simulador + cockpit
 cd docker && docker compose -f compose.host.yml up -d sim cockpit hmi
 
-# módulo (10.22.1.130): nav + percepção
+# módulo (<MODULE_IP>): nav + percepção
 ./scripts/module.sh sync           # YAML de parâmetros chega por bind mount
-ssh torizon@10.22.1.130 'cd /home/torizon/demo && \
+ssh torizon@<MODULE_IP> 'cd /home/torizon/demo && \
   docker compose -f compose.module.yml up -d'
 ./scripts/module.sh verify         # tem de dar 3/3
 
