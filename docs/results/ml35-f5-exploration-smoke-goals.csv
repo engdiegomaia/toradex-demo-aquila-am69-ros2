@@ -1,0 +1,6 @@
+goal_index,goal_x,goal_y,phase,sent_sim_s,elapsed_s,outcome,nav2_status,message
+0,-0.032,1.125,exploration,297.009,9.021,ok,4,fronteira alcancada; atualizando mapa
+1,-0.134,0.732,exploration,307.017,19.041,ok,4,fronteira alcancada; atualizando mapa
+2,-0.134,0.732,exploration,327.016,8.027,ok,4,fronteira alcancada; atualizando mapa
+3,-0.134,0.732,exploration,336.013,9.054,ok,4,fronteira alcancada; atualizando mapa
+4,-0.584,0.232,exploration,346.005,90.007,failed,,meta de fronteira expirou
