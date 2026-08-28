@@ -87,12 +87,20 @@ describe('isExplorationActive', () => {
     assert.equal(isExplorationActive({ state: 'idle' }), false);
   });
 
-  it('os estados ocupados são exatamente os do nó ROS', () => {
+  it('os estados ocupados do nó ROS estão todos aqui', () => {
     // Divergir desta lista é a falha silenciosa da fiação: um estado novo no
     // maze_explorer que o cockpit não reconhece devolve o clique manual no
     // meio da busca. A lista vive em dois idiomas e precisa ser comparada.
-    assert.deepEqual([...BUSY_STATES].sort(),
+    //
+    // `starting` fica FORA da comparação de propósito: é o único estado desta
+    // lista que o nó ROS não conhece. Ele cobre a janela entre o clique e o
+    // primeiro status, que só existe do lado do cockpit. Um teste em
+    // tests/test_maze_exploration_contract.py trava a outra metade: `starting`
+    // não pode aparecer no vocabulário do maze_explorer.
+    const fromRos = [...BUSY_STATES].filter((name) => name !== 'starting');
+    assert.deepEqual(fromRos.sort(),
       ['homing_exit', 'navigating', 'selecting', 'waiting_map']);
+    assert.ok(BUSY_STATES.includes('starting'));
   });
 });
 
@@ -192,5 +200,141 @@ describe('createExplorationStore', () => {
     const surface = Object.keys(store).join(' ');
     assert.ok(!/zoom|center|centr|view/i.test(surface));
     assert.ok(!/zoom/i.test(JSON.stringify(store.snapshot())));
+  });
+});
+
+describe('fail-safe entre o clique e o primeiro status', () => {
+  it('a promessa do serviço em voo já bloqueia a meta manual', () => {
+    // Entre o clique e a resposta do serviço, o Aquila pode já ter aceitado a
+    // busca. Um clique no mapa nessa janela mandaria meta manual por cima dela.
+    const store = createExplorationStore();
+    assert.equal(store.isBusy(), false);
+
+    store.beginStart();
+
+    assert.equal(store.isBusy(), true);
+    assert.equal(store.snapshot().state, 'starting');
+    assert.ok(store.hudParts().includes('iniciando busca'));
+  });
+
+  it('`starting` esconde o início e mostra o cancelamento', () => {
+    // São as mesmas duas perguntas que o painel faz para decidir os botões.
+    const store = createExplorationStore();
+    store.beginStart();
+
+    assert.equal(store.isBusy(), true);
+    assert.equal(store.ownsHud(), true);
+  });
+
+  it('o duplo clique não vira duas chamadas', () => {
+    // O painel testa `isBusy()` ANTES de qualquer efeito colateral. Simular o
+    // segundo clique é perguntar exatamente isso.
+    const store = createExplorationStore();
+    let calls = 0;
+    const click = () => {
+      if (store.isBusy()) return;
+      store.beginStart();
+      calls += 1;
+    };
+
+    click();
+    click();
+    click();
+
+    assert.equal(calls, 1);
+  });
+
+  it('o primeiro status real substitui o `starting` local', () => {
+    const store = createExplorationStore();
+    store.beginStart();
+
+    store.apply(status({ state: 'selecting' }));
+
+    assert.equal(store.snapshot().state, 'selecting');
+    assert.equal(store.isBusy(), true);
+  });
+
+  it('start recusado devolve o cockpit em vez de travar em `starting`', () => {
+    // `starting` é um estado que só o cockpit inventou. Se o serviço recusa e
+    // ninguém o desfaz, o mapa fica bloqueado sem busca do outro lado.
+    const store = createExplorationStore();
+    store.beginStart();
+
+    store.refuseStart('busca já está em andamento');
+
+    assert.equal(store.isBusy(), false);
+    assert.ok(store.hudParts().includes('busca já está em andamento'));
+  });
+});
+
+describe('status ilegível não devolve o mapa ao operador', () => {
+  it('`navigating` seguido de JSON quebrado continua bloqueado', () => {
+    // Converter para `failed` liberaria a meta manual em cima de uma busca que
+    // continua correndo no Aquila. `failed` é terminal, e terminal libera.
+    const store = createExplorationStore();
+    store.apply(status({ state: 'navigating' }));
+
+    store.apply({ data: '{nao é json' });
+
+    assert.equal(store.isBusy(), true);
+    assert.equal(store.snapshot().state, 'navigating');
+  });
+
+  it('`selecting` seguido de desconexão continua bloqueado', () => {
+    const store = createExplorationStore();
+    store.apply(status({ state: 'selecting' }));
+
+    store.apply(undefined);
+
+    assert.equal(store.isBusy(), true);
+    assert.equal(store.snapshot().state, 'selecting');
+  });
+
+  it('a falha de comunicação aparece ao lado do último estado válido', () => {
+    // O operador precisa ver as DUAS coisas: o que o robô estava fazendo, e
+    // que o cockpit parou de saber.
+    const store = createExplorationStore();
+    store.apply(status({ state: 'navigating', message: 'navegando para fronteira' }));
+
+    store.apply({ data: '[]' });
+
+    const parts = store.hudParts();
+    assert.ok(parts.includes('navegando para fronteira'));
+    assert.ok(parts.includes('estado de busca inválido'));
+    assert.equal(store.linkError(), 'estado de busca inválido');
+  });
+
+  it('um status válido depois limpa o erro de comunicação', () => {
+    const store = createExplorationStore();
+    store.apply(status({ state: 'navigating' }));
+    store.apply({ data: 'null' });
+
+    store.apply(status({ state: 'selecting' }));
+
+    assert.equal(store.linkError(), null);
+    assert.ok(!store.hudParts().includes('estado de busca inválido'));
+  });
+
+  it('sem nenhum estado válido ainda, o erro é o que há para mostrar', () => {
+    // Aqui não há nada a preservar, e uma tela muda é pior que um erro visível.
+    const store = createExplorationStore();
+
+    store.apply({ data: '{nao é json' });
+
+    assert.equal(store.snapshot().state, 'failed');
+    assert.equal(store.isBusy(), false);
+  });
+
+  it('cancelamento explícito devolve o controle ao operador', () => {
+    const store = createExplorationStore();
+    store.apply(status({ state: 'navigating' }));
+    store.beginCancel();
+    assert.equal(store.isBusy(), true);
+
+    store.endCommand();
+    store.apply(status({ state: 'cancelled', message: 'busca cancelada pelo operador' }));
+
+    assert.equal(store.isBusy(), false);
+    assert.ok(store.hudParts().includes('busca cancelada pelo operador'));
   });
 });
