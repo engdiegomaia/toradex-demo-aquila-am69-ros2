@@ -1324,6 +1324,55 @@ enquanto há meta ativa.
 
 Clique perto demais do robô (< 0,25 m) é tratado como engano e ignorado.
 
+**Durante uma busca autônoma o clique não manda nada** — veja a seção seguinte.
+
+### Busca autônoma: iniciar e cancelar
+
+Dois botões no cabeçalho do painel verde, `iniciar busca` e `cancelar busca`.
+Chamam `/demo/exploration/{start,cancel}` (`std_srvs/Trigger`), servidos pelo
+`maze_explorer`, que roda **junto com o Nav2** — no Aquila, no modo `hil`.
+
+O que ele faz sem nenhuma ajuda: parte sem mapa prévio, extrai fronteiras do
+mapa vivo do `slam_toolbox`, navega até a melhor delas, e quando a percepção
+reconhece o painel magenta da saída, cancela a fronteira e se aproxima em passos
+de 0,5 m. Ele **não** conhece o labirinto: não há waypoint, não há coordenada da
+saída, e há teste garantindo que o código não menciona nenhuma.
+
+O HUD passa a mostrar o estado da busca no lugar do estado da meta:
+
+| Estado | Significa |
+|---|---|
+| `waiting_map` | esperando mapa, TF e os servidores do Nav2 |
+| `selecting` | avaliando candidatos com o planner `ExplorationGrid` |
+| `navigating` | indo para uma fronteira |
+| `homing_exit` | vendo o marcador e se aproximando dele |
+| `completed` | chegou ao marcador |
+| `failed` | prazo total (600 s) ou falha declarada |
+| `cancelled` | o operador parou |
+
+Junto vão o tempo decorrido, quantas fronteiras existem, `saída detectada`
+quando a percepção está vendo o painel, e a última mensagem de falha.
+
+Três coisas que parecem detalhe e não são:
+
+- **O clique no mapa fica desabilitado enquanto a busca corre.** Duas fontes de
+  meta no mesmo `navigate_to_pose` se preemptam sem erro nenhum no log — é a
+  mesma classe de falha dos dois publicadores em `/demo/cmd_vel`.
+- **`iniciar busca` recusa a segunda chamada** enquanto uma está em andamento, e
+  a recusa aparece no HUD.
+- **`reiniciar nav` cancela a busca antes** de ciclar a pilha. Sem isso o
+  explorador mandaria uma meta nova no meio do ciclo de reset.
+
+### `SAÍDA CONFIRMADA` não vem do explorador
+
+O rótulo só aparece quando `/demo/maze/escaped` é `true`, e quem publica isso é
+o `maze_escape_validator`, **do lado da simulação**, olhando a odometria ground
+truth: ele exige o cruzamento da abertura *e* o robô inteiro do lado de fora.
+
+O explorador não assina esse tópico. Ele é o árbitro da demonstração, não uma
+entrada dela — `state: completed` diz apenas que o robô chegou perto do painel,
+o que não é a mesma coisa que ter saído.
+
 ### Simulação: ▶ ⏸ ⟲
 
 Na barra. Chamam `/demo/sim/{play,pause,reset}` (`std_srvs/Trigger`).
