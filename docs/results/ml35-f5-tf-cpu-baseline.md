@@ -152,16 +152,64 @@ Os dois maiores consumidores — `nav2_container` a 298 % e o trio de percepçã
 para `detection_stub` a 76,7 %: ele é, por contrato, um gerador determinístico de
 detecções sintéticas.
 
-## 6. Limitações desta medição
+## 6. O achado que reenquadra tudo: `/tf` a ~1090 Hz
+
+Medido no host, com a pilha completa no ar:
+
+```
+ros2 topic hz /tf            average rate: 1090.898   (window 10000)
+ros2 topic hz /joint_states  min 0.000s  max 0.004s   (mesma ordem)
+ros2 topic info /tf          Publishers: 4  |  Subscribers: 11
+                             Node name: robot_state_publisher
+```
+
+O controlador de marcha publica estado de junta no passo de física de 1 ms, e o
+`robot_state_publisher` converte fielmente cada um num `TFMessage`. O resultado é
+**~1090 mensagens de TF por segundo**, e os ONZE assinantes as deserializam.
+
+Foi isto que o teste de deploy da Etapa 4 revelou, por acidente. Com a
+otimização de fronteira JÁ no módulo (verificado: `_frontier_cells` e
+`_selection_key` presentes em `/ws/src`, e o status publicando
+`frontier_extract_ms`), o `maze_explorer` OCIOSO caiu de 71,7 % para 68,5 %.
+Praticamente nada — porque com o robô parado `_begin_selection` nunca roda e não
+há extração a otimizar. **Os ~68 % de um explorador ocioso não são fronteira: são
+o `TransformListener` dele deserializando 1090 mensagens por segundo em Python.**
+
+O `/map` não é o culpado: mede 88 x 85 células (7480), desprezível.
+
+Duas consequências que valem mais que qualquer coisa aplicada até aqui:
+
+1. **`robot_state_publisher` NÃO roda no módulo** — está no host. Verificado:
+   zero processos `robot_state` nos dois containers do módulo. Logo esse fluxo
+   de 1090 Hz **atravessa a Ethernet** antes de ser deserializado onze vezes do
+   lado do Aquila. É carga de rede e de CPU, causada por configuração do host.
+2. **Nav2 não precisa de nada disso.** As arestas que a navegação usa —
+   `base -> lidar`, `base -> trunk` — são juntas FIXAS, e o
+   `robot_state_publisher` já as publica em `/tf_static`. O tráfego de 1090 Hz em
+   `/tf` é composto das juntas das PERNAS, que só interessam a visualização.
+
+E fecha a hipótese da seção 3 com mecanismo: `odom_tf` é um nó Python que precisa
+publicar `odom -> base` a 50 Hz no meio dessa enxurrada, competindo por
+escalonamento numa máquina com fila 24–26. Quando perde, a aresta fica 60–160 ms
+atrás e as nuvens daquele intervalo viram inobserváveis.
+
+**Direção de correção proposta, NÃO aplicada:** estrangular a taxa do
+`joint_state_broadcaster` (ou do `robot_state_publisher`) de ~1 kHz para algo da
+ordem de 50 Hz. Isso mexe na configuração do controlador de marcha, cujo
+comportamento é medido, e por isso não foi feito sem decisão explícita.
+
+## 7. Limitações desta medição
 
 - **O robô estava parado.** Sem meta ativa não há controller em malha, e
   `nav2_container` a 298 % é o custo em REPOUSO. Sob navegação ele sobe. Pela
   mesma razão, o filtro de log (`invalid source`, `extrapolation`,
   `Failed to make progress`, `worldToMap`, `Control loop missed`) voltou vazio:
   não há progresso a falhar quando ninguém pediu meta.
-- A Etapa 4 (varredura de fronteira e cache) **não estava no módulo** durante
-  estas rodadas: `maze_explorer` a 71,7 % é o código antigo. Só
-  `demo_navigation/config` é montado; Python exige `module.sh build`.
+- A Etapa 4 foi construída e deployada no módulo depois das rodadas acima
+  (`module.sh build` + `up`, imagens verificadas sem stack de renderização), mas
+  **não pôde ser medida**: a extração de fronteira só roda no estado `selecting`,
+  e o robô ficou parado. O número que ela melhora — 158,6 ms -> 18,1 ms medidos
+  em x86 — só aparece com a busca autônoma em curso.
 - A causalidade CPU → TF é hipótese consistente com três medições
   independentes, não fato provado.
 - O relógio do módulo salta; nenhuma conclusão aqui depende de `Up <tempo>` nem
