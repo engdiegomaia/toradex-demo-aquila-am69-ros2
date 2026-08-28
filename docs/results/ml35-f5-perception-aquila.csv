@@ -1,0 +1,31 @@
+check,topic_or_metric,measured,unit,window,threshold,verdict
+transport,/demo/camera/camera_info,9.697,Hz,50,>0 and steady,pass
+transport,/demo/camera/camera_info,9.666,Hz,50,>0 and steady,pass
+transport,/demo/perception/image_in,6.996,Hz,50,>0 and steady,pass
+transport,/demo/perception/image_in,7.028,Hz,50,>0 and steady,pass
+transport,/demo/perception/maze_exit/detections,9.352,Hz,50,>0 and steady,pass
+transport,/demo/perception/maze_exit/detections,9.836,Hz,50,>0 and steady,pass
+jitter,/demo/camera/camera_info std dev,0.00606,s,50,,informational
+jitter,/demo/perception/image_in std dev,0.11117,s,50,,informational
+jitter,/demo/perception/maze_exit/detections std dev,0.07686,s,50,,informational
+param,sample_stride,4,count,,,recorded
+param,min_samples,40,count,,,recorded
+param,min_bbox_width_px,12,px,,,recorded
+param,confirm_frames,3,count,,,recorded
+param,marker_width_m,0.8,m,,,recorded
+detection,positive detections in 5 messages,0,count,445 messages,>=3,not-reached
+detection,in-place sweep 430 deg at 0.15 rad/s,0,positives,445 messages,>=1,not-reached
+pose,/demo/perception/maze_exit/pose published,0,count,600 s run,>=1,not-reached
+pose,detections header frame_id,front_camera,frame,1 message,camera frame,pass
+cpu,maze_exit_detector,89.1,percent-of-one-core,top n=2 d=3,no TF regression,pass
+cpu,detection_stub,79.8,percent-of-one-core,top n=2 d=3,,informational
+cpu,detections_to_cloud,71.5,percent-of-one-core,top n=2 d=3,,informational
+cpu,camera_decompressor,31.8,percent-of-one-core,top n=2 d=3,,informational
+cpu,component_container_isolated (Nav2),229.5,percent-of-one-core,top n=2 d=3,,informational
+cpu,module loadavg 1 min,19.68,load,8 cores,,informational
+tf,odom<-lidar availability before run,99.74,percent,389 samples / 40 s,>=99.5,pass
+tf,odom<-lidar availability during run,99.93,percent,2867 samples / 300 s,>=99.5,pass
+tf,real time factor during run,0.956,ratio,300 s,,informational
+errors,TF extrapolation,0,count,15 min log window,0,pass
+errors,worldToMap,0,count,15 min log window,0,pass
+errors,invalid source,0,count,15 min log window,0,pass

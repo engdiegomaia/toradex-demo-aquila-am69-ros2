@@ -27,8 +27,78 @@ uncertain result. The discarded alternatives are in "Decisions" below.
 | **F2** | Spike Go2 inside the container `sim` | **Completed** 14/08/2026 | (disposable spike, uncommitted) |
 | **F3** | Go2 in the project tree (was "retarget A1") | **Completed** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contract crossing container border | **Completed** 24/08/2026 | contract and perception revalidated on Go2 headless |
-| **F5** | Nav2 on legs + ZZXQ0000 modeQXZZ | ** In progress** 28/08/2026 (late) | **APROVADOS:**TF (99,94%), global costmap window, map update, gait and**short stability port** (3/3 targets in the three races, worst ZZXQ005QXZZ s goal of ZZXQ006QXZZ). ** NO EXECUTADOS:** validation of perception in Aquila, exploitation smoke, crossing performance gate and the three cold matches. See "Session ZZXQ008QXZZ/08 (late)", `docs/results/ml35-f5-ab-joint-states.md` and `ml35-f5-portao-tres-metas.md` |
+| **F5** | Nav2 on legs + HIL mode | 🟡 **in progress** 28/08/2026 (night) | **PASSED:** TF (99.94%), global costmap window, map update, gait, **short stability gate** (3/3 goals in all three runs, worst goal 27.9 s of 45) and the **perception transport chain on the Aquila**. **FAILED:** exploration smoke — `escaped=false`, explorer livelocked 459 s on a frontier the planner rejects. **NOT REACHED:** positive detection and exit pose, crossing performance gate, three cold starts. See "Session 28/08 (night)", `docs/results/ml35-f5-exploration-smoke.md` and `ml35-f5-perception-aquila.md` |
 | **F6** | Selectable Fallback and Tests | **Completed** 24/08/2026 | cold start + goal `SUCCEEDED` on both robots |
+
+### 28/08 (night) — perception transport passes on the module; the exploration smoke fails on an explorer livelock
+
+Evidence: **`docs/results/ml35-f5-perception-aquila.md`** and
+**`docs/results/ml35-f5-exploration-smoke.md`**, with their CSVs next door.
+Recorder added in `scripts/exploration_trial.py` (+ `tests/test_exploration_trial.py`).
+Commit under test: `dd98a89`, images unchanged since `8676941` (description strings only).
+
+**Gate A — perception on the Aquila: transport PASSES, positive detection NOT REACHED.**
+
+* `/demo/camera/camera_info` reaches the module at 9.70 Hz, so the pose estimator has
+  intrinsics. That was the first listed blocker and it is cleared.
+* `/demo/perception/maze_exit/detections` publishes at ~9.6 Hz, one message per image.
+  The detector consumes `/demo/perception/image_in`, the module-local `republish` of
+  the compressed camera topic — not `image_raw`.
+* The `image_in` rate reads 7.0 Hz, *below* the detection rate. That ordering is
+  impossible and is a measurement artefact: `ros2 topic hz` on an uncompressed image
+  topic inside the module is itself the load. **Do not quote 7.0 Hz as the detector
+  input rate**; 9.7 Hz is the honest figure.
+* No positive detection was obtained. The exit marker sits 1.70 m *outside* the maze,
+  in line with the opening at `x = -4.90, y = -0.90`; from inside it is visible only
+  from close to that opening. A bounded 430° in-place sweep produced 445 detection
+  messages, all empty, and the exit region was entirely unknown in `/map`. The robot
+  never got line of sight, so this is a mobility failure, not a perception one.
+* Detector CPU is 89.1% of one core (`sample_stride=4`) and module load average
+  reached 19.68 on 8 cores — but TF held at **99.93%** during the run and no
+  `invalid source` appeared. **`sample_stride` was therefore left at 4**: the
+  protocol only authorises changing it if CPU interferes, and by its own criteria it
+  did not.
+
+**Gate B — exploration smoke: FAIL. `escaped=false`, `failed` at the 600 s deadline.**
+
+* Preconditions all met and verified: fresh 88 × 85 `/map` (no saved pose graph),
+  robot at spawn, Nav2 `is_active`, TF 99.74%, `escaped=false`. Started **once**.
+* 5 goals dispatched in the first 141 s — 4 reached, 1 killed by the explorer's own
+  90 s timeout. Goals 1–3 were the **same coordinate re-selected three times**.
+* Then **459 s — 77% of the budget — livelocked in `selecting`**, message
+  `planner rejeitou todas as fronteiras` on 940 of 940 samples, `map_known_cells`
+  frozen at 3564, one `ComputePathToPose` request per second, all aborting with
+  `ExplorationGrid plugin failed to plan from (-0.18, 0.12) to (-3.06, 0.28)`.
+* Total path 2.73 m. No fall (max tilt 0.65°). No TF regression. Zero prohibited
+  errors (`extrapolation`, `worldToMap`, `invalid source`) in a 15-minute window.
+  `frontier_extract_ms` p95 = 76.8 ms, inside the 100 ms budget.
+
+**Root cause, located.** Two defects in `maze_explorer` compound:
+
+1. `_blacklist_current()` runs only when Nav2 *refuses* a goal or a dispatched goal
+   times out. A frontier whose `ComputePathToPose` **fails validation** is never
+   retired — `_on_path_result` leaves `_best` at `None` and the same candidate is
+   re-offered forever. This is what fails the run.
+2. `_begin_selection`'s guard keys on `_map_seq`, which counts `/map` **messages**,
+   not **content**. `slam_toolbox` republishes every 1.0 s regardless, so the guard
+   never fires and a full frontier extraction runs each second over an identical
+   grid. Its own comment says the guard exists to prevent exactly this. This is what
+   makes the livelock cost 76.8% of a core.
+
+**Single next variable:** retire a frontier whose path validation fails
+(`_on_path_result` / `_validate_next`). **Not applied in this session** — the protocol
+requires one variable per round re-run under the identical protocol, and this run is
+the baseline it must be measured against. The map-content guard is a CPU fix and
+belongs to a separate round.
+
+**The three cold starts remain blocked.** A smoke pass is their precondition, and F5
+stays open.
+
+**Mobility, stated honestly.** With a goal active the robot manages a forward-work
+ratio of 0.306 and ~0.019 m/s of net path rate; the whole-run figures (0.068 and
+0.0028 m/s) are dominated by the 459 s with no goal at all and must not be quoted as
+a gait result. Whether ~11 m of path in 600 s clears this maze is still **untested**,
+because no run has yet kept the robot driving that long.
 
 ### 28/08 (late) — the TF gate is closed; speed is not
 
