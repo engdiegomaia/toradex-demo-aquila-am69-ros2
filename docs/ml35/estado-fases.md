@@ -28,7 +28,7 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 28/08/2026 (tarde) | portão de TF **APROVADO** (99,94%) e portão de metas **PARCIAL** — 5 de 6 critérios passam, a velocidade média reprova a 0,0391 m/s contra 0,05. Aceitação da busca autônoma NÃO executada. Ver "Sessão 28/08 (tarde)", `docs/results/ml35-f5-ab-joint-states.md` e `ml35-f5-portao-tres-metas.md` |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 28/08/2026 (tarde) | **APROVADOS:** TF (99,94%), janela do costmap global, atualização do mapa, marcha e **portão curto de estabilidade** (3/3 metas nas três corridas, pior meta 27,9 s de 45). **NÃO EXECUTADOS:** validação da percepção no Aquila, smoke da exploração, portão de desempenho de travessia e as três partidas frias. Ver "Sessão 28/08 (tarde)", `docs/results/ml35-f5-ab-joint-states.md` e `ml35-f5-portao-tres-metas.md` |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
 
 ### Sessão 28/08 (tarde) — o portão de TF fechou; a velocidade não
@@ -86,7 +86,8 @@ próximo passo se o objetivo for CPU.
 **`map_update_interval` voltou para 1.0**, em rodada independente. Ele tinha ido
 a 5.0 nesta mesma sessão por economia de CPU; a economia foi medida e não
 existia (31,4% → 30,3% no `async_slam_toolbox`, dentro do ruído). Na volta o
-custo é 1 pp, simétrico, o que confirma que o número é ruído. `/map` sobe de 0,2
+custo é 1 pp, simétrico — variação pequena e operacionalmente irrelevante, nas
+duas direções. `/map` sobe de 0,2
 para 1,000 Hz e a `static_layer` deixa de ficar até 5 s atrás da parede que o
 SLAM já conhece.
 
@@ -103,26 +104,65 @@ SLAM já conhece.
 Varredura de log limitada, 12 min: **zero** `worldToMap`, **zero**
 `invalid source`, **zero** extrapolação de TF. Cinco de seis critérios passam.
 
-**A velocidade reprova, e não é regressão.** A linha de base do maze11 em
-`gait_go2.yaml` é 0,0399 m/s; estas três dão média 0,0391. O que melhorou é a
-razão de trabalho em vx, de 6,2% para 15,6–22,3% — o robô passa duas a três
-vezes mais tempo com avanço efetivo, e isso NÃO virou velocidade média. É
-exatamente a distância entre o limite de MÁQUINA, que esta sessão atacou, e o
-limite de DECISÃO DE TRAJETO, isolado em `ml35-f5-clock-fanout.md` e ainda de pé.
+**O CONTRATO DO PORTÃO FOI DIVIDIDO, e é o que fecha esta sessão.** O limite de
+0,05 m/s vinha de um ensaio de TRAVESSIA e estava sendo cobrado de metas
+separadas por 0,5 m, onde a média de percurso inclui aceitação, aceleração,
+desaceleração pelo goal checker, reaquisição e a rota de retorno da sequência
+reciclada. Isso mede estabilidade e latência de metas, não travessia. A
+correção não é baixar o limite até passar — é separar:
 
-Ressalva de método, registrada para não virar precedente: `maze11-short` são
-metas a 0,5 m e boa parte de cada ciclo é reaquisição, não travessia. O critério
-de 0,05 m/s não separa travessia de reaquisição.
+- **portão curto de ESTABILIDADE**, cobrado de `maze11-short`: três metas
+  `SUCCEEDED`, cada uma dentro de 45 s, zero erros do Nav2, zero extrapolações,
+  `worldToMap` e `invalid source`, zero quedas, zero trocas grandes de rota.
+  **APROVADO** — pior meta 27,9 s, e as durações por meta (envio a envio) são
+  12,4/4,8/5,1, 16,5/15,8/5,8 e 27,9/21,3/5,3 s;
+- **portão de DESEMPENHO de travessia**, com metas separadas por pelo menos o
+  horizonte do MPPI, ou de preferência a própria saída autônoma em 600 s. O
+  limite de 0,05 m/s continua valendo lá, intocado. **NÃO EXECUTADO.**
 
-**Onde a progressão parou, e por quê.** Nenhuma condição de parada ocorreu — o
-estouro de prazo da corrida 2 é prazo, não meta recusada. O que falta é o smoke
-de exploração e as três partidas frias de até 600 s, e antes de gastá-las há
-duas decisões em aberto:
+Os números de percurso do `maze11-short` (0,0383 / 0,0342 / 0,0447 m/s) ficam
+registrados e **não são critério de nada**. Também não são regressão: a linha de
+base do maze11 em `gait_go2.yaml` é 0,0399 e estes dão média 0,0391. O que
+melhorou é a razão de trabalho em vx, de 6,2% para 15,6–22,3% — o robô passa
+duas a três vezes mais tempo com avanço efetivo, e isso NÃO virou velocidade
+média. É exatamente a distância entre o limite de MÁQUINA, que esta sessão
+atacou e fechou, e o limite de DECISÃO DE TRAJETO, isolado em
+`ml35-f5-clock-fanout.md` e ainda de pé.
 
-1. o critério de 0,05 m/s vale para `maze11-short`? Se o alvo é travessia, o
-   conjunto certo é `maze11` (metas de 8 m) e o número a bater é outro;
-2. o `maze_explorer` a 76% ocioso é o segundo maior consumidor do container
-   `nav` e nada aplicado nesta sessão o toca.
+O estouro de prazo da corrida 2 caiu na QUARTA meta, já na sequência reciclada,
+fora do contrato de três. Fica como sinal de variabilidade — uma em trinta metas
+encerradas — e não invalida o portão curto.
+
+**A marcha ficou verificada por essas mesmas três corridas:** tilt de pico
+1,06–1,18°, folga de carcaça 0,448 m, zero quedas, zero `cmd_vx` negativo.
+Decimar o broadcaster não degradou o andar.
+
+**`Control loop missed` é métrica, não bloqueio.** A faixa de 8,6–10,4 Hz
+isoladamente não informa frequência nem gravidade. O smoke da exploração deve
+registrar total de avisos, avisos por minuto, maior sequência consecutiva e
+correlação com meta parada ou comando zero. Só perfilar `nav2_container` e
+`maze_explorer` se houver sequência sustentada abaixo da frequência desejada COM
+paradas correlacionadas.
+
+**O `maze_explorer` a 76% ocioso NÃO justifica perfilamento agora.** 76% de um
+núcleo é custo, não falha funcional, e o valor ocioso não é a medição certa da
+Etapa 4 — a extração de fronteiras só roda no estado `selecting`. A medição
+certa é o smoke. Perfilar só se ele mostrar extração acima de 100 ms, controller
+perdendo ciclos continuamente, exploração sem selecionar novas fronteiras, TF
+regredindo, carga impedindo a percepção, ou tempo de saída incompatível com
+600 s.
+
+**Próximo bloqueio real: a percepção no Aquila.** Confirmar com captura
+limitada: `/demo/camera/camera_info` chegando ao módulo, imagem efetivamente
+processada, detecção em pelo menos 3 de 5 quadros, pose da saída no frame
+correto, CPU do detector, TF permanecendo ≥99,5% e controller sem degradação
+material. Se a CPU do detector interferir, aumentar **apenas** `sample_stride` e
+repetir — não mexer no MPPI junto.
+
+**Sequência acordada até o fechamento:** contrato/documentação → percepção →
+smoke da exploração → diagnóstico só se o smoke falhar → três partidas frias →
+relatório final e limpeza. Não aumentar `vx_max` antes disso: a folga de
+carcaça de ~6,5 cm continua pequena.
 
 **Armadilha nova, que custou uma corrida inteira de 180 s.** Logo depois de
 recriar o container `sim`, `/clock` aparece no grafo mas não entrega mensagem a

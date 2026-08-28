@@ -1,5 +1,23 @@
 # Próximos passos — decisão de trajeto do Nav2 (F5)
 
+> **Atualização de 28/08/2026 (tarde):** para fechar a busca autônoma, use
+> primeiro [`guia-implementacao-fechamento-f5.md`](guia-implementacao-fechamento-f5.md).
+>
+> A nota anterior desta seção dizia que a evidência HIL voltara a registrar
+> recusas do `collision_monitor` por atraso de `/demo/scan_cloud`. **Isso foi
+> resolvido.** A causa era `/tf` a 1090 Hz — o `joint_state_broadcaster`
+> herdando os 1000 Hz do `controller_manager` — deixando o `odom_tf` sem
+> escalonamento para carimbar `odom -> base` a tempo. Decimado para 50 Hz, a
+> disponibilidade de `odom <- lidar` foi de 94,75% para 99,94% e as recusas
+> desapareceram: zero `invalid source`, zero `worldToMap`, zero extrapolação em
+> três corridas de 180 s (`docs/results/ml35-f5-ab-joint-states.md`,
+> `ml35-f5-portao-tres-metas.md`).
+>
+> O que este arquivo trata — **decisão de trajeto** — continua de pé e agora
+> está sozinho em cena: fechado o limite de máquina, a velocidade média não se
+> moveu (0,0391 contra uma linha de base de 0,0399 m/s). As hipóteses históricas
+> abaixo voltam a ser o roteiro certo.
+
 Escrito em 26/08/2026, depois de fechar o reset do cockpit.
 Estado autoritativo em `docs/ml35/estado-fases.md`; este arquivo é só o roteiro
 da próxima frente.

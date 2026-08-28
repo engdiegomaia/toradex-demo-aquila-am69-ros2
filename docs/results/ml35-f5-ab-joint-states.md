@@ -2,6 +2,7 @@
 
 **Estado:** EXECUTADO. Portão de TF ≥ 99,5% **APROVADO** (99,94%).
 Um critério do plano **REPROVOU**: a CPU do `maze_explorer` não caiu.
+Marcha verificada depois, no portão curto — ver o fim deste documento.
 **Data:** 28/08/2026. **Commit:** `235ac1f` (código), imagem `sim` reconstruída
 a partir de `a7dc097`.
 
@@ -114,9 +115,14 @@ consistente com o resto da tabela, mas **é hipótese, não medição** — a pr
 seria perfilar as threads do processo, como foi feito em
 `ml35-f5-clock-fanout.md`.
 
-**Nada aqui diz nada sobre a marcha.** O robô ficou parado nos dois braços. A
-verificação de que decimar o broadcaster não degradou o andar é o próximo passo
-e ainda não foi feita.
+**A marcha foi verificada depois, e passou.** O robô ficou parado nos dois
+braços deste A/B, então nenhuma linha da tabela acima fala sobre o andar. A
+verificação veio nas três corridas de 180 s do portão curto, na mesma
+configuração de 50 Hz (`ml35-f5-portao-tres-metas.md`): tilt de pico 1,06–1,18°,
+folga mínima de carcaça 0,448 m nas três, zero quedas, zero `cmd_vx` negativo, e
+velocidade média 0,0391 m/s contra uma linha de base de 0,0399 registrada em
+`config/gait_go2.yaml`. Decimar o broadcaster **não degradou a marcha** — nem a
+melhorou.
 
 ## Limitações
 
