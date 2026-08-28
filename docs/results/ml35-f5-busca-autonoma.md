@@ -1,11 +1,14 @@
 # ML3.5 F5 — saída autônoma do labirinto: implementação fechada, aceitação PENDENTE
 
-**Estado:** `PENDING EXECUTION` — implementação e suítes de host concluídas;
-**nenhuma corrida de aceitação foi executada, no host ou no Aquila.**
-**Data do registro:** 28/08/2026
-**Regra 7:** nada aqui reivindica validação de hardware. Toda linha da seção 4
-está vazia de propósito e só pode ser preenchida com evidência real capturada
-sob `docs/results/`.
+**Estado:** `PENDING EXECUTION` para a aceitação final (§4.2) — **nenhuma
+partida fria foi executada**. O portão curto de estabilidade que a precede
+(§4.1) está **APROVADO** no HIL real desde 28/08/2026 (tarde), junto com os
+portões de TF, costmap global e atualização do mapa.
+**Data do registro:** 28/08/2026, revisto na tarde do mesmo dia
+**Regra 7:** nada aqui reivindica validação de hardware sem evidência. As
+linhas de §4.1 foram preenchidas com medição real no Aquila AM69 sobre
+Ethernet, com os CSVs versionados ao lado. As de §4.2 seguem vazias de propósito
+e só podem ser preenchidas do mesmo modo.
 
 ---
 
@@ -65,27 +68,52 @@ fiação de launch e dependências de manifesto.
 
 ## 4. Aceitação — NÃO EXECUTADA
 
-### 4.1 Portão de estabilidade (bloqueante, precede tudo)
+### 4.1 Portão curto de estabilidade — **APROVADO** 28/08/2026 (tarde)
 
-Três metas curtas conectadas, `--goals=maze11-short`, com o MPPI atual.
+Três metas curtas conectadas, `--goals=maze11-short`, três corridas de 180 s.
+Evidência: `ml35-f5-portao-tres-metas.md` e os seis CSVs ao lado.
 
-| Critério | Exigido | Medido |
-| --- | --- | --- |
-| metas `SUCCEEDED` | 3 de 3 | — |
-| `worldToMap failed` | 0 | — |
-| quedas | 0 | — |
-| velocidade média | ≥ 0,05 m/s | — |
-| trocas de plano > 1 m ou > 45° sem mudança de mapa | 0 | — |
+| Critério | Exigido | Medido | |
+| --- | --- | --- | --- |
+| metas `SUCCEEDED` | 3 de 3 | 3/3 nas TRÊS corridas | ok |
+| duração por meta | ≤ 45 s | máx **27,9 s** | ok |
+| erros do Nav2 | 0 | 0 | ok |
+| `worldToMap failed` | 0 | 0 | ok |
+| `invalid source` | 0 | 0 | ok |
+| extrapolações de TF | 0 | 0 | ok |
+| quedas | 0 | tilt máx 1,18°, folga 0,448 m | ok |
+| trocas de plano > 1 m ou > 45° sem mudança de mapa | 0 | 0 por meta | ok |
 
-Última corrida conhecida (`artifacts/maze11-short-gate.csv`, 28/08):
-**REPROVADA** — 37,1 s de simulação, 0,69 m percorridos, **0,0185 m/s**,
-`cmd_vx ≠ 0` em 18,7% das amostras. A corrida anterior, antes de
-`restamp_tf: true`, tinha o robô **congelado**: `cmd_vx` zero em 150 s.
-O parâmetro destravou o comando e **não fechou o portão**.
+**A velocidade média SAIU deste portão, e não por não ter passado.** O limite de
+0,05 m/s vinha de um ensaio de TRAVESSIA e estava sendo cobrado de metas
+separadas por 0,5 m, onde a média inclui aceitação, aceleração, desaceleração
+pelo goal checker, reaquisição e a rota de retorno da sequência reciclada — ou
+seja, mede latência de meta, não travessia. O limite continua valendo, intacto,
+no portão de desempenho (§4.2). O raciocínio completo está em
+`ml35-f5-portao-tres-metas.md`.
 
-Ordem de investigação, uma variável por corrida: resultado da ação →
-instabilidade do plano → desvio temporal do TF → frequência do controller. O
-desfecho e o `error_code` de cada meta agora ficam em `<csv>-metas.csv`.
+**O que destravou o portão**, em duas correções medidas e não em sintonia:
+
+1. `restamp_tf: true` tirou o robô de **congelado** (`cmd_vx` zero em 150 s)
+   para uma corrida que andava mas reprovava (0,0185 m/s, 18,7% de comando);
+2. decimar o `joint_state_broadcaster` de 1000 para 50 Hz derrubou `/tf` de 1090
+   para 145 Hz e levou a disponibilidade de `odom <- lidar` de 94,75% para
+   **99,94%** — o portão de TF (`ml35-f5-ab-joint-states.md`). A razão de
+   trabalho em vx foi de 6,2% para **15,6–22,3%**.
+
+O desfecho e o `error_code` de cada meta ficam em `<csv>-metas.csv`.
+
+### 4.1.1 Portão de desempenho de travessia — NÃO EXECUTADO
+
+Percurso representativo, com metas separadas por pelo menos o horizonte do MPPI
+— ou, de preferência, a própria saída autônoma de §4.2 em até 600 s. Limite:
+**≥ 0,05 m/s**. `maze11-short` não serve aqui.
+
+Para referência, e **sem valer como critério**: as três corridas do portão curto
+deram 0,0383 / 0,0342 / 0,0447 m/s de percurso, contra uma linha de base do
+maze11 de 0,0399 registrada em `config/gait_go2.yaml`. Não houve regressão nem
+ganho de velocidade — o limite de MÁQUINA foi fechado, o de DECISÃO DE TRAJETO
+(`ml35-f5-clock-fanout.md`) continua de pé e é o que este portão mede.
 
 ### 4.2 Aceitação HIL final
 
