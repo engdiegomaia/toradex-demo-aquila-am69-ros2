@@ -104,3 +104,17 @@ def plan_switch_count(rows: Sequence[dict[str, Any]],
                 switches += 1
         previous = current
     return switches
+
+
+def goals_csv_path(csv_path: str) -> str:
+    """Return the sibling CSV that carries one row per finished goal.
+
+    The telemetry CSV is one row per SAMPLE; a goal outcome is one row per
+    ACTION. Forcing both into one file either repeats the outcome on every
+    sample or leaves most cells empty, and both make the gate unreadable. The
+    sibling keeps each file with a single meaning and a stable schema.
+    """
+    root, dot, extension = csv_path.rpartition('.')
+    if not dot or '/' in extension:
+        return f'{csv_path}-metas.csv'
+    return f'{root}-metas.{extension}'

@@ -71,7 +71,8 @@ from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 
-from trial_timing import path_metrics, plan_switch_count, timing_spans, vx_metrics
+from trial_timing import (goals_csv_path, path_metrics, plan_switch_count,
+                          timing_spans, vx_metrics)
 
 
 # Raio circunscrito do tronco do Go2. A folga do lidar até a parede menos isto é
@@ -90,6 +91,9 @@ OBSTACLE_Z_MAX_M = 1.0
 # perto da borda, onde o erro já não tem nome. A partida é o canto inferior
 # direito, então todo o labirinto fica em -x / +y.
 MAZE11_GOALS = ((0.00, 8.00), (-8.00, 0.00), (-1.60, 1.60), (-5.83, 4.91))
+# Stability gate before autonomous exploration.  These are prefixes of the
+# measured connected exit route, split into short steps on the initial aisle.
+MAZE11_SHORT_GOALS = ((-0.50, 0.02), (-1.00, 0.03), (-1.50, 0.05))
 
 SUPERVISOR = re.compile(
     r'trot supervisor: mode=(?P<mode>\w+).*?tilt=(?P<tilt>[-\d.]+)deg'
@@ -121,7 +125,10 @@ class NavTrial(Node):
         self.plan_heading_deg = math.nan
         self.plan_received_s = None
         self.rows: list[dict] = []
-        self.goal_log: list[tuple] = []
+        # Uma entrada por meta ENCERRADA. Nao e log de tela: e a evidencia que o
+        # portao de estabilidade exige (desfecho e codigo de erro de cada acao),
+        # e por isso ela vai para um CSV irmao em vez de morrer no stdout.
+        self.goal_log: list[dict] = []
         self._wall_start: float | None = None
         # Uma meta por vez, com EPOCA. O servidor navigate_to_pose aceita uma
         # meta so: mandar outra PREEMPTA a anterior, que devolve ABORTED, cujo
@@ -133,6 +140,16 @@ class NavTrial(Node):
         self._epoch = 0
         self._active = False
         self._result = None
+        # Identidade e desfecho da meta em voo. `_goal_index` tambem carimba
+        # cada amostra de telemetria, que e o que permite recortar odometria,
+        # plano e trocas de rota POR META depois -- sem isso o CSV mistura as
+        # tres metas do portao numa serie so e a corrida nao prova nada.
+        self._goal_index: int | None = None
+        self._goal_target: tuple[float, float] | None = None
+        self._goal_sent_s = math.nan
+        self._status: int | None = None
+        self._error_code: int | None = None
+        self._error_msg = ''
 
         self.create_subscription(Odometry, '/demo/odom', self._on_odom,
                                  QoSPresetProfiles.SENSOR_DATA.value)
@@ -176,7 +193,7 @@ class NavTrial(Node):
 
     # -- metas -------------------------------------------------------------
 
-    def _send(self, x: float, y: float, yaw: float) -> None:
+    def _send(self, x: float, y: float, yaw: float, index: int) -> None:
         """
         Envia uma meta. O yaw é o rumo de CHEGADA, deliberadamente.
 
@@ -200,6 +217,12 @@ class NavTrial(Node):
         self._epoch += 1
         self._active = True
         self._result = None
+        self._goal_index = index
+        self._goal_target = (x, y)
+        self._goal_sent_s = self.sim_s()
+        self._status = None
+        self._error_code = None
+        self._error_msg = ''
         epoch = self._epoch
         self._handle = None
         future = self.client.send_goal_async(goal)
@@ -212,6 +235,9 @@ class NavTrial(Node):
         if not handle.accepted:
             self._active = False
             self._result = 'rejeitada'
+            # Recusa nao produz Result, entao nao ha error_code do Nav2 aqui: a
+            # ausencia e informacao, e nao deve virar um zero que se confunde
+            # com NONE. Fica vazia no CSV.
             return
         self._handle = handle
         handle.get_result_async().add_done_callback(
@@ -222,8 +248,15 @@ class NavTrial(Node):
             return
         self._active = False
         self._handle = None
+        wrapped = future.result()
         # status 4 == SUCCEEDED em action_msgs/GoalStatus
-        self._result = 'ok' if future.result().status == 4 else 'falhou'
+        self._status = int(wrapped.status)
+        self._result = 'ok' if wrapped.status == 4 else 'falhou'
+        # NavigateToPose.Result em Jazzy carrega error_code/error_msg. E a
+        # diferenca entre "falhou" e "falhou POR QUE", que e a primeira pergunta
+        # da ordem de investigacao do portao.
+        self._error_code = int(getattr(wrapped.result, 'error_code', 0))
+        self._error_msg = str(getattr(wrapped.result, 'error_msg', ''))
 
     def cancel_goal(self) -> None:
         """Cancela a meta corrente e aposenta a epoca dela."""
@@ -232,6 +265,31 @@ class NavTrial(Node):
         self._epoch += 1
         self._handle = None
         self._active = False
+
+    def close_goal(self, elapsed_s: float) -> None:
+        """Fecha a meta em voo e a arquiva com desfecho e codigo de erro."""
+        if self._goal_index is None or self._result is None:
+            return
+        target = self._goal_target or (math.nan, math.nan)
+        # Trocas de rota DESTA meta, nao do ensaio inteiro: o criterio do portao
+        # e por meta, e somar o ensaio esconde qual delas oscilou.
+        mine = [row for row in self.rows if row.get('goal_index')
+                == self._goal_index]
+        self.goal_log.append({
+            'goal_index': self._goal_index,
+            'goal_x': round(target[0], 3),
+            'goal_y': round(target[1], 3),
+            'sent_sim_s': round(self._goal_sent_s, 1),
+            'elapsed_s': round(elapsed_s, 1),
+            'outcome': self._result,
+            'status': '' if self._status is None else self._status,
+            'error_code': '' if self._error_code is None else self._error_code,
+            'error_msg': self._error_msg,
+            'samples': len(mine),
+            'plan_switches': plan_switch_count(mine),
+        })
+        self._result = None
+        self._goal_index = None
 
     # -- amostragem --------------------------------------------------------
 
@@ -243,6 +301,7 @@ class NavTrial(Node):
         plan_age = (sim_now - self.plan_received_s
                     if self.plan_received_s is not None else math.nan)
         self.rows.append({
+            'goal_index': '' if self._goal_index is None else self._goal_index,
             'sim_s': round(sim_now, 3),
             'wall_s': round(time.monotonic() - self._wall_start, 3),
             'x': round(self.pose.position.x, 4),
@@ -345,14 +404,11 @@ class NavTrial(Node):
             # não pode virar uma enxurrada de metas. Duas por segundo já é mais
             # rápido do que qualquer meta real termina.
             if not self._active and now - goal_started >= self.args.goal_settle:
-                if self._result is not None:
-                    self.goal_log.append((index - 1, self._result,
-                                          round(now - start, 1)))
-                    self._result = None
+                self.close_goal(now - start)
                 target = goals[index % len(goals)]
                 heading = math.atan2(target[1] - previous[1],
                                      target[0] - previous[0])
-                self._send(target[0], target[1], heading)
+                self._send(target[0], target[1], heading, index)
                 previous = target
                 index += 1
                 goal_started = now
@@ -361,6 +417,15 @@ class NavTrial(Node):
                 self.sample()
                 next_sample += 1.0 / self.args.sample_rate
 
+        # A meta em voo quando o ensaio termina TEM de ser arquivada. Sem isto a
+        # ultima meta some do log -- ela so era registrada quando a seguinte
+        # partia -- e um portao de 3 metas terminava mostrando 2. Custou a
+        # leitura da corrida de 28/08/2026.
+        if self._result is None:
+            # Meta ainda em voo quando o prazo do ensaio (ou a queda) chegou.
+            # Nao e 'falhou': ninguem a deixou terminar.
+            self._result = 'cancelada'
+        self.close_goal(self.sim_s() - start)
         return verdict
 
 
@@ -439,17 +504,23 @@ def summarise(trial: NavTrial, verdict: str, stats: dict | None) -> None:
               f'[{lengths.min():.2f}, {lengths.max():.2f}]')
         print(f'trocas grandes de rota   {plan_switch_count(rows)} '
               '(>1 m ou >45 graus)')
-    done = sum(1 for _, outcome, _ in trial.goal_log if outcome == 'ok')
+    done = sum(1 for entry in trial.goal_log if entry['outcome'] == 'ok')
     print(f'metas                    {done} cumprida(s) de '
           f'{len(trial.goal_log)} encerrada(s)')
     tally: dict = {}
-    for _, outcome, _ in trial.goal_log:
-        tally[outcome] = tally.get(outcome, 0) + 1
+    for entry in trial.goal_log:
+        tally[entry['outcome']] = tally.get(entry['outcome'], 0) + 1
     if tally:
         print('   por desfecho            ' + '  '.join(
             f'{name}={count}' for name, count in sorted(tally.items())))
-    for index, outcome, when in trial.goal_log[:12]:
-        print(f'   meta {index}: {outcome} em t={when:.0f}s')
+    for entry in trial.goal_log[:12]:
+        code = entry['error_code']
+        detail = f' código {code}' if code not in ('', 0) else ''
+        if entry['error_msg']:
+            detail += f' ({entry["error_msg"]})'
+        print(f'   meta {entry["goal_index"]}: {entry["outcome"]} em '
+              f't={entry["elapsed_s"]:.0f}s{detail}, '
+              f'{entry["plan_switches"]} troca(s) de rota')
     if len(trial.goal_log) > 12:
         print(f'   ... e {len(trial.goal_log) - 12} outras')
 
@@ -476,7 +547,7 @@ def main(argv=None) -> int:
     # normal aqui, porque o CycloneDDS enche o stderr -- isso vira uma corrida
     # silenciosa que nao faz nada e nao acusa. Custou uma corrida em 27/08/2026.
     parser.add_argument('--goals', default='maze11',
-                        help='"maze11" ou "x,y;x,y;..." em coords do robô. '
+                        help='"maze11", "maze11-short" ou "x,y;x,y;...". '
                              'Passe com sinal de igual (--goals="-1.5,0.05;...") '
                              ': coordenada negativa sem o "=" vira flag e o '
                              'script sai 0 sem rodar nada.')
@@ -513,6 +584,8 @@ def main(argv=None) -> int:
 
     if args.goals == 'maze11':
         goals = list(MAZE11_GOALS)
+    elif args.goals == 'maze11-short':
+        goals = list(MAZE11_SHORT_GOALS)
     else:
         goals = [tuple(float(v) for v in pair.split(',')[:2])
                  for pair in args.goals.split(';') if pair.strip()]
@@ -536,11 +609,19 @@ def main(argv=None) -> int:
                 writer = csv.DictWriter(handle, fieldnames=list(trial.rows[0]))
                 writer.writeheader()
                 writer.writerows(trial.rows)
+        with open(goals_csv_path(args.csv), 'w', newline='',
+                  encoding='utf-8') as handle:
+            if trial.goal_log:
+                writer = csv.DictWriter(
+                    handle, fieldnames=list(trial.goal_log[0]))
+                writer.writeheader()
+                writer.writerows(trial.goal_log)
         trial.destroy_node()
         rclpy.shutdown()
 
     summarise(trial, verdict, supervisor_stats(args.sim_log, offset))
     print(f'\namostras em {args.csv}')
+    print(f'metas em     {goals_csv_path(args.csv)}')
     return 1 if verdict.startswith('ABORTADO') else 0
 
 
