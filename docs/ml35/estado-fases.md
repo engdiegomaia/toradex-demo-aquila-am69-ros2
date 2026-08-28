@@ -28,8 +28,110 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 28/08/2026 | busca autônoma implementada e instalada, aceitação NÃO executada; o portão de estabilidade (3 metas curtas) segue **REPROVADO** a 0,0185 m/s — ver "Sessão 28/08" e `docs/results/ml35-f5-busca-autonoma.md` |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 28/08/2026 (tarde) | portão de TF **APROVADO** (99,94%) e portão de metas **PARCIAL** — 5 de 6 critérios passam, a velocidade média reprova a 0,0391 m/s contra 0,05. Aceitação da busca autônoma NÃO executada. Ver "Sessão 28/08 (tarde)", `docs/results/ml35-f5-ab-joint-states.md` e `ml35-f5-portao-tres-metas.md` |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
+
+### Sessão 28/08 (tarde) — o portão de TF fechou; a velocidade não
+
+Evidência: **`docs/results/ml35-f5-ab-joint-states.md`** e
+**`ml35-f5-portao-tres-metas.md`**, com os CSVs ao lado. Commits `a7dc097`
+(decimação), `235ac1f` (sonda), `d7efd30` (reversão do mapa), `becac77` e
+`fa1d012` (evidência).
+
+**A causa raiz era `/tf` a 1090 Hz.** O `controller_manager` roda a 1000 Hz
+porque a física roda a 1000 Hz, e um controlador sem `update_rate` próprio herda
+essa taxa. O `joint_state_broadcaster` publicava `/joint_states` a 1 kHz, o
+`robot_state_publisher` convertia cada amostra num `TFMessage`, e onze
+assinantes deserializavam o resultado — atravessando a Ethernet, porque o
+`robot_state_publisher` roda no HOST e a navegação roda no Aquila. Nav2 não
+consome nada disso: as arestas que ela usa são juntas FIXAS e já saem uma vez em
+`/tf_static`. Os 1090 Hz eram as doze juntas das PERNAS.
+
+A correção é `update_rate: 50` no broadcaster, pelo spawner
+(`demo_simulation/config/joint_state_broadcaster.yaml`), decimação exata de
+fator 20. Laço, marcha, física, IMU e odometria intocados, e há teste estrutural
+para cada um deles — o modo de falha barato é baixar a taxa do LAÇO em vez da
+do BROADCASTER, duas edições de uma linha no mesmo arquivo.
+
+**A/B pareado, uma variável, mesmo protocolo nos dois braços** (recria `sim` →
+reinicia módulo → espera SLAM → estabiliza → mede):
+
+| | 1000 Hz | 50 Hz |
+| --- | ---: | ---: |
+| `/joint_states` | 986,1 Hz | 45,1 Hz |
+| `/tf` | 1054,5 Hz | 144,6 Hz (−86,3%) |
+| `odom <- lidar` disponível | 94,75% | **99,94%** |
+| carga do módulo | 26,90 | 18,52 |
+| `nav2_container` | 298% | 240% |
+| `maze_explorer` | 67,6% | **76,0%** |
+
+**A atribuição da aresta ficou fechada:** `odom <- base` e `odom <- lidar` deram
+exatamente o mesmo número nos dois braços. A cadeia composta não perde nada além
+do que a aresta dinâmica perde. E o amostrador de 200 Hz dá o mecanismo: no
+braço A o máximo entre carimbos distintos era 120 ms num publicador de 20 ms —
+cinco ciclos perdidos de uma vez. Não era rajada de entrega; era o `odom_tf` não
+sendo escalonado a tempo de carimbar. Isto também corrige a atribuição da manhã
+(100,00% / 95,30% / 78,11%), que comparava três execuções separadas de durações
+diferentes: a conclusão qualitativa estava certa, os números não eram
+comparáveis entre si.
+
+**Uma hipótese minha foi REPROVADA e está registrada como tal.** Eu havia dito
+que os ~68% de um `maze_explorer` OCIOSO eram o `TransformListener` dele
+deserializando 1090 mensagens por segundo. Com o fluxo 86% menor ele SUBIU, para
+76,0%. A explicação plausível é estrangulamento — com a carga caindo de 26,9
+para 18,5, um nó antes disputado passa a rodar à vontade — mas isso é hipótese,
+não medição. Perfilar as threads dele (método de `ml35-f5-clock-fanout.md`) é o
+próximo passo se o objetivo for CPU.
+
+**`map_update_interval` voltou para 1.0**, em rodada independente. Ele tinha ido
+a 5.0 nesta mesma sessão por economia de CPU; a economia foi medida e não
+existia (31,4% → 30,3% no `async_slam_toolbox`, dentro do ruído). Na volta o
+custo é 1 pp, simétrico, o que confirma que o número é ruído. `/map` sobe de 0,2
+para 1,000 Hz e a `static_layer` deixa de ficar até 5 s atrás da parede que o
+SLAM já conhece.
+
+**Portão de metas, 3 corridas de 180 s em `maze11-short`:**
+
+| | 1 | 2 | 3 |
+| --- | ---: | ---: | ---: |
+| metas cumpridas | 9/10 | 8/10 | 9/10 |
+| primeiras três | ok ok ok | ok ok ok | ok ok ok |
+| tilt de pico | 1,17° | 1,06° | 1,18° |
+| folga mínima | 0,448 m | 0,448 m | 0,448 m |
+| velocidade média | 0,0383 | 0,0342 | 0,0447 m/s |
+
+Varredura de log limitada, 12 min: **zero** `worldToMap`, **zero**
+`invalid source`, **zero** extrapolação de TF. Cinco de seis critérios passam.
+
+**A velocidade reprova, e não é regressão.** A linha de base do maze11 em
+`gait_go2.yaml` é 0,0399 m/s; estas três dão média 0,0391. O que melhorou é a
+razão de trabalho em vx, de 6,2% para 15,6–22,3% — o robô passa duas a três
+vezes mais tempo com avanço efetivo, e isso NÃO virou velocidade média. É
+exatamente a distância entre o limite de MÁQUINA, que esta sessão atacou, e o
+limite de DECISÃO DE TRAJETO, isolado em `ml35-f5-clock-fanout.md` e ainda de pé.
+
+Ressalva de método, registrada para não virar precedente: `maze11-short` são
+metas a 0,5 m e boa parte de cada ciclo é reaquisição, não travessia. O critério
+de 0,05 m/s não separa travessia de reaquisição.
+
+**Onde a progressão parou, e por quê.** Nenhuma condição de parada ocorreu — o
+estouro de prazo da corrida 2 é prazo, não meta recusada. O que falta é o smoke
+de exploração e as três partidas frias de até 600 s, e antes de gastá-las há
+duas decisões em aberto:
+
+1. o critério de 0,05 m/s vale para `maze11-short`? Se o alvo é travessia, o
+   conjunto certo é `maze11` (metas de 8 m) e o número a bater é outro;
+2. o `maze_explorer` a 76% ocioso é o segundo maior consumidor do container
+   `nav` e nada aplicado nesta sessão o toca.
+
+**Armadilha nova, que custou uma corrida inteira de 180 s.** Logo depois de
+recriar o container `sim`, `/clock` aparece no grafo mas não entrega mensagem a
+assinante NOVO por alguns minutos. Qualquer script com `use_sim_time: True` que
+suba nessa janela lê relógio parado: RTF 0,000, idade da nuvem −240 s, 100% de
+carimbos "no futuro". As colunas que não usam o relógio do nó continuavam
+válidas, mas a corrida foi descartada e refeita. Antes de medir, confirme
+entrega de verdade (`ros2 topic hz /clock`), não presença no grafo — e note que
+o mapa do SLAM é `/map`, não `/demo/map`.
 
 ### Sessão 28/08 — busca autônoma implementada; portão de estabilidade ainda REPROVADO
 

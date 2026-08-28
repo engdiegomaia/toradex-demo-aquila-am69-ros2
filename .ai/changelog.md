@@ -5,6 +5,76 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-28 (tarde) — a causa era `/tf` a 1090 Hz; portão de TF APROVADO, velocidade ainda não
+
+Três sintomas relatados — navegação pior, CPU maior, mapa se perdendo com o robô
+andando — tinham duas causas distintas, e as duas foram medidas.
+
+**A janela do costmap global.** Era um `rolling_window` de 20 x 20 m (±10 m)
+enquanto a diagonal do maze11 é ~18,4 m, e o cockpit desenha
+`/global_costmap/costmap`. Corrigido para 40 m a 0,10 m de resolução, mantendo
+400 células por eixo: mesma grade mestre, cobertura dobrada. Confirmado em
+runtime — origem (−19,90, −19,90), 128 células letais, 795 inscritas. O risco em
+aberto de a `static_layer` não reprojetar entre os 5 cm do SLAM e os 10 cm da
+mestre **não se materializou**.
+
+**`/tf` a 1090 Hz.** O `controller_manager` roda a 1000 Hz porque a física roda a
+1000 Hz, e um controlador sem `update_rate` próprio herda essa taxa. O
+`joint_state_broadcaster` publicava `/joint_states` a 1 kHz, o
+`robot_state_publisher` convertia cada amostra num `TFMessage`, e onze
+assinantes deserializavam o resultado — atravessando a Ethernet, porque o
+`robot_state_publisher` roda no HOST e a navegação roda no Aquila. Nav2 não
+consome nada disso: as arestas que ela usa são juntas FIXAS e já saem uma vez em
+`/tf_static`. Os 1090 Hz eram as doze juntas das PERNAS.
+
+A/B pareado, uma variável, mesmo protocolo nos dois braços:
+
+```
+                         1000 Hz      50 Hz
+  /joint_states          986,1        45,1 Hz
+  /tf                   1054,5       144,6 Hz    -86,3%
+  odom <- lidar          94,75%      99,94%      PORTAO APROVADO
+  carga do modulo         26,90       18,52      -31%
+  nav2_container            298%        240%
+  maze_explorer            67,6%       76,0%     REPROVA
+```
+
+A atribuição da aresta ficou fechada: `odom <- base` e `odom <- lidar` deram
+exatamente o mesmo número nos dois braços, e o amostrador de 200 Hz mostra por
+quê — no braço A o `odom_tf` perdia até cinco ciclos de carimbo de uma vez
+(máximo de 120 ms num publicador de 20 ms). Não era rajada de entrega; era o nó
+não sendo escalonado a tempo.
+
+**Uma hipótese foi refutada e está registrada como refutada.** A afirmação de
+que os ~68% de um `maze_explorer` OCIOSO eram o `TransformListener` dele está
+errada: com o fluxo 86% menor ele subiu para 76,0%.
+
+**`map_update_interval` foi a 5.0 e voltou a 1.0 no mesmo dia.** O argumento era
+economia de CPU; a medição deu 31,4% → 30,3% no `async_slam_toolbox`, dentro do
+ruído, e o custo da volta é simétrico (1 pp). Sem economia de um lado da
+balança, sobra só o custo do outro: com 5.0 a `static_layer` fica até 5 s atrás
+da parede que o SLAM já conhece.
+
+**Portão de metas: 5 de 6 critérios passam.** 3 corridas de 180 s, primeiras
+três metas cumpridas nas três, zero quedas, e zero ocorrências de `worldToMap`,
+`invalid source` e extrapolação de TF na varredura de log. A velocidade média
+reprova a 0,0391 m/s contra 0,05 — e **não é regressão**: a linha de base do
+maze11 é 0,0399 m/s. O que melhorou foi a razão de trabalho em vx, de 6,2% para
+15,6–22,3%, sem virar velocidade média. É a distância entre o limite de MÁQUINA,
+atacado aqui, e o limite de DECISÃO DE TRAJETO, que continua de pé.
+
+Também entraram: bloqueio de meta manual no cockpit durante `starting` e durante
+falha de status do enlace; cache de fronteiras no `maze_explorer` com métricas
+instrumentadas; e uma sonda temporal (`scripts/tf_lidar_probe.py`) que mede os
+três pares de TF na mesma corrida e acompanha a regularidade de `odom -> base` a
+200 Hz.
+
+Evidência: `docs/results/ml35-f5-tf-cpu-baseline.md`,
+`ml35-f5-ab-joint-states.md`, `ml35-f5-portao-tres-metas.md`, com os CSVs ao
+lado. F5 **não** fecha: falta o smoke de exploração e as três partidas frias.
+
+---
+
 ## 2026-08-28 — saída autônoma do labirinto implementada; portão de estabilidade REPROVADO
 
 O robô passa a ter tudo o que precisa para sair do labirinto sozinho — partir
