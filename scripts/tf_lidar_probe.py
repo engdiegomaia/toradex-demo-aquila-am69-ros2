@@ -27,12 +27,33 @@ O QUE ELA MEDE, E POR QUE CADA COISA ESTÁ AQUI
 - **Uma linha por NUVEM, não por amostra de taxa fixa.** A nuvem é o sujeito da
   medição; amostrar a 20 Hz um tópico de 10 Hz duplicaria cada carimbo e
   transformaria metade dos intervalos em zero.
-- **`odom -> lidar`, e não `base -> lidar` sozinho.** O par default compõe as
-  DUAS arestas que o plano pede: `odom -> base` (dinâmica, do `odom_tf`) e
-  `base -> lidar` (estática, do `robot_state_publisher`). É exatamente a
-  transformação que a `ObstacleLayer` faz com a nuvem, então é ela que falha
-  primeiro. `base -> lidar` medido isolado responde sempre "disponível", porque
-  transformação estática não expira, e não diria nada.
+- **OS TRÊS PARES, na mesma linha e no mesmo carimbo.** `base <- lidar`
+  (estática, do `robot_state_publisher`), `odom <- base` (dinâmica, do
+  `odom_tf`) e `odom <- lidar` (a cadeia composta, que é o que a
+  `ObstacleLayer` realmente faz com a nuvem). Medir os três na mesma consulta é
+  o que permite atribuir uma falha da cadeia a uma aresta.
+
+  Isto ANTES era feito com três execuções separadas da sonda, com durações
+  diferentes, e a comparação não valia: uma corrida de 15 s e outra de 180 s
+  vêem regimes de carga diferentes, e a diferença entre 95,30% e 78,11% podia
+  ser inteiramente disso. Um número plausível e incomparável é pior que um
+  número ausente — o mesmo defeito que a taxa da odometria já tinha tido.
+
+- **`odom_tf_age_ms`: a idade da aresta que falha.** É `carimbo_da_nuvem -
+  carimbo_mais_recente_de_odom->base`. Separa "a árvore inteira está atrasada"
+  de "a aresta dinâmica está atrasada", que são hipóteses diferentes com
+  correções diferentes.
+
+- **Regularidade de `odom -> base`, amostrada a 200 Hz.** Um publicador que
+  carimba regularmente mas ENTREGA em rajadas produz exatamente a falha bimodal
+  medida em 28/08. Por isso a sonda registra as duas coisas: o intervalo entre
+  carimbos DISTINTOS (o que o `odom_tf` diz) e o intervalo entre as PRIMEIRAS
+  observações de cada carimbo (quando ele de fato chegou). Divergência entre os
+  dois é a assinatura da rajada.
+
+  200 Hz para um sinal de 50 Hz: rápido o bastante para não perder carimbo,
+  e é leitura de buffer, não deserialização de mensagem — não acrescenta a
+  carga que a sonda existe para medir.
 - **`transform_latency_ms` com sinal.** É `carimbo_da_nuvem - carimbo_da_TF_mais
   recente`. POSITIVO significa que a árvore de TF está ATRÁS da nuvem e o
   consumidor precisa extrapolar para frente — que é o modo de falha que derruba
@@ -76,6 +97,12 @@ FIELDS = (
     'odom_interval_ms',
     'transform_available',
     'transform_latency_ms',
+    # Os tres pares, consultados no MESMO carimbo da nuvem, na mesma linha.
+    'tf_base_lidar',
+    'tf_odom_base',
+    'tf_odom_lidar',
+    'odom_tf_stamp_s',
+    'odom_tf_age_ms',
     'cloud_points',
 )
 
@@ -171,11 +198,69 @@ def rate_hz(stamps: Sequence[float]) -> float:
     return (len(distinct) - 1) / span_s
 
 
-def summarise(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
+def _summarise_tf_samples(
+        samples: Sequence[tuple[float, float]]) -> dict[str, Any]:
+    """Reduce the 200 Hz `odom -> base` sampler to regularity statistics.
+
+    Two series, deliberately not one:
+
+    - the STAMP intervals are what `odom_tf` claims about its own cadence;
+    - the ARRIVAL intervals are when this process first saw each stamp.
+
+    A publisher that stamps every 20 ms but delivers in bursts shows a tight
+    stamp series next to a ragged arrival series. That is precisely the shape
+    that produces the bimodal availability measured on 28/08/2026, and folding
+    the two into one number would hide it.
+    """
+    result: dict[str, Any] = {'odom_tf_samples': len(samples)}
+    if len(samples) < 2:
+        return result
+    arrivals = [float(wall) for wall, _ in samples]
+    stamps = [float(stamp) for _, stamp in samples]
+
+    stamp_gaps = [(b - a) * 1000.0 for a, b in zip(stamps, stamps[1:])]
+    arrival_gaps = [(b - a) * 1000.0 for a, b in zip(arrivals, arrivals[1:])]
+    for gaps, prefix in ((stamp_gaps, 'odom_tf_stamp_interval'),
+                         (arrival_gaps, 'odom_tf_arrival_interval')):
+        result[f'{prefix}_median_ms'] = percentile(gaps, 50.0)
+        result[f'{prefix}_p99_ms'] = percentile(gaps, 99.0)
+        result[f'{prefix}_max_ms'] = max(gaps)
+
+    # Rate from the stamp span, for the same reason `rate_hz` does it: a run cut
+    # short still reports the rate it observed rather than a rate diluted by
+    # time it never sampled.
+    span_s = stamps[-1] - stamps[0]
+    if span_s > 0.0:
+        result['odom_tf_rate_hz'] = (len(stamps) - 1) / span_s
+    return result
+
+
+def _available_pct(rows: Sequence[dict[str, Any]], field: str) -> float | None:
+    """Return the percentage of rows where ``field`` reported an available TF.
+
+    Missing on purpose rather than zero when the column is absent: CSVs written
+    before the three pairs were measured together have no such column, and
+    reporting 0% for "not measured" would invent a regression.
+    """
+    values = [row[field] for row in rows if row.get(field, '') != '']
+    if not values:
+        return None
+    return 100.0 * sum(int(value) for value in values) / len(values)
+
+
+def summarise(rows: Sequence[dict[str, Any]],
+              tf_samples: Sequence[tuple[float, float]] | None = None,
+              ) -> dict[str, Any]:
     """Reduce sampled rows to the summary the probe prints once, at the end.
 
     Returns ``samples == 0`` with every metric ``None`` for an empty run rather
     than raising: a probe that captured nothing must still be able to say so.
+
+    ``tf_samples`` are ``(wall_s, stamp_s)`` pairs from the 200 Hz sampler, one
+    per DISTINCT ``odom -> base`` stamp observed. They do not belong in ``rows``
+    because they are not per-cloud: a cloud arrives at 10 Hz and this edge is
+    published at 50 Hz, so folding them into the same table would either drop
+    four samples out of five or repeat each cloud five times.
     """
     summary: dict[str, Any] = {
         'samples': len(rows),
@@ -190,7 +275,21 @@ def summarise(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
         'transform_latency_p99_ms': None,
         'future_stamp_pct': None,
         'real_time_factor': None,
+        'tf_base_lidar_pct': None,
+        'tf_odom_base_pct': None,
+        'tf_odom_lidar_pct': None,
+        'odom_tf_age_median_ms': None,
+        'odom_tf_age_p99_ms': None,
+        'odom_tf_samples': 0,
+        'odom_tf_rate_hz': None,
+        'odom_tf_stamp_interval_median_ms': None,
+        'odom_tf_stamp_interval_p99_ms': None,
+        'odom_tf_stamp_interval_max_ms': None,
+        'odom_tf_arrival_interval_median_ms': None,
+        'odom_tf_arrival_interval_p99_ms': None,
+        'odom_tf_arrival_interval_max_ms': None,
     }
+    summary.update(_summarise_tf_samples(tf_samples or ()))
     if not rows:
         return summary
 
@@ -237,6 +336,17 @@ def summarise(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
         median_ms = percentile(odom_intervals, 50.0)
         if median_ms > 0.0:
             summary['odom_rate_hz'] = 1000.0 / median_ms
+
+    for field, key in (('tf_base_lidar', 'tf_base_lidar_pct'),
+                       ('tf_odom_base', 'tf_odom_base_pct'),
+                       ('tf_odom_lidar', 'tf_odom_lidar_pct')):
+        summary[key] = _available_pct(rows, field)
+
+    odom_tf_ages = [float(row['odom_tf_age_ms']) for row in rows
+                    if row.get('odom_tf_age_ms', '') != '']
+    if odom_tf_ages:
+        summary['odom_tf_age_median_ms'] = percentile(odom_tf_ages, 50.0)
+        summary['odom_tf_age_p99_ms'] = percentile(odom_tf_ages, 99.0)
 
     sim_span = float(rows[-1]['sim_s']) - float(rows[0]['sim_s'])
     wall_span = float(rows[-1]['wall_s']) - float(rows[0]['wall_s'])
@@ -286,6 +396,26 @@ def format_summary(summary: dict[str, Any]) -> str:
         f'  TF atrás da nuvem p99  {number("transform_latency_p99_ms")} ms',
         f'  carimbos no futuro     {number("future_stamp_pct", 2)} %',
         f'  fator de tempo real    {number("real_time_factor", 3)}',
+        '  --- os três pares, mesma corrida, mesmo carimbo ---',
+        f'  base <- lidar          {number("tf_base_lidar_pct", 2)} %'
+        '   (estática; espera-se 100)',
+        f'  odom <- base           {number("tf_odom_base_pct", 2)} %'
+        f'{_verdict(summary["tf_odom_base_pct"], TRANSFORM_AVAILABLE_MIN_PCT, 100.0)}'
+        '   (dinâmica, odom_tf)',
+        f'  odom <- lidar          {number("tf_odom_lidar_pct", 2)} %'
+        f'{_verdict(summary["tf_odom_lidar_pct"], TRANSFORM_AVAILABLE_MIN_PCT, 100.0)}'
+        '   (composta, ObstacleLayer)',
+        f'  idade de odom->base    {number("odom_tf_age_median_ms")} ms'
+        f'  (p99 {number("odom_tf_age_p99_ms")})',
+        '  --- regularidade de odom->base (amostrador 200 Hz) ---',
+        f'  amostras / taxa        {summary["odom_tf_samples"]}'
+        f'  /  {number("odom_tf_rate_hz", 2)} Hz',
+        f'  intervalo por carimbo  {number("odom_tf_stamp_interval_median_ms")} ms'
+        f'  (p99 {number("odom_tf_stamp_interval_p99_ms")},'
+        f' máx {number("odom_tf_stamp_interval_max_ms")})',
+        f'  intervalo por chegada  {number("odom_tf_arrival_interval_median_ms")} ms'
+        f'  (p99 {number("odom_tf_arrival_interval_p99_ms")},'
+        f' máx {number("odom_tf_arrival_interval_max_ms")})',
     ]
     return '\n'.join(lines)
 
@@ -306,6 +436,7 @@ def write_csv(path: str, rows: Sequence[dict[str, Any]]) -> None:
 def build_probe(args: argparse.Namespace):
     """Construct the rclpy node. Imports ROS lazily — see the module docstring."""
     import rclpy
+    from rclpy.clock import Clock
     from rclpy.node import Node
     from rclpy.qos import QoSPresetProfiles
     from rclpy.time import Time
@@ -335,6 +466,13 @@ def build_probe(args: argparse.Namespace):
             self._odom_stamp: float | None = None
             self._odom_interval_ms: float | None = None
             self._target = args.target_frame
+            self._odom_frame = args.odom_frame
+            self._base_frame = args.base_frame
+
+            # (wall_s, stamp_s) por carimbo DISTINTO de odom -> base. Ver
+            # `_summarise_tf_samples` para por que as duas colunas.
+            self.tf_samples: list[tuple[float, float]] = []
+            self._last_tf_stamp: float | None = None
 
             self._buffer = tf2_ros.Buffer()
             self._listener = tf2_ros.TransformListener(self._buffer, self)
@@ -346,8 +484,31 @@ def build_probe(args: argparse.Namespace):
                 PointCloud2, args.cloud_topic, self._on_cloud,
                 QoSPresetProfiles.SENSOR_DATA.value)
 
+            # Amostrador da aresta dinamica. Timer de PARADE, nao de simulacao:
+            # a pergunta e quando a mensagem chegou a este processo, e uma pausa
+            # do /clock nao pode ser lida como uma rajada do publicador.
+            self._tf_timer = self.create_timer(
+                1.0 / args.tf_sample_hz, self._sample_odom_tf,
+                clock=Clock())
+
         def _sim_now(self) -> float:
             return self.get_clock().now().nanoseconds / 1e9
+
+        def _odom_tf_stamp(self) -> float | None:
+            """Latest `odom -> base` stamp in the buffer, or None if absent."""
+            try:
+                latest = self._buffer.lookup_transform(
+                    self._odom_frame, self._base_frame, Time())
+            except tf2_ros.TransformException:
+                return None
+            return stamp_seconds(latest.header.stamp)
+
+        def _sample_odom_tf(self) -> None:
+            stamp = self._odom_tf_stamp()
+            if stamp is None or stamp == self._last_tf_stamp:
+                return
+            self._last_tf_stamp = stamp
+            self.tf_samples.append((time.monotonic(), stamp))
 
         def _on_odom(self, message: Odometry) -> None:
             stamp = stamp_seconds(message.header.stamp)
@@ -386,6 +547,21 @@ def build_probe(args: argparse.Namespace):
             except tf2_ros.TransformException:
                 pass
 
+            # Os tres pares, no MESMO carimbo e na mesma volta do callback. E o
+            # que torna a atribuicao valida: qualquer diferenca entre eles e da
+            # aresta, nao do instante em que cada um foi perguntado.
+            pairs = {
+                'tf_base_lidar': (self._base_frame, source),
+                'tf_odom_base': (self._odom_frame, self._base_frame),
+                'tf_odom_lidar': (self._odom_frame, source),
+            }
+            availability = {
+                field: int(self._buffer.can_transform(target, child, query))
+                for field, (target, child) in pairs.items()
+            }
+
+            odom_tf_stamp = self._odom_tf_stamp()
+
             self.rows.append({
                 'wall_s': round(wall - self._wall_start, 3),
                 'sim_s': round(sim - self._sim_start, 3),
@@ -398,6 +574,11 @@ def build_probe(args: argparse.Namespace):
                                      else round(self._odom_interval_ms, 1)),
                 'transform_available': int(available),
                 'transform_latency_ms': latency,
+                **availability,
+                'odom_tf_stamp_s': ('' if odom_tf_stamp is None
+                                    else round(odom_tf_stamp, 3)),
+                'odom_tf_age_ms': ('' if odom_tf_stamp is None else
+                                   round(age_ms(stamp, odom_tf_stamp), 1)),
                 'cloud_points': message.width * message.height,
             })
 
@@ -415,9 +596,23 @@ def main(argv: Sequence[str] | None = None) -> int:
                         help='destino da transformação medida (default odom)')
     parser.add_argument('--source-frame', default='',
                         help='origem; vazio usa o frame_id da própria nuvem')
+    parser.add_argument('--odom-frame', default='odom',
+                        help='quadro de odometria (default odom)')
+    parser.add_argument('--base-frame', default='base',
+                        help='quadro do corpo (default base)')
+    parser.add_argument('--tf-sample-hz', type=float, default=200.0,
+                        help='taxa do amostrador de odom->base (default 200); '
+                             'precisa ficar acima da taxa de publicação para '
+                             'não perder carimbo')
+    parser.add_argument('--odom-tf-csv', default='',
+                        help='opcional: série completa (chegada, carimbo) do '
+                             'amostrador. Só é necessária quando o resumo '
+                             'estatístico não decidir a questão')
     args = parser.parse_args(argv)
     if args.seconds <= 0.0:
         parser.error('--seconds deve ser positivo')
+    if args.tf_sample_hz <= 0.0:
+        parser.error('--tf-sample-hz deve ser positivo')
 
     rclpy, probe_class = build_probe(args)
     rclpy.init()
@@ -430,11 +625,18 @@ def main(argv: Sequence[str] | None = None) -> int:
         pass
     finally:
         rows = list(probe.rows)
+        tf_samples = list(probe.tf_samples)
         probe.destroy_node()
         rclpy.shutdown()
 
     write_csv(args.csv, rows)
-    print(format_summary(summarise(rows)))
+    if args.odom_tf_csv:
+        with open(args.odom_tf_csv, 'w', newline='') as handle:
+            writer = csv.writer(handle)
+            writer.writerow(['arrival_wall_s', 'odom_tf_stamp_s'])
+            writer.writerows(
+                (round(wall, 4), round(stamp, 4)) for wall, stamp in tf_samples)
+    print(format_summary(summarise(rows, tf_samples)))
     return 0 if rows else 1
 
 
