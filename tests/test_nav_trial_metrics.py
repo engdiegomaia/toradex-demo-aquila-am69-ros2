@@ -12,6 +12,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
 sys.path.insert(0, str(SCRIPTS))
 
 from trial_timing import (  # noqa: E402
+    goals_csv_path,
     path_metrics,
     plan_switch_count,
     timing_spans,
@@ -93,3 +94,19 @@ def test_plan_switches_ignore_wraparound_stale_and_missing_samples() -> None:
         {},
     ]
     assert plan_switch_count(rows) == 1
+
+
+def test_goals_csv_is_a_sibling_that_never_overwrites_the_telemetry() -> None:
+    """O portao precisa dos dois arquivos vivos na mesma corrida."""
+    assert goals_csv_path('artifacts/gate.csv') == 'artifacts/gate-metas.csv'
+    assert goals_csv_path('gate.csv') == 'gate-metas.csv'
+    # Um caminho sem extensao nao pode devolver o proprio nome: seria o ensaio
+    # gravando as metas por cima da telemetria e perdendo as duas evidencias.
+    assert goals_csv_path('artifacts/gate') == 'artifacts/gate-metas.csv'
+    for path in ('artifacts/gate.csv', 'gate.csv', 'artifacts/gate'):
+        assert goals_csv_path(path) != path
+
+
+def test_goals_csv_ignores_dots_that_belong_to_the_directory() -> None:
+    """`./out` tem ponto e nao tem extensao; o irmao nao pode virar `.-metas/out`."""
+    assert goals_csv_path('./out') == './out-metas.csv'
