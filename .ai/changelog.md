@@ -5,6 +5,58 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-28 — saída autônoma do labirinto implementada; portão de estabilidade REPROVADO
+
+O robô passa a ter tudo o que precisa para sair do labirinto sozinho — partir
+sem mapa, escolher fronteiras, reconhecer o marcador visual da saída e
+atravessar a abertura — e **nada disso foi aceito ainda**: o portão de
+estabilidade que precede a exploração continua reprovado.
+
+**Implementado e instalado:**
+
+- `demo_navigation/frontier.py`: extração de fronteiras sem ROS — agrupamento
+  8-conexo, clearance de 0,45 m, meta recuada para dentro do espaço livre,
+  pontuação por ganho de informação menos comprimento real do caminho;
+- `demo_navigation/maze_explorer.py`: executivo com `start`/`cancel`/`status`,
+  oito estados publicados em JSON transient-local, blacklist por raio de
+  0,75 m, prazo de 90 s por fronteira e 600 s total, e aproximação do marcador
+  em passos de 0,5 m;
+- `ExplorationGrid` (NavFn com `allow_unknown: false`) ao lado do `GridBased`
+  manual, mais `behavior_trees/nav_to_pose_exploration.xml` fixando esse
+  planner: a meta de fronteira nunca é alcançada cortando o desconhecido;
+- `demo_perception/maze_exit_detector.py`: painel magenta por limiar de cor,
+  confirmação em 3 de 5 quadros, distância pelos intrínsecos e pela largura
+  física de 0,8 m; publica em tópicos próprios e **nunca** no tópico que
+  `detections_to_cloud` assina — o marcador não pode virar obstáculo em frente
+  à própria abertura;
+- `demo_simulation/maze_escape_validator.py`: oráculo de aceitação, só na
+  simulação, que exige o cruzamento da abertura **e** o footprint inteiro fora
+  antes de publicar `/demo/maze/escaped`. O explorador não assina esse tópico;
+- cockpit: iniciar/cancelar busca, estado e tempo no HUD, clique manual
+  bloqueado durante a busca, e "SAÍDA CONFIRMADA" saindo do ground truth e de
+  mais nada. O reset do Nav2 cancela o explorador antes de ciclar a pilha.
+
+**Evidência por meta, que faltava.** O desfecho de cada ação do `nav_trial.py`
+morria no stdout, e a meta em voo no fim do ensaio nunca era registrada — um
+portão de 3 metas relatava 2. Agora há um CSV irmão `<csv>-metas.csv` com alvo,
+desfecho, `status`, `error_code`/`error_msg` e trocas de rota daquela meta.
+
+**Testes:** contrato 150, `demo_navigation` 25, `demo_perception` 33, cockpit
+169. A decisão de busca do cockpit saiu de `nav-panel.js` para
+`hmi/js/panels/exploration.js`, sem mudança de comportamento, porque o painel só
+existe depois de um `canvas.getContext('2d')` e o bundle não tem jsdom.
+
+**O que NÃO foi feito, e por quê.** Nenhuma corrida de aceitação, no host ou no
+Aquila. O portão de estabilidade — três metas curtas, 3/3 `SUCCEEDED`, ≥ 0,05
+m/s — segue **reprovado**: a última corrida mediu 0,0185 m/s em 37 s.
+`restamp_tf: true` (parâmetro real do `slam_toolbox` do Jazzy, verificado)
+destravou o comando, que estava em zero, e não fechou o portão.
+
+Detalhes, riscos abertos e o protocolo de reprodução:
+`docs/results/ml35-f5-busca-autonoma.md`, marcado `PENDING EXECUTION`.
+
+---
+
 ## 2026-08-27 — mapa vivo do Go2 implementado; rebuild headless pendente
 
 O próximo mecanismo do F5 saiu do papel: o Go2 passa a manter um mapa de
