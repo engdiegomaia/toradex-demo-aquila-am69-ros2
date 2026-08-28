@@ -187,6 +187,9 @@ class NavControlRelay(Node):
         self._cancel = self.create_client(
             CancelGoal, self._cancel_name, callback_group=self._group,
         )
+        self._cancel_exploration = self.create_client(
+            Trigger, '/demo/exploration/cancel', callback_group=self._group,
+        )
         self._costmaps = {
             name: self.create_client(
                 ClearEntireCostmap, name, callback_group=self._group)
@@ -224,6 +227,7 @@ class NavControlRelay(Node):
         # e desativado com uma meta em curso, o que a aborta sem que o cliente
         # receba um resultado limpo, e o cockpit fica com o HUD em "navegando"
         # sobre uma pilha que nao esta mais correndo.
+        self._stop_exploration()
         self._cancel_all()
 
         # Limpar com os costmaps AINDA ATIVOS: `clear_entirely_*` e um servico
@@ -266,6 +270,7 @@ class NavControlRelay(Node):
 
     def _on_cancel(self, request, response):
         del request
+        self._stop_exploration()
         cancelled = self._cancel_all()
         response.success = cancelled
         response.message = (
@@ -275,6 +280,13 @@ class NavControlRelay(Node):
         return response
 
     # --- saida -------------------------------------------------------------
+
+    def _stop_exploration(self):
+        """Best-effort: prevent the executive from resending after a reset."""
+        if not self._cancel_exploration.wait_for_service(timeout_sec=0.5):
+            return False
+        future = self._cancel_exploration.call_async(Trigger.Request())
+        return _wait(future, SHORT_TIMEOUT_S) and future.result() is not None
 
     def _transition(self, command, label):
         """Uma transicao do gerenciador. Devolve (ok, motivo)."""

@@ -357,6 +357,19 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{'use_sim_time': True}],
     )
 
+    # Ground-truth is an acceptance oracle only.  The explorer running on the
+    # Aquila never subscribes to this topic and receives no exit coordinates.
+    maze_escape_validator = Node(
+        package='demo_simulation',
+        executable='maze_escape_validator',
+        name='maze_escape_validator',
+        output='screen',
+        parameters=[{
+            'use_sim_time': True,
+            'world': LaunchConfiguration('world'),
+        }],
+    )
+
     # Vistas externas do cockpit web (painel azul): duas cameras estaticas
     # spawnadas no mundo, isometrica e de topo. Fragmento COMPARTILHADO com a
     # planta diff-drive, para que o painel nao apague ao trocar ROBOT_TYPE.
@@ -404,6 +417,7 @@ def generate_launch_description() -> LaunchDescription:
         robot_state_publisher,
         spawn_robot,
         twist_to_inputs,
+        maze_escape_validator,
         # Startup chain, each link gated on the previous one actually finishing
         # rather than on elapsed time: spawn -> broadcasters -> gait controller.
         # The gait FSM waits on top of that, inside twist_to_inputs.
