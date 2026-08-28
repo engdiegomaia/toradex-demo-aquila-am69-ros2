@@ -1,0 +1,59 @@
+# Decimacao do joint_state_broadcaster para 50 Hz, carregada pelo spawner em
+# quadruped.launch.py (`--param-file`).
+#
+# POR QUE ESTE ARQUIVO EXISTE
+#
+# Medido no HIL de 28/08/2026 (docs/results/ml35-f5-tf-cpu-baseline.md §6):
+#
+#     ros2 topic hz /tf      average rate: 1090.898   (janela de 10000)
+#     ros2 topic info /tf    4 publishers | 11 subscribers
+#
+# O controller_manager roda a 1000 Hz porque a fisica roda a 1000 Hz, e sem
+# `update_rate` proprio um controlador herda essa taxa. O joint_state_broadcaster
+# entao publicava /joint_states a 1 kHz, o robot_state_publisher convertia cada
+# amostra num TFMessage, e onze assinantes deserializavam o resultado --
+# atravessando a Ethernet, porque o robot_state_publisher roda no HOST e os
+# assinantes de navegacao rodam no Aquila.
+#
+# Nav2 nao consome nada disso. As arestas que a navegacao usa -- `base -> lidar`,
+# `base -> trunk` -- sao juntas FIXAS e o robot_state_publisher ja as emite uma
+# unica vez em /tf_static. Os 1090 Hz sao as doze juntas das PERNAS, que so
+# interessam a visualizacao.
+#
+# O QUE ESTE ARQUIVO NAO MUDA, E POR QUE
+#
+# A decimacao e do BROADCASTER, nao do laco de controle. Preservados de
+# proposito, porque cada um deles tem comportamento medido amarrado a sua taxa:
+#
+#     controller_manager.update_rate  1000 Hz   go2_description/config/gazebo.yaml
+#     unitree_guide_controller         200 Hz   idem (marcha, ML3.5 F2/F4)
+#     ocs2_quadruped_controller        200 Hz   idem
+#     passo de fisica                 1000 Hz   mundo SDF
+#     imu_sensor_broadcaster        herdada     idem
+#     odometria                     inalterada  bridge_quadruped.yaml
+#
+# `update_rate: 50` com o CM a 1000 da fator de decimacao 20, exato. O
+# ControllerManager chama update() do broadcaster uma vez a cada 20 ciclos e o
+# JointStateBroadcaster publica dentro do update() -- logo /joint_states cai para
+# 50 Hz sem que nenhum outro controlador perca um ciclo sequer.
+#
+# 50 Hz foi escolhido para casar com a taxa de /demo/odom, que e a aresta
+# dinamica que a navegacao realmente espera a 50 Hz. Nao ha ganho em publicar
+# pose de junta mais rapido do que a aresta que ela acompanha.
+#
+# POR QUE AQUI E NAO EM go2_description/config/gazebo.yaml
+#
+# Mesmo motivo de config/gait_go2.yaml, e o header daquele arquivo explica em
+# detalhe: go2_description e um pacote vendorizado cujo README garante que os
+# arquivos sao byte-identicos ao upstream, e essa garantia e o que sustenta o
+# argumento de licenca. O ponto de injecao que pertence ao projeto e o spawner.
+#
+# ROLLBACK
+#
+# `jsb_params:=''` na linha de comando do launch, ou apagar o `--param-file` do
+# spawner do joint_state_broadcaster. O broadcaster volta a herdar 1000 Hz. Nao
+# mexa em controller_manager.update_rate para reverter isto.
+
+joint_state_broadcaster:
+  ros__parameters:
+    update_rate: 50  # Hz
