@@ -240,6 +240,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument('--seconds', type=float, default=420.0,
                         help='duração de cada perna, passada ao nav_trial')
     parser.add_argument('--goals', default='maze11')
+    parser.add_argument('--goal-timeout', type=float, default=90.0,
+                        help='prazo por meta repassado ao nav_trial')
     parser.add_argument('--skip-nav-reset', action='store_true',
                         help='não chamar /demo/nav/reset entre pernas')
     parser.add_argument('--apply-timeout', type=float, default=300.0,
@@ -318,7 +320,8 @@ def main(argv: list[str] | None = None) -> int:
 
         code, output = _run(
             [sys.executable, str(HERE / 'nav_trial.py'), str(csv_path),
-             '--seconds', str(args.seconds), f'--goals={args.goals}'],
+             '--seconds', str(args.seconds), f'--goals={args.goals}',
+             '--goal-timeout', str(args.goal_timeout)],
             timeout=args.seconds + 300.0,
         )
         print(output.strip()[-2000:])

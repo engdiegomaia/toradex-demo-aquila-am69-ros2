@@ -109,6 +109,26 @@ def test_rota_com_coordenada_negativa_e_repassada_com_equals(campaign, monkeypat
     assert '--goals=-1.50,0.05' in trial
 
 
+def test_goal_timeout_is_forwarded_to_each_trial(campaign, monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(campaign, 'reset_between_legs', lambda **_: True)
+    monkeypatch.setattr(campaign, 'wait_for_managed_nodes', lambda *a, **k: (True, 0.0))
+
+    def fake_run(command, timeout):
+        calls.append(command)
+        if 'nav_trial.py' in ' '.join(command):
+            Path(command[2]).touch()
+        return 0, ''
+
+    monkeypatch.setattr(campaign, '_run', fake_run)
+    assert campaign.main([
+        str(tmp_path), '--condition', 'warm', '--reps', '1',
+        '--seconds', '1', '--goal-timeout', '300',
+    ]) == 0
+    trial = next(command for command in calls if 'nav_trial.py' in ' '.join(command))
+    assert trial[-2:] == ['--goal-timeout', '300.0']
+
+
 def test_o_reset_do_simulador_e_obrigatorio(campaign, monkeypatch):
     """
     Recusa na reposição tem de ABORTAR, não avisar.

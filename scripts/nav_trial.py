@@ -62,7 +62,7 @@ import time
 
 from geometry_msgs.msg import Twist
 from nav2_msgs.action import NavigateToPose
-from nav_msgs.msg import Odometry
+from nav_msgs.msg import Odometry, Path
 import numpy as np
 import rclpy
 from rclpy.action import ActionClient
@@ -71,7 +71,7 @@ from rclpy.qos import QoSPresetProfiles
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 
-from trial_timing import timing_spans, vx_metrics
+from trial_timing import path_metrics, plan_switch_count, timing_spans, vx_metrics
 
 
 # Raio circunscrito do tronco do Go2. A folga do lidar até a parede menos isto é
@@ -117,6 +117,9 @@ class NavTrial(Node):
         self.pose = None
         self.cmd = Twist()
         self.min_range = float('inf')
+        self.plan_length_m = math.nan
+        self.plan_heading_deg = math.nan
+        self.plan_received_s = None
         self.rows: list[dict] = []
         self.goal_log: list[tuple] = []
         self._wall_start: float | None = None
@@ -136,6 +139,7 @@ class NavTrial(Node):
         self.create_subscription(Twist, args.cmd_topic, self._on_cmd, 10)
         self.create_subscription(PointCloud2, '/demo/scan_cloud', self._on_cloud,
                                  QoSPresetProfiles.SENSOR_DATA.value)
+        self.create_subscription(Path, '/plan', self._on_plan, 10)
         self.client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
     # -- entradas ----------------------------------------------------------
@@ -158,6 +162,12 @@ class NavTrial(Node):
         finite = distances[np.isfinite(distances)]
         if finite.size:
             self.min_range = float(finite.min())
+
+    def _on_plan(self, msg: Path) -> None:
+        points = [(entry.pose.position.x, entry.pose.position.y)
+                  for entry in msg.poses]
+        self.plan_length_m, self.plan_heading_deg = path_metrics(points)
+        self.plan_received_s = self.sim_s()
 
     # -- relógios ----------------------------------------------------------
 
@@ -182,6 +192,11 @@ class NavTrial(Node):
         goal.pose.pose.orientation.z = math.sin(yaw / 2.0)
         goal.pose.pose.orientation.w = math.cos(yaw / 2.0)
 
+        # A plan still in memory belongs to the preceding goal. Mark it absent
+        # until planner_server publishes the route for this epoch.
+        self.plan_length_m = math.nan
+        self.plan_heading_deg = math.nan
+        self.plan_received_s = None
         self._epoch += 1
         self._active = True
         self._result = None
@@ -224,8 +239,11 @@ class NavTrial(Node):
         yaw, tilt = yaw_and_tilt(self.pose.orientation)
         if self._wall_start is None:
             raise RuntimeError('wall clock not initialized')
+        sim_now = self.sim_s()
+        plan_age = (sim_now - self.plan_received_s
+                    if self.plan_received_s is not None else math.nan)
         self.rows.append({
-            'sim_s': round(self.sim_s(), 3),
+            'sim_s': round(sim_now, 3),
             'wall_s': round(time.monotonic() - self._wall_start, 3),
             'x': round(self.pose.position.x, 4),
             'y': round(self.pose.position.y, 4),
@@ -235,6 +253,10 @@ class NavTrial(Node):
             'cmd_vx': round(self.cmd.linear.x, 4),
             'cmd_wz': round(self.cmd.angular.z, 4),
             'min_range_m': round(self.min_range, 3),
+            'plan_length_m': round(self.plan_length_m, 3),
+            'plan_heading_deg': round(self.plan_heading_deg, 2),
+            'plan_age_s': round(max(0.0, plan_age), 3)
+            if math.isfinite(plan_age) else math.nan,
         })
 
     def wait_for_stack(self) -> None:
@@ -407,6 +429,16 @@ def summarise(trial: NavTrial, verdict: str, stats: dict | None) -> None:
     if ranges.size:
         print(f'folga mínima (lidar)     {ranges.min():.3f} m'
               f'   -> carcaça {ranges.min() - TRUNK_RADIUS_M:+.3f} m')
+    valid_plans = [r for r in rows
+                   if math.isfinite(float(r.get('plan_length_m', math.nan)))
+                   and math.isfinite(float(r.get('plan_heading_deg', math.nan)))
+                   and float(r.get('plan_age_s', math.inf)) <= 2.5]
+    if valid_plans:
+        lengths = np.array([r['plan_length_m'] for r in valid_plans])
+        print(f'plano comprimento       {np.median(lengths):.2f} m mediana '
+              f'[{lengths.min():.2f}, {lengths.max():.2f}]')
+        print(f'trocas grandes de rota   {plan_switch_count(rows)} '
+              '(>1 m ou >45 graus)')
     done = sum(1 for _, outcome, _ in trial.goal_log if outcome == 'ok')
     print(f'metas                    {done} cumprida(s) de '
           f'{len(trial.goal_log)} encerrada(s)')
