@@ -1,0 +1,1140 @@
+# Parametros do Nav2 para o QUADRUPEDE Go2 (ML3.5 F5).
+#
+# Derivado de nav2_params.yaml, que e do TurtleBot 4 e continua valendo para o
+# diff-drive.  Sao dois robos com envelopes diferentes; um arquivo so nao serve
+# aos dois, e sobrescrever o do TB4 apagaria a sintonia dele.  A duplicacao e
+# deliberada e o preco de manter os dois caminhos vivos.
+#
+# TODOS os deltas em relacao ao arquivo do TB4 estao listados aqui, com a medicao
+# que os justifica.  Se voce mudar um, mude a razao junto.
+#
+# ---------------------------------------------------------------------------
+# 1. robot_base_frame: base_link -> base
+#
+# O URDF do Go2 nao tem base_link.  Medido em 20/08/2026: a arvore tem raiz
+# `base`, e `base` -> `trunk` -> {lidar, imu_link, front_camera, 4 pernas}.
+# go2_description e vendorizado com garantia byte-a-byte que sustenta o argumento
+# de licenca (ver o README dele), entao o nome do frame e dado.  Quem cede e este
+# arquivo, que e do projeto.
+#
+# 2. robot_radius: 0.18 -> 0.38
+#
+# O tronco do Go2 tem ~0,70 x 0,31 m.  O raio circunscrito e
+# sqrt(0.35^2 + 0.155^2) = 0.383.  Nao baixe isso pensando em passar em vao mais
+# estreito: as PERNAS varrem para fora do tronco durante o trote, e um raio menor
+# que o circunscrito planeja caminho que a perna nao cabe.
+#
+# 3. Fonte de obstaculo: /demo/scan (LaserScan) -> /demo/scan_cloud (PointCloud2)
+#
+# ESTE E O DELTA QUE FAZ O ROBO DESVIAR.  O L1_lidar do Go2 e um gpu_lidar 3D de
+# 640 x 16 raios; sensor_msgs/LaserScan e 2D e a travessia entrega UM anel dos 16.
+#
+# Medido em 20/08/2026, robo parado na origem do mundo quadruped_objects.sdf, com
+# quatro objetos de 0,30 a 0,80 m de altura a 1,5-4,5 m a frente:
+#
+#   /demo/scan       (1 anel)   46 de 640 feixes validos, ZERO obstaculos --
+#                               numericamente identico ao mundo vazio
+#   /demo/scan_cloud (16 aneis) 2097 pontos, 249 acima do chao a frente,
+#                               a 1,31-4,43 m: 15 na caixa a ~1,5 m,
+#                               190 no par a ~3,0 m, 44 no cilindro a ~4,5 m
+#
+# No corredor: 5749 pontos, 2422 obstaculos a partir de 1,06 m.
+#
+# min_obstacle_height existe para descartar o chao.  Os 16 aneis apontam para
+# baixo: dos 2097 pontos, 1848 sao chao.  Sem esse filtro o costmap se enche do
+# proprio piso e o robo nao sai do lugar.  No frame odom o chao esta em z ~ 0 e os
+# obstaculos entre 0,05 e 0,80 m, por isso o corte em 0,12 m.
+#
+# 4. Alcances do lidar: 20.0/15.0/0.17 -> 9.0/8.0/0.10
+#
+# O L1 declara range 0.05-10.0 m (gazebo.xacro).  raytrace acima do alcance real
+# faz a camada parar de limpar celulas que nunca foram observadas, e o obstaculo
+# fica congelado no costmap.  obstacle_max_range fica ABAIXO de raytrace de
+# proposito: marcar conservador, limpar generoso.
+#
+# 5. Envelope de velocidade: vx 0.5 -> 0.15, wz 1.9 -> 0.12
+#
+# Nao e conservadorismo, e o limite fisico medido do controlador de marcha:
+#
+#   - 0,20 m/s e o teto do clamp de stick (twist_to_inputs); 0,10 m/s e o ponto
+#     validado (docs/results/ml35-f4-parcial.md).  0,15 e o meio, com margem.
+#   - Abaixo de ~0,05 m/s o passo fica milimetrico sob elevacao de pe de 8 cm e o
+#     robo marcha no lugar e desestabiliza -- por isso ha um minimo, nao so um
+#     maximo.
+#   - 0,13 rad/s e onde o momento de guinada da QP de equilibrio SATURA
+#     (docs/results/ml35-caminhada-reta.md).  Pedir mais nao entrega mais: arrasta
+#     os pes e derruba.  wz_max 0.12 fica logo abaixo.
+#   - vy_max fica 0.0 e motion_model segue "DiffDrive" embora o Go2 saiba andar de
+#     lado.  O strafe foi medido (0,08-0,10 m/s) mas nunca sob planejamento, e
+#     habilitar holonomia sem essa medicao trocaria um problema conhecido por um
+#     desconhecido.
+#
+# 6. Aceleracoes: ax 2.0 -> 0.5, az 3.0 -> 0.8
+#
+# O clamp de aceleracao horizontal do controlador de marcha e 3 m/s^2 e o de
+# guinada 10 rad/s^2, mas esses sao os limites onde ele CAI.  Um degrau de
+# comando grande vira degrau de forca pedido a QP.
+#
+# 7. collision_monitor: fonte "scan" -> "pointcloud" na nuvem
+#
+# Mesma razao do item 3: um monitor de colisao alimentado pelo anel unico nao ve
+# o obstaculo e a parada de emergencia nunca dispara.
+#
+# 8. Janela do costmap local: 3 x 3 -> 6 x 6 m
+#
+# O L1 mede obstaculo a 4,43 m; uma janela de 3 m so revela o obstaculo a 1,5 m
+# e joga fora o alcance que o sensor ja entrega.
+#
+# 9. costmap global: rolante, com static_layer do mapa vivo
+#
+# O slam_toolbox e o unico autor de map -> odom e preserva livre/ocupado; a
+# janela mestre continua rolante para nao encolher ate o primeiro mapa parcial.
+#
+# 10. inflation_radius: 0.35 -> 0.55
+#
+# Consequencia direta do item 2, nao uma escolha independente: inflacao menor que
+# robot_radius (0.38) deixa o planejador tracar curva cujo canto raspa o
+# obstaculo.  0.55 = 0.38 + 0,17 m de folga.
+#
+# 13. Horizonte do MPPI: 56 x 0.05 s -> 96 x 0.1 s; batch 2000 -> 1000;
+#     controller_frequency 20 -> 10
+#
+# O DELTA QUE FAZ O ROBO ANDAR.  Horizonte se mede em DISTANCIA: 2,8 s cobrem
+# 1,4 m no TB4 e 0,42 m no Go2, que nao alcanca a referencia do proprio
+# PathAlignCritic (peso 14, offset 20 pontos ~ 1 m).  Com o campo de custo quase
+# plano o comando sai como ruido em torno de zero -- medido, com costmap limpo.
+#
+# 12. progress_checker: 0.5 m/10 s -> 0.20 m/40 s
+#
+# Medido: os valores do TB4 dao 13 abortos em 5 min e nenhuma meta concluida, com
+# ZERO quedas.  Girar 90 graus a 0,12 rad/s leva 13 s sem avanco, entao exigir
+# 0,5 m em 10 s reprova manobra que o robo esta executando corretamente.
+#
+# 11. behavior_server: max_rotational_vel 1.5 -> 0.12
+#
+# O delta mais perigoso de esquecer.  As recuperacoes publicam velocidade DIRETO,
+# sem passar pelo velocity_smoother nem pelos limites do MPPI, entao os itens 5 e
+# 6 nao as cobrem.  Com 1.5 rad/s o robo cai durante a recuperacao.
+#
+# ---------------------------------------------------------------------------
+# NAO VALIDADO EM HARDWARE.  Todo numero aqui vem de simulacao Gazebo Harmonic na
+# estacao x86.  Emulacao arm64 nao mede desempenho (CLAUDE.md, regra 5).
+
+# Nav2 parameters — ML3.
+#
+# Runs on: Aquila AM69 (arm64) in target mode, x86 host in learn mode.
+# Identical file in both cases; nothing here is architecture-specific.
+#
+# Derived from the Nav2 Jazzy defaults, changed only where this robot differs:
+#   - topics live in the /demo namespace (topic contract, CLAUDE.md)
+#   - robot_base_frame is `base` (o URDF do Go2 nao tem base_link)
+#   - a fonte de obstaculo e a nuvem 3D, nao o LaserScan de um anel
+#   - pegada e limites de velocidade sao do Go2, medidos
+#   - ambos os costmaps tem camada de percepcao alimentada por demo_perception
+#
+# QUEM PUBLICA CADA ARESTA DA TF NESTE CAMINHO:
+#
+#   map -> odom    demo_bringup/odom_tf com publish_map_identity:=true (identidade)
+#   odom -> base   demo_bringup/odom_tf a partir de /demo/odom
+#   base -> ...    robot_state_publisher, do URDF vendorizado
+#
+# O amcl abaixo TAMBEM publica map -> odom (tf_broadcast: true).  Os dois juntos
+# dao dois publicadores na mesma aresta, e isso NAO da erro: o consumidor recebe
+# as duas e usa a ultima que chegou, alternando entre duas crencas de onde o robo
+# esta.  Por isso: no desvio reativo suba odom_tf e NAO suba o amcl; para navegar
+# sobre mapa salvo suba o amcl e ponha publish_map_identity:=false.
+# Nunca os dois com a identidade ligada.
+#
+# Os limites de velocidade aqui sao o teto FISICO do controlador de marcha, nao
+# uma preferencia.  Pedir acima deles nao anda mais rapido: acima de ~0,13 rad/s
+# o momento de guinada satura na QP de equilibrio, o robo arrasta os pes e cai.
+# Isso se le como problema de sintonia do controlador e nao e.
+#
+# Keep parameters here, never in code — project convention.
+
+amcl:
+  ros__parameters:
+    use_sim_time: true
+    base_frame_id: "base"
+    odom_frame_id: "odom"
+    global_frame_id: "map"
+    scan_topic: /demo/scan
+    # Publishes map -> odom. The only owner of that TF edge.
+    tf_broadcast: true
+    transform_tolerance: 1.0
+    alpha1: 0.2
+    alpha2: 0.2
+    alpha3: 0.2
+    alpha4: 0.2
+    alpha5: 0.2
+    beam_skip_distance: 0.5
+    beam_skip_error_threshold: 0.9
+    beam_skip_threshold: 0.3
+    do_beamskip: false
+    lambda_short: 0.1
+    laser_likelihood_max_dist: 2.0
+    laser_max_range: 12.0
+    laser_min_range: 0.12
+    laser_model_type: "likelihood_field"
+    max_beams: 60
+    max_particles: 2000
+    min_particles: 500
+    pf_err: 0.05
+    pf_z: 0.99
+    recovery_alpha_fast: 0.0
+    recovery_alpha_slow: 0.0
+    resample_interval: 1
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"
+    save_pose_rate: 0.5
+    sigma_hit: 0.2
+    update_min_a: 0.2
+    update_min_d: 0.25
+    z_hit: 0.5
+    z_max: 0.05
+    z_rand: 0.5
+    z_short: 0.05
+    set_initial_pose: true
+    # Must agree with the spawn pose in simulation.launch.py, or AMCL starts
+    # the particle cloud in the wrong place and the first goal fails.
+    initial_pose:
+      x: 0.0
+      y: 0.0
+      z: 0.0
+      yaw: 0.0
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: true
+    global_frame: map
+    robot_base_frame: base
+    odom_topic: /demo/odom
+    bt_loop_duration: 10
+    # ============ MEDIDO NO AQUILA AM69, NAO NO HOST (21/08/2026) ============
+    #
+    # 20 ms e o default do Nav2 e funciona no host x86. No modulo NAO funciona, e
+    # a falha nao se parece com timeout: toda meta e ACEITA e falha em 4-9 s, e o
+    # robo nao sai do lugar. O que o log do modulo diz e:
+    #
+    #   Timed out while waiting for action server to acknowledge goal request
+    #     for compute_path_to_pose
+    #   Timed out while waiting for action server to acknowledge goal request
+    #     for smooth_path
+    #   Failed to cancel action server for follow_path
+    #
+    # O `bt_navigator` nao alcanca os PROPRIOS servidores irmaos, todos no mesmo
+    # container, na mesma maquina. Nao e rede entre host e modulo: e o custo de
+    # ida e volta de uma action do rclcpp num Cortex-A72 com CycloneDDS em
+    # AllowMulticast=false e peers explicitos, que passa dos 20 ms.
+    #
+    # Isto e observacao de LATENCIA em hardware real, o que a regra 5 permite --
+    # ela proibe concluir desempenho a partir de EMULACAO. Nao extrapole daqui
+    # para outro modulo nem para outra configuracao de DDS.
+    #
+    # 200 ms da uma ordem de grandeza de margem e nao atrasa nada em regime: e
+    # prazo de espera, nao periodo. O `bt_loop_duration` de 10 ms nao muda.
+    default_server_timeout: 200
+    # Descoberta inicial de servico. O default de 1000 ms conta com todos os
+    # servidores ja no ar; no modulo os 13 processos do Nav2 sobem juntos e
+    # concorrem por 8 nucleos, e quem tenta primeiro pode nao achar o vizinho.
+    wait_for_service_timeout: 5000
+    navigators: ["navigate_to_pose", "navigate_through_poses"]
+    # Arvore com SmoothPath. O valor aqui e PLACEHOLDER: `nav_quadruped.launch.py`
+    # reescreve esta chave com o caminho absoluto em share/, via RewrittenYaml.
+    # A chave precisa EXISTIR neste arquivo para ser reescrita -- o RewrittenYaml
+    # do nav2_common substitui chave que encontra, e nao acrescenta chave nova.
+    #
+    # Nenhuma arvore que acompanha o Nav2 Jazzy chama SmoothPath, entao sem esta
+    # troca o `smoother_server` abaixo fica ativo e ocioso, e o MPPI persegue a
+    # escada crua do NavFn. Ver o cabecalho de behavior_trees/
+    # nav_to_pose_smoothed.xml.
+    default_nav_to_pose_bt_xml: "SUBSTITUIDO_PELO_LAUNCH"
+    navigate_to_pose:
+      plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
+    navigate_through_poses:
+      plugin: "nav2_bt_navigator::NavigateThroughPosesNavigator"
+
+controller_server:
+  ros__parameters:
+    use_sim_time: true
+    # 10 Hz e nao 20. A 0,15 m/s o robo anda 1,5 cm por ciclo a 10 Hz, que e
+    # resolucao de sobra, e o MPPI com model_dt 0.1 quer o laco em 10 Hz -- os
+    # dois tem de casar. Medido a 20 Hz: "Control loop missed its desired rate
+    # of 20.0000 Hz. Current loop rate is 12.0482 Hz."
+    controller_frequency: 10.0
+    odom_topic: /demo/odom
+    min_x_velocity_threshold: 0.001
+    min_y_velocity_threshold: 0.5
+    min_theta_velocity_threshold: 0.001
+    failure_tolerance: 0.3
+    progress_checker_plugins: ["progress_checker"]
+    goal_checker_plugins: ["general_goal_checker"]
+    controller_plugins: ["FollowPath"]
+
+    progress_checker:
+      plugin: "nav2_controller::SimpleProgressChecker"
+      # OS VALORES DO TB4 (0.5 m em 10 s) ABORTAM TODA META NESTE ROBO.
+      #
+      # Medido em 20/08/2026, mundo quadruped_objects.sdf: 13 ocorrencias de
+      # "Failed to make progress" em ~5 min, a primeira 10 s depois da primeira
+      # meta, e a meta 1 nunca concluiu. Zero quedas -- o robo estava bem, o
+      # verificador e que reprovava.
+      #
+      # A aritmetica: o Go2 gira a 0,12 rad/s de teto (saturacao do momento de
+      # guinada na QP de equilibrio). Reorientar 90 graus leva 13 s, e nesses 13 s
+      # o avanco e quase zero porque o MPPI gasta a autoridade toda em guinada.
+      # Exigir 0,5 m em 10 s e portanto exigir algo que a fisica do robo proibe
+      # sempre que a meta nao esta ja a frente.
+      #
+      # 0.20 m em 40 s = 0,005 m/s de media minima. Parece frouxo e e: com
+      # 0,12 rad/s de guinada, qualquer coisa mais apertada reprova manobra
+      # legitima. O que este verificador ainda pega e o caso real de robo
+      # ENCALHADO, que a 0,005 m/s nao passa.
+      required_movement_radius: 0.20
+      movement_time_allowance: 40.0
+
+    general_goal_checker:
+      plugin: "nav2_controller::SimpleGoalChecker"
+      xy_goal_tolerance: 0.25
+      # 0.5 rad (28,6 graus) e nao 0.25. A 0,12 rad/s de teto, fechar os ultimos
+      # 14 graus leva 2 s de giro parado -- e girar parado NAO fica parado: medido
+      # em 20/08/2026, o robo derivou 0,78 m em y girando para satisfazer a
+      # orientacao e saiu da tolerancia de POSICAO, que ja estava satisfeita a
+      # 3,8 cm. A meta reprovou por prazo depois de ter chegado.
+      #
+      # Numa patrulha a orientacao final nao tem proposito; o que importa e chegar.
+      # 28,6 graus ainda e restricao de rumo, mas nao paga giro parado por ela.
+      yaw_goal_tolerance: 0.5
+      stateful: true
+
+    # MPPI (Model Predictive Path Integral), replacing DWB.
+    #
+    # WHY THE SWAP:
+    # DWB scores a fixed lattice of constant-curvature arcs. On a diff-drive robot
+    # in narrow warehouse aisles that produces two visible artefacts: it hunts
+    # between neighbouring samples (the robot wobbles down a straight aisle), and
+    # it cannot represent a manoeuvre that needs the velocity to change sign
+    # mid-trajectory, so tight corners degrade into stop-rotate-go.
+    #
+    # MPPI samples 2000 noisy trajectories per cycle and takes a cost-weighted
+    # average, so the command is continuous rather than snapped to a lattice
+    # sample. It handles the aisle case far better and is the current Nav2
+    # recommendation for diff-drive.
+    #
+    # COST: MPPI is significantly heavier than DWB. It is fine on the x86 host
+    # (learn mode). On the Aquila AM69 in target mode this is the single most
+    # expensive node in the stack, and whether 20 Hz holds there CANNOT be
+    # answered from this file, from learn mode, or from arm64 emulation
+    # (CLAUDE.md rule 5 — emulation does not measure performance). It must be
+    # measured on the real module. If it does not hold, drop batch_size to 1000
+    # before lowering controller_frequency; halving the batch costs less accuracy
+    # than halving the control rate.
+    FollowPath:
+      plugin: "nav2_mppi_controller::MPPIController"
+      # HORIZONTE SE MEDE EM DISTANCIA, NAO EM TEMPO. Este e o delta que faz o
+      # robo sair do lugar, e o mais facil de errar por copiar do TB4.
+      #
+      # 56 x 0.05 = 2,8 s. No TB4, a 0,5 m/s, isso cobre 1,4 m. No Go2, a
+      # 0,15 m/s, cobre 0,42 m -- 30% da antecipacao, com os MESMOS numeros.
+      #
+      # 0,42 m nao alcanca as referencias dos proprios criticos: o PathAlignCritic
+      # tem peso 14 (o maior de todos) e busca referencia `offset_from_furthest`
+      # = 20 pontos de caminho a frente, ~1 m; o PathFollowCritic busca 5 pontos.
+      # O critico dominante nao chega na propria referencia, e o que sobra e um
+      # campo de custo quase plano: a media ponderada das amostras tende a zero e
+      # o comando sai como RUIDO em torno de zero.
+      #
+      # Medido em 20/08/2026 com 56 x 0.05, costmap comprovadamente limpo
+      # (custo 0 na celula do robo, 0 dentro de 0,6 m): em 300 s o robo andou
+      # 4,16 m de caminho para 0,73 m de deslocamento, `cmd_vx` entre -0,100 e
+      # +0,040 com 39% das amostras NEGATIVAS, e girou para 97 graus quando o
+      # rumo pedido era 20,6. Zero quedas -- o robo estava bem, o comando nao.
+      #
+      # 96 x 0.1 = 9,6 s = 1,44 m a 0,15 m/s, equivalente ao horizonte que o TB4
+      # tem em distancia. Custo de amostragem: 1000 x 96 = 96k pontos contra
+      # 2000 x 56 = 112k, ou seja MENOS que antes.
+      # A/B DE 25/08/2026 (noite), EXECUTADO NO AM69 REAL: 64 x 0,15 REPROVADO
+      # NO SEU PROPRIO CRITERIO. Os valores default abaixo sao o baseline.
+      #
+      # A hipotese era cortar CPU do Nav2 sem encurtar o horizonte: horizonte e
+      # time_steps x model_dt (9,6 s nos dois casos) e custo e
+      # batch_size x time_steps (96k -> 64k pontos, 33% menos amostragem).
+      #
+      # MEDIDO, e o resultado derruba a hipotese: a CPU do container `nav` ficou
+      # em ~439% contra ~437% da corrida anterior. Trinta e tres por cento menos
+      # pontos de amostragem NAO reduziram CPU. O custo do MPPI aqui nao e
+      # dominado por batch_size x time_steps, ao contrario do que o comentario de
+      # CUSTO acima assume. Quem for atacar CPU do Nav2 de novo: comece medindo
+      # ONDE ela e gasta, nao mexendo neste par.
+      #
+      # As demais metricas da corrida vieram melhores (0,0353 m/s, razao de
+      # trabalho 6,7%, `vx` zerado em 75,7% contra 85-92%), e mesmo assim isso
+      # NAO sustenta adotar: duas corridas na configuracao IDENTICA anterior
+      # deram 0,0109 e 0,0265 m/s, dispersao de 2,4x. O ruido entre corridas e
+      # maior que o efeito que se quer medir, entao n=1 nao decide nada aqui.
+      #
+      # Fica documentado e FORA do default, mesma politica do no de
+      # estrangulamento do /clock. Para retomar, mude os dois valores abaixo para
+      # 64 / 0.15 e rode n>=3 POR CONDICAO -- ver
+      # docs/results/ml35-f5-mppi-amostragem.md.
+      time_steps: 96
+      model_dt: 0.1
+      batch_size: 1000
+      # Sampling spread. vx/wz must be wide enough to explore useful manoeuvres
+      # but not so wide that most samples are immediately rejected as invalid.
+      vx_std: 0.06
+      vy_std: 0.0
+      # 0.15, subido de 0.08 (que ja vinha de 0.05). Rotacao so e alternativa
+      # real a re se o amostrador de fato a explorar: com wz_std 0.05 contra um
+      # wz_max de 0.20, a nuvem de amostras quase nao alcanca o teto novo.
+      #
+      # O 0.08 foi na direcao certa e NAO BASTOU. Medido no HIL em 27/08/2026
+      # (`docs/results/ml35-f5-slam-exploration.md`), rota de 19 metas, 240 s:
+      #
+      #   cmd_wz medio assinado  +0.01344 rad/s  (6.7% do wz_max de 0.20)
+      #   giro integrado do comando        +184.7 graus
+      #   giro REAL do robo                  -2.4 graus  (yaw 90.0 -> 87.6)
+      #
+      # O MPPI manda girar na direcao certa e a planta nao gira: 0.0134 rad/s
+      # dividido por WZ_PER_STICK (0.5) chega ao supervisor de marcha como 0.027
+      # unidades de manche, 5.4% do STICK_CLAMP. Com o rumo travado a ~88 graus
+      # de erro, `vx` FICA em zero -- os critics de alinhamento nao premiam
+      # avancar perpendicular ao plano, e vx_min: 0.0 proibe re. O robo andou
+      # 0.06 m em 240 s e cumpriu 0 de 7 metas.
+      wz_std: 0.15
+      # HARD CEILING: upstream's DiffDrive plugin clamps to 0.5 m/s and
+      # 2.0 rad/s. Raising these makes MPPI plan trajectories the simulator
+      # silently refuses to execute, which looks like a tracking bug.
+      vx_max: 0.15
+      #
+      # ======================= POR QUE vx_min E ZERO =======================
+      #
+      # Era -0.10, e isso produzia DEADLOCK, medido no maze11 em 21/08/2026.
+      #
+      # A cadeia: num corredor de 1.20 m o PathAlignCritic (peso 14, o maior)
+      # acha otimo recuar para realinhar; o robo recua; encosta na parede de
+      # tras; e re CONTINUA otima, porque a geometria que a tornou otima nao
+      # mudou. O robo fica comandando re contra a parede indefinidamente.
+      #
+      # Medido com sensor_check.py, janela de 20 s: `/demo/cmd_vel_si` com
+      # vx < 0 em 100% das amostras, e o robo andou 0.00 m em 25 s. Nas
+      # corridas de 180 s antes disso, 11% a 62% das amostras eram negativas e
+      # a MEDIA do comando era ~zero (-0.011 a +0.017 m/s).
+      #
+      # Nao foi sensor. Na mesma janela: odom identico a TF (erro 0.0000 m),
+      # scan_cloud a 9.9 Hz, odom a 49.8 Hz, e os retornos proximos ajustam
+      # d/cos(theta-theta0) de uma parede reta a 0.372 m -- sem auto-colisao do
+      # lidar. O defeito era de DECISAO, e a decisao errada so existia porque
+      # havia re para amostrar.
+      #
+      # Com 0.0 o MPPI nao consegue amostrar re: para corrigir rumo ele precisa
+      # GIRAR, que e o que este robo deve fazer. Recuo de verdade continua
+      # possivel -- o `backup` do behavior_server publica cmd_vel direto e nao
+      # passa por estes limites -- entao beco sem saida ainda tem saida.
+      vx_min: 0.0
+      vy_max: 0.0
+      # 0.20, subido de 0.12. O 0.12 foi dimensionado com k_yaw = 0.25, quando o
+      # eixo de guinada vivia no batente (yawSat de pico 90-94%). Com k_yaw 0.35
+      # o pico medido caiu para 70%, ou seja apareceu folga -- e proibir re sem
+      # dar autoridade de giro troca um travamento por outro. Continua muito
+      # abaixo do clamp de 2.0 rad/s do plugin.
+      wz_max: 0.20
+      ax_max: 0.5
+      ax_min: -0.5
+      az_max: 0.8
+      # 2, subido de 1. Com uma unica iteracao por ciclo a sequencia de
+      # controle parte do resultado anterior (~zero) e so pode se deslocar uma
+      # fracao de um desvio-padrao por ciclo -- e um `wz_std` maior sozinho nao
+      # resolve isso, porque o problema e quantas vezes a media e reavaliada,
+      # nao a largura da nuvem. As duas alavancas sobem juntas de proposito.
+      #
+      # CUSTO PREVISTO QUE NAO SE MATERIALIZOU. A previsao era que dobrar a
+      # iteracao dobraria o custo do otimizador, com gatilho de reverter para 1
+      # abaixo de ~5 Hz. Medido nos logs do `controller_server`
+      # (`docs/results/ml35-f5-slam-giro.md` §4):
+      #
+      #                      iteration_count: 1   iteration_count: 2
+      #   taxa mediana              7.58 Hz              8.13 Hz
+      #   taxa minima               4.65 Hz              4.00 Hz
+      #
+      # A MEDIANA SUBIU. O laco ja nao fechava os 10 Hz nominais antes da
+      # mudanca, entao a perda de taxa no AM69 nao vem do otimizador e este
+      # parametro NAO e o culpado. Nao reverta para 1 com base em taxa baixa
+      # sem antes achar a causa real -- que continua em aberto.
+      iteration_count: 2
+      prune_distance: 1.7
+      transform_tolerance: 0.2
+      temperature: 0.3
+      gamma: 0.015
+      # DiffDrive, NOT Omni: this robot cannot strafe. Declaring Omni here lets
+      # MPPI sample lateral velocities the robot cannot execute, and it then
+      # tracks a path it can never follow.
+      motion_model: "DiffDrive"
+      visualize: false
+      regenerate_noises: true
+
+      TrajectoryVisualizer:
+        trajectory_step: 5
+        time_step: 3
+
+      # Critic names verified against libmppi_critics.so — a misspelled critic is
+      # not loaded and no error is printed, it simply stops contributing.
+      critics: ["ConstraintCritic", "CostCritic", "GoalCritic",
+                "GoalAngleCritic", "PathAlignCritic", "PathFollowCritic",
+                "PathAngleCritic", "PreferForwardCritic"]
+
+      ConstraintCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 4.0
+
+      GoalCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 1.4
+
+      GoalAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.0
+        threshold_to_consider: 0.5
+
+      PreferForwardCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        threshold_to_consider: 0.5
+
+      # CostCritic reads the costmap directly. Preferred over ObstaclesCritic for
+      # this demo because it respects the inflation layer's gradient instead of
+      # applying its own footprint model, so the inflation_radius tuned below is
+      # actually what steers the robot.
+      CostCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 3.81
+        critical_cost: 300.0
+        # MUST stay false while the costmaps use robot_radius.
+        #
+        # consider_footprint: true makes the critic do polygon collision checks
+        # against the costmap's footprint. Both costmaps here declare
+        # robot_radius (a circle) and never publish a footprint polygon, so the
+        # critic dereferences an empty polygon and the whole nav2_container dies
+        # with SIGSEGV a few ms after "Created controller : MPPIController".
+        #
+        # Nav2 warns first — "Inconsistent configuration in collision checking.
+        # Please verify the robot's shape settings in both the costmap and the
+        # cost critic" — and then crashes. That warning is the only hint, and it
+        # does not name this parameter.
+        #
+        # With false, the critic samples costmap cell cost at the trajectory
+        # points instead. For a round 0.38 m robot whose inflation_radius (0.55)
+        # already exceeds the footprint that is the correct model anyway; the
+        # inflation gradient does the standoff work.
+        #
+        # To turn this on, first replace robot_radius with an explicit footprint
+        # polygon in BOTH costmaps.
+        consider_footprint: false
+        collision_cost: 1000000.0
+        near_goal_distance: 1.0
+
+      PathAlignCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 8.0
+        max_path_occupancy_ratio: 0.05
+        trajectory_point_step: 4
+        threshold_to_consider: 0.5
+        offset_from_furthest: 20
+        use_path_orientations: false
+
+      PathFollowCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 5.0
+        offset_from_furthest: 5
+        threshold_to_consider: 1.4
+
+      PathAngleCritic:
+        enabled: true
+        cost_power: 1
+        cost_weight: 2.0
+        offset_from_furthest: 4
+        threshold_to_consider: 0.5
+        max_angle_to_furthest: 1.0
+        mode: 0
+
+local_costmap:
+  local_costmap:
+    ros__parameters:
+      use_sim_time: true
+      update_frequency: 5.0
+      publish_frequency: 2.0
+      global_frame: odom
+      robot_base_frame: base
+      rolling_window: true
+      # 6 x 6 e nao 3 x 3 (valor do TB4). A janela de 3 m centrada no robo tem
+      # 1,5 m de raio, e o L1 mede obstaculo a 4,43 m (medido em
+      # quadruped_objects.sdf). Com 3 m o robo so ve a caixa quando ela esta a
+      # 1,5 m; ao envelope de 0,15 m/s isso da 10 s de aviso, mas o desvio
+      # comeca tarde e sai brusco. 6 m usa o alcance que o sensor ja entrega.
+      #
+      # O custo e memoria e CPU: a grade cresce com o quadrado do lado.
+      # 6/0.05 = 120 x 120 celulas, o que e barato. Nao suba isso para 20: a
+      # atualizacao a 5 Hz de uma grade grande e o que costuma estourar o
+      # orcamento de CPU no modulo.
+      width: 6
+      height: 6
+      resolution: 0.05
+      # Raio circunscrito do tronco do Go2 (0,70 x 0,31 m):
+      # sqrt(0.35^2 + 0.155^2) = 0.383. Ver o item 2 do cabecalho.
+      robot_radius: 0.38
+      # perception_layer sits between obstacles and inflation so that
+      # detections are inflated like any other obstacle.
+      plugins: ["obstacle_layer", "perception_layer", "inflation_layer"]
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: cloud
+        cloud:
+          topic: /demo/scan_cloud
+          data_type: "PointCloud2"
+          min_obstacle_height: 0.12
+          max_obstacle_height: 1.0
+          clearing: true
+          marking: true
+          # Ranges must not exceed the sensor's real reach or the layer stops
+          # clearing cells it never actually observed, leaving stale obstacles
+          # frozen in the costmap. O L1_lidar do Go2 declara range 0.05-10.0 m
+          # (go2_description/xacro/gazebo.xacro); confira com
+          # `gz topic -e -t /scan/points -n 1`. 9.0 fica dentro disso.
+          #
+          # obstacle_max_range stays BELOW raytrace_max_range on purpose: mark
+          # obstacles conservatively, clear freespace generously.
+          raytrace_max_range: 9.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 8.0
+          # Acima do minimo de 0.05 m do L1. Retornos mais perto que isso sao
+          # artefato de medicao, e marca-los planta obstaculo dentro da propria
+          # pegada do robo, o que dispara recuperacao sem motivo. A perna
+          # dianteira entra no campo do lidar durante o trote: 0.10 m e o que
+          # mantem a perna fora do costmap.
+          obstacle_min_range: 0.10
+
+      # The perception -> costmap seam required by CLAUDE.md. Fed by
+      # demo_perception's detections_to_cloud adapter, so detections steer
+      # the robot instead of only decorating the HMI.
+      #
+      # `clearing: true` desde 25/08/2026. O texto anterior aqui dizia que
+      # `clearing: false` era deliberado, porque "deixar a projecao grosseira do
+      # stub limpar celulas apagaria obstaculos reais do lidar". O medo aponta
+      # para o mecanismo errado: cada ObstacleLayer tem grade PROPRIA e entra no
+      # mestre por `combination_method` = Max, que e o default do nav2
+      # (`cost_values.hpp`: "default to maximum", `Max = 1`). O mestre fica com
+      # `max(parede_do_obstacle_layer, 0)` = a parede. Uma projecao ruim aqui nao
+      # tem como apagar o que o lidar viu.
+      #
+      # O que `clearing: false` fazia de fato era tornar as marcas PERMANENTES --
+      # ver a medicao no bloco `detections` abaixo.
+      perception_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: detections
+        detections:
+          topic: /demo/perception/detection_cloud
+          # 1.0 m cobre com folga a coluna que o adaptador escreve: ele emite z
+          # de 0.0 a `obstacle_height_m`, cujo default e 0.3 m
+          # (detections_to_cloud.py). Se voce subir esse parametro acima de 1.0,
+          # suba este teto junto ou o topo da coluna e descartado em silencio.
+          max_obstacle_height: 1.0
+          min_obstacle_height: 0.0
+          # `clearing: true` desde 25/08/2026. Era `false`, e `false` faz as
+          # marcas desta camada serem PERMANENTES -- o `observation_persistence`
+          # abaixo esvazia o buffer de observacoes, e nao as celulas que ja foram
+          # escritas. O comentario que acompanhava o parametro descrevia a
+          # intencao certa ("expire them rather than accumulating") e o valor
+          # entregava o oposto.
+          #
+          # Medido na bancada, host x86, maze11, com a percepcao JA PARADA ha
+          # cerca de um minuto (`docker compose stop perception`):
+          #
+          #   sonda do costmap, antes de limpar : 169 celulas letais, faixa livre 0.10 m
+          #   depois de /demo/nav/reset          : 108 celulas letais, faixa livre 0.15 m
+          #
+          # Ou seja: 61 celulas letais que nenhuma observacao viva sustentava, e
+          # que so sairam por limpeza explicita. Num corredor de 1,20 m com
+          # `robot_radius: 0.38` isso e a diferenca entre ter e nao ter caminho.
+          # Numa demo longa, e uma degradacao monotonica: quanto mais tempo
+          # rodando, menos costmap navegavel, sem nenhum log dizendo isso.
+          #
+          # Cada ObstacleLayer tem costmap proprio e entra no mestre por Max
+          # (`combination_method` default), entao limpar aqui NAO apaga as
+          # paredes vistas pelo `obstacle_layer`.
+          #
+          # Vale igual para o TIDL: obstaculo detectado que saiu de campo tem de
+          # poder sair do costmap. Isto e sintonia de costmap, nao contrato de
+          # percepcao -- o topico e o tipo nao mudam (CLAUDE.md, contrato de
+          # topicos).
+          clearing: true
+          marking: true
+          data_type: "PointCloud2"
+          obstacle_max_range: 5.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+          # Detections go stale fast; expire them rather than accumulating a
+          # trail of phantom obstacles behind the robot.
+          observation_persistence: 1.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # 3.0 is a shallow decay that keeps mid-range cells expensive. Raised to
+        # 5.0 so cost falls off faster with distance, letting the planner commit
+        # to the centre of a free aisle instead of treating most of it as costly.
+        cost_scaling_factor: 5.0
+        # 0.55 aqui NAO e o 0.55 que o arquivo do TB4 rejeitou. La era mais de
+        # 3x o raio de 0.18 e fechava o corredor do armazem; aqui e o raio de
+        # 0.38 mais 0,17 m de folga, a mesma folga que o TB4 acabou usando.
+        #
+        # O piso e o proprio robot_radius: inflacao menor que a pegada deixa o
+        # planejador tracar curva cujo canto raspa o obstaculo. Com robot_radius
+        # 0.38 o valor antigo de 0.35 violava isso — por isso ele subiu.
+        inflation_radius: 0.55
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+
+      always_send_full_costmap: true
+
+global_costmap:
+  global_costmap:
+    ros__parameters:
+      use_sim_time: true
+      update_frequency: 1.0
+      publish_frequency: 1.0
+      global_frame: map
+      robot_base_frame: base
+      # Same value as the local costmap — see the note there.
+      robot_radius: 0.38
+      # 10 cm, e NAO os 5 cm do costmap local. Ver o bloco da janela abaixo: as
+      # duas coisas mudaram juntas e uma sem a outra e o caso ruim.
+      resolution: 0.10
+      # Mesmo contrato do baseline: janela mestre rolante centrada no robo, com
+      # a memoria do slam_toolbox projetada pela static_layer. Deixar false
+      # encolhe o mestre ate o primeiro retangulo do SLAM (78x32 celulas no HIL)
+      # e faz footprint/planner acessar my=32/33 fora da borda.
+      #
+      # A JANELA E DE 40 m E A RESOLUCAO E DE 10 cm -- MUDARAM JUNTAS, 28/08/2026
+      #
+      #   antes   20 / 0.05 = 400 celulas por eixo, cobrindo +/- 10 m do robo
+      #   depois  40 / 0.10 = 400 celulas por eixo, cobrindo +/- 20 m do robo
+      #
+      # A grade mestre continua com ~160 mil celulas, entao o custo de inflacao
+      # e publicacao nao muda. Subir a janela SEM baixar a resolucao daria
+      # 640 mil celulas, 4x o custo. Nao faca so metade.
+      #
+      # POR QUE 20 m NAO BASTAVA: o `quadruped_maze11.sdf` mede ~11,7 x 14,2 m,
+      # DIAGONAL ~18,4 m. Com o robo num canto, o canto oposto ficava fora da
+      # grade mestre -- para o planner e para o painel do cockpit, que desenha
+      # `/global_costmap/costmap`. Nao era o mapa sendo esquecido; era a janela
+      # cortando.
+      #
+      # Detalhes completos, incluindo o caminho de reversao se a static_layer
+      # nao reprojetar entre 5 cm e 10 cm, no bloco equivalente de
+      # `nav2_params_go2.yaml`. Os dois arquivos tem de mudar juntos.
+      rolling_window: true
+      width: 40
+      height: 40
+      track_unknown_space: true
+      plugins: ["static_layer", "obstacle_layer", "perception_layer", "inflation_layer"]
+
+      static_layer:
+        plugin: "nav2_costmap_2d::StaticLayer"
+        map_subscribe_transient_local: true
+        subscribe_to_updates: true
+
+      obstacle_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: cloud
+        cloud:
+          topic: /demo/scan_cloud
+          data_type: "PointCloud2"
+          min_obstacle_height: 0.12
+          max_obstacle_height: 1.0
+          # ====== NAO PONHA `false` AQUI. TENTADO, MEDIDO, REPROVADO. ======
+          #
+          # A ideia era dar MEMORIA ao mapa global: parede vista uma vez nunca
+          # mais sai, e o robo para de redescobrir o labirinto a cada segundo.
+          #
+          # O DEFEITO QUE ELA ATACAVA e real, medido no HIL em 27/08/2026 lendo
+          # /plan a cada 5 s numa meta presa (0,0) -> (0,8):
+          #
+          #   t+ 5s   458 pts, 11.49 m, rumo inicial 173 deg   <- rota VERDADEIRA
+          #   t+10s   458 pts, 11.50 m, rumo inicial 177 deg
+          #   t+15s   291 pts,  8.59 m, rumo inicial  89 deg   <- ATRAVESSA parede
+          #   t+25s   274 pts,  8.66 m, rumo inicial  35 deg
+          #   t+30s   271 pts,  8.81 m, rumo inicial  18 deg
+          #
+          # Os 11,5 m batem com a geodesica real do maze11 medida offline
+          # (12,23 m, `scripts/maze_geodesic.py`). Os 8,6 m sao a reta por dentro
+          # de parede nao observada, que so existe porque `allow_unknown: true`
+          # torna o desconhecido barato.
+          #
+          # O plano alterna entre as duas a 1 Hz. O MPPI recebe um caminho que
+          # inverte 90-180 graus a cada segundo -- e gira sem transladar, que e o
+          # sintoma que as secoes 7 a 10 de
+          # `docs/ml35/proximos-passos-navegacao.md` perseguiram como se fosse
+          # defeito de critic.
+          #
+          # POR QUE `false` NAO CONSERTA, medido no mesmo dia, no mesmo HIL:
+          #
+          #   deslocamento liquido   0,19 m -> 1,04 m   (melhorou)
+          #   razao de trabalho vx     0,0% -> 3,9%     (melhorou)
+          #   metas cumpridas             0 -> 0        (nao mudou)
+          #   plano ainda alterna    11,66 m <-> 8,77 m (NAO mudou)
+          #
+          # E lendo `/global_costmap/costmap_raw` na reta ate a meta, com `false`
+          # ligado: **150 de 161 celulas em 255 (DESCONHECIDO)**, tudo alem de
+          # 0,75 m.
+          #
+          # A razao esta na semantica do parametro, e ela e contra-intuitiva:
+          # `clearing` NAO e "esquecer obstaculo", e o raytrace -- e o raytrace e
+          # o UNICO mecanismo que transforma desconhecido em LIVRE nesta camada.
+          # Desligando-o, nada nunca vira livre e o mapa global fica
+          # permanentemente desconhecido fora das celulas marcadas. Como o NavFn
+          # roda com `allow_unknown: true`, isso deixa o atalho pelo desconhecido
+          # MAIS atraente, nao menos. A correcao piora a causa que ataca.
+          #
+          # O QUE DE FATO RESOLVE precisa persistir as DUAS coisas -- ocupado e
+          # livre -- e a camada de obstaculo nao sabe fazer isso. E mapa de SLAM
+          # (`slam_toolbox`) alimentando a `static_layer` acima, com o
+          # `allow_unknown: true` mantido para que meta distante continue
+          # planejavel. Ver docs/results/ml35-f5-memoria-costmap.md.
+          clearing: true
+          marking: true
+          # Dentro do alcance real de 10 m do L1 — ver a nota no costmap local.
+          raytrace_max_range: 9.0
+          raytrace_min_range: 0.0
+          obstacle_max_range: 8.0
+          obstacle_min_range: 0.10
+
+      perception_layer:
+        plugin: "nav2_costmap_2d::ObstacleLayer"
+        enabled: true
+        observation_sources: detections
+        detections:
+          topic: /demo/perception/detection_cloud
+          # 1.0 m cobre com folga a coluna que o adaptador escreve: ele emite z
+          # de 0.0 a `obstacle_height_m`, cujo default e 0.3 m
+          # (detections_to_cloud.py). Se voce subir esse parametro acima de 1.0,
+          # suba este teto junto ou o topo da coluna e descartado em silencio.
+          max_obstacle_height: 1.0
+          min_obstacle_height: 0.0
+          # Igual ao costmap global, e pelo mesmo motivo medido: `false` deixava
+          # marca permanente. Os dois costmaps tem de casar -- planejar num mapa
+          # que limpa e controlar num que nao limpa da rota valida com o
+          # controlador recusando segui-la, sem nenhum erro.
+          clearing: true
+          marking: true
+          data_type: "PointCloud2"
+          obstacle_max_range: 5.0
+          obstacle_min_range: 0.0
+          raytrace_max_range: 5.0
+          raytrace_min_range: 0.0
+          observation_persistence: 1.0
+
+      inflation_layer:
+        plugin: "nav2_costmap_2d::InflationLayer"
+        # Divergent inflation between the two costmaps e um classico de "o plano
+        # global vai onde o local se recusa a seguir": o planejador roteia por um
+        # corredor que o costmap local considera bloqueado, e o robo empaca no
+        # meio do vao.
+        #
+        # ISSO VALE NUMA DIRECAO SO, e e por isso que estes valores agora
+        # DIVERGEM de proposito do local (0.55 / 5.0):
+        #
+        #   global MAIS conservador que o local  -> seguro. O caminho global cai
+        #     sempre em terreno que o local aceita. E o caso aqui.
+        #   global MENOS conservador que o local -> o defeito descrito acima.
+        #
+        # POR QUE DIVERGIR: e assim que "priorize a rota com mais espaco livre"
+        # se expressa com NavFn, que e Dijkstra puro sobre o custo do costmap e
+        # nao tem termo proprio de folga. Com inflation_radius 0.55 num corredor
+        # de 1.20 m, a faixa de custo ZERO no meio tem 0.10 m (1.20 - 2*0.55):
+        # fora dessa fita o custo e plano, e o Dijkstra escolhe pelo COMPRIMENTO,
+        # ignorando folga. Com 0.85 > 0.60 (meia-largura do corredor) nao existe
+        # mais celula de custo zero no corredor, o gradiente e monotonico ate o
+        # centro, e rota apertada passa a custar mais que rota aberta.
+        #
+        # cost_scaling_factor cai de 5.0 para 2.0 para o gradiente ser suave ao
+        # longo dos 0.85 m; com 5.0 ele decai rapido e volta a ficar quase plano
+        # na metade externa, que e o problema que se esta corrigindo.
+        #
+        # O que NAO muda: a faixa INSCRITA, que e o que o planejador trata como
+        # obstaculo, vem de `robot_radius` (0.38) e nao de inflation_radius.
+        # Subir a inflacao portanto NAO fecha corredor nenhum -- so reordena
+        # preferencia entre rotas que continuam todas viaveis.
+        cost_scaling_factor: 2.0
+        inflation_radius: 0.85
+
+      always_send_full_costmap: true
+
+map_server:
+  ros__parameters:
+    use_sim_time: true
+    # Overridden at launch by the `map` argument.
+    yaml_filename: ""
+
+map_saver:
+  ros__parameters:
+    use_sim_time: true
+    save_map_timeout: 5.0
+    free_thresh_default: 0.25
+    occupied_thresh_default: 0.65
+    map_subscribe_transient_local: true
+
+planner_server:
+  ros__parameters:
+    use_sim_time: true
+    # 1.0, not the Nav2 stock 20.0.
+    #
+    # This value does NOT make the planner faster — it only sets the rate that
+    # triggers "Planner loop missed its desired rate of 20.0000 Hz. Current loop
+    # rate is 1.0225 Hz" warnings. NavFn over a 477x475 costmap takes ~1 s per
+    # plan on this machine, so 20 Hz was never achievable and the log filled with
+    # warnings about a target nothing had asked for.
+    #
+    # The BT replans on its own cadence anyway; a global plan once per second is
+    # ample for a 0.5 m/s robot. Raise this only if you also make planning
+    # cheaper (Smac Planner, coarser costmap resolution).
+    expected_planner_frequency: 1.0
+    planner_plugins: ["GridBased", "ExplorationGrid"]
+    GridBased:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      # Goal snapping radius when the exact goal cell is unreachable.
+      #
+      # NOTE: tolerance does NOT rescue a goal placed in UNKNOWN space. 55% of
+      # warehouse.pgm is unknown (value 205) because SLAM only mapped the aisles
+      # the robot drove through. A goal there fails with
+      #     "Failed to create a plan from potential when a legal potential was
+      #      found. This shouldn't happen."
+      # which reads like an internal planner bug and is not one — there is simply
+      # no free-space corridor to the goal. Verify a goal before blaming tuning:
+      #     see docs/analise-sensores-navegacao.md ("Metas em espaco desconhecido")
+      tolerance: 0.5
+      use_astar: false
+      # Lets the planner traverse unknown cells it can still reach. It does not
+      # help when the goal AND its whole neighbourhood are unknown.
+      allow_unknown: true
+    ExplorationGrid:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.25
+      use_astar: false
+      allow_unknown: false
+
+# =========================== route_server ============================
+#
+# Esta demo NAO usa roteamento por grafo. A secao existe por uma razao so:
+# impedir que o `ReroutingService` seja construido.
+#
+# O DEFEITO QUE ELA CONTORNA
+#
+# O `route_server` esta na lista `lifecycle_nodes` do `navigation_launch.py`
+# vendorizado, que tem de seguir identica ao upstream (proveniencia -- ver
+# launch/nav2_vendored/README.md), e essa lista chega ao lifecycle_manager como
+# parametro CRAVADO no launch: `{'node_names': lifecycle_nodes}`. Um valor
+# inline vence o arquivo de parametros, entao NAO da para tirar o route_server
+# da lista por aqui. Ele vai ser configurado, queiramos ou nao.
+#
+# E configurar `ReroutingService` derruba o processo INTEIRO com SIGSEGV:
+#
+#   [route_server]: Configuring Rerouting service operation.
+#   [ERROR] [component_container_isolated-4]: process has died
+#           [pid 40, exit code -11, ...]
+#
+# `-11` e SIGSEGV. Medido em 24 e 25/08/2026, em tres caminhos distintos:
+# RESET+STARTUP pelo lifecycle_manager, e **cold start normal** -- este ultimo
+# de forma INTERMITENTE, que e o pior caso: o mesmo comando sobe numa vez e
+# derruba a pilha na seguinte, e o sintoma e "o Nav2 nao subiu hoje".
+#
+# Quando isso acontece morre o `nav2_container` e com ele TODOS os servidores do
+# Nav2 de uma vez. O container `nav` fica com o processo `ros2` vivo e nenhum
+# filho, entao `docker compose ps` diz "running" e o robo nao navega. Nada no
+# estado do compose acusa.
+#
+# `operations` e a lista de plugins de operacao de rota. O default inclui
+# `ReroutingService`; listar apenas `AdjustSpeedLimit` faz o plugin problematico
+# nunca ser construido. NAO ponha `[]`: lista YAML vazia chega ao launch como
+# tupla Python e derruba tudo com "Expected 'value' to be one of [float, int,
+# str, bool, bytes], but got '()'" -- ver a armadilha 5 do guia-operacao.
+#
+# Isto e CONTORNO, nao correcao: a causa esta no nav2_route e e candidata a
+# issue upstream. Se um dia a demo precisar de roteamento, o plugin volta e o
+# defeito volta com ele.
+route_server:
+  ros__parameters:
+    # A lista precisa do TIPO de cada plugin declarado junto. Enquanto ela vem do
+    # default, o nav2_route conhece os tipos dos proprios defaults; no momento em
+    # que ela e sobreposta aqui, ele passa a exigir `<nome>.plugin` e reprova a
+    # transicao com uma mensagem que nao diz de onde falta o parametro:
+    #
+    #   [FATAL] [route_server]: Can not get 'plugin' param value for AdjustSpeedLimit
+    #   [FATAL] [route_server]: Failed to configure route server: No 'plugin' param for param ns!
+    #   [ERROR] [lifecycle_manager_navigation]: Failed to bring up all requested nodes.
+    #
+    # Isto e uma falha ALTA, e nisso ela e melhor que o segfault que substitui: o
+    # gerenciador aborta a subida, nenhum servidor fica meio vivo, e o container
+    # nao mente "running" com o Nav2 morto dentro.
+    operations: ["AdjustSpeedLimit"]
+    AdjustSpeedLimit:
+      plugin: "nav2_route::AdjustSpeedLimit"
+
+smoother_server:
+  ros__parameters:
+    use_sim_time: true
+    smoother_plugins: ["simple_smoother"]
+    simple_smoother:
+      plugin: "nav2_smoother::SimpleSmoother"
+      tolerance: 1.0e-10
+      max_its: 1000
+      do_refinement: true
+
+behavior_server:
+  ros__parameters:
+    use_sim_time: true
+    local_costmap_topic: local_costmap/costmap_raw
+    global_costmap_topic: global_costmap/costmap_raw
+    local_footprint_topic: local_costmap/published_footprint
+    global_footprint_topic: global_costmap/published_footprint
+    cycle_frequency: 10.0
+    behavior_plugins: ["spin", "backup", "drive_on_heading", "assisted_teleop", "wait"]
+    spin:
+      plugin: "nav2_behaviors::Spin"
+    backup:
+      plugin: "nav2_behaviors::BackUp"
+    drive_on_heading:
+      plugin: "nav2_behaviors::DriveOnHeading"
+    wait:
+      plugin: "nav2_behaviors::Wait"
+    assisted_teleop:
+      plugin: "nav2_behaviors::AssistedTeleop"
+    local_frame: odom
+    global_frame: map
+    robot_base_frame: base
+    transform_tolerance: 0.1
+    simulate_ahead_time: 2.0
+    # ESTE BLOCO CAUSA QUEDA se ficar no valor do TB4.
+    #
+    # Sao as velocidades que as recuperacoes usam, e elas NAO passam pelo
+    # velocity_smoother nem pelos limites do MPPI: o behavior_server publica
+    # direto. Com 1.5 rad/s o comportamento `spin` pede mais de dez vezes o
+    # limite medido de 0,13 rad/s, o momento de guinada satura na QP de
+    # equilibrio, o robo arrasta os pes e cai — e cai justamente durante uma
+    # recuperacao, o que faz parecer que a recuperacao e que esta quebrada.
+    #
+    # min_rotational_vel tambem tem de descer: 0.4 sozinho ja estoura o limite,
+    # e um minimo acima do maximo faz o giro nunca convergir.
+    max_rotational_vel: 0.12
+    min_rotational_vel: 0.05
+    rotational_acc_lim: 0.8
+
+waypoint_follower:
+  ros__parameters:
+    use_sim_time: true
+    loop_rate: 20
+    stop_on_failure: false
+    action_server_result_timeout: 900.0
+    waypoint_task_executor_plugin: "wait_at_waypoint"
+    wait_at_waypoint:
+      plugin: "nav2_waypoint_follower::WaitAtWaypoint"
+      enabled: true
+      waypoint_pause_duration: 200
+
+velocity_smoother:
+  ros__parameters:
+    use_sim_time: true
+    smoothing_frequency: 20.0
+    scale_velocities: false
+    feedback: "OPEN_LOOP"
+    # ESTES TRES TEM DE CASAR COM O MPPI (vx_max/vx_min/wz_max acima). O
+    # smoother e o ULTIMO no caminho antes do collision_monitor: se ele cortar
+    # mais baixo que o MPPI, o corte nao aparece em log nenhum -- o controlador
+    # planeja com um teto e o robo executa outro, e o sintoma e "mudei o
+    # parametro e nada aconteceu".
+    #
+    # min_velocity[0] = 0.0 pelo mesmo motivo que vx_min: sem isto o smoother
+    # ainda deixaria passar re vinda de qualquer outra fonte.
+    max_velocity: [0.15, 0.0, 0.20]
+    min_velocity: [0.0, 0.0, -0.20]
+    max_accel: [0.5, 0.0, 0.8]
+    max_decel: [-0.5, 0.0, -0.8]
+    odom_topic: "/demo/odom"
+    odom_duration: 0.1
+    deadband_velocity: [0.0, 0.0, 0.0]
+    velocity_timeout: 1.0
+
+# Nav2 Jazzy's default bringup includes docking_server, and it FAILS TO
+# CONFIGURE unless dock_plugins is set — which aborts the entire lifecycle
+# bringup, leaving planner/controller/bt_navigator stuck in `inactive` with
+# only map_server and amcl active. The demo has no charging dock, so this is
+# the minimal configuration that lets the node reach active and stay out of
+# the way. Remove it only together with docking_server itself.
+docking_server:
+  ros__parameters:
+    use_sim_time: true
+    # `docks` is intentionally absent, not set to []. An empty YAML list
+    # reaches launch as a Python tuple, which is not a valid parameter type,
+    # and the whole launch aborts with "Expected 'value' to be one of
+    # [float, int, str, bool, bytes], but got '()'".
+    dock_plugins: ["dummy_dock"]
+    dummy_dock:
+      plugin: "opennav_docking::SimpleChargingDock"
+
+collision_monitor:
+  ros__parameters:
+    use_sim_time: true
+    base_frame_id: "base"
+    odom_frame_id: "odom"
+    cmd_vel_in_topic: "cmd_vel_smoothed"
+    # SI, NAO manche -- e por isso que o topico e outro.
+    #
+    # /demo/cmd_vel carrega posicao normalizada de manche, nao m/s: o controlador
+    # de marcha multiplica linear.x por 0.4 e angular.z por 0.5 ao receber
+    # (StateTrotting.cpp:192 com invNormalize, e twist_to_inputs.py:283 com ganho
+    # unitario). Cada comandante do projeto divide pelo ganho antes de publicar;
+    # demo_routine faz isso em to_twist.
+    #
+    # O Nav2 nao pode fazer isso na saida, porque o MPPI INTEGRA vx como m/s para
+    # prever onde o robo estara. Publicando manche direto aqui, todo rollout erra
+    # a distancia por 2,5x -- medido: vx_max 0.15 lido como manche entrega
+    # 0,006 m/s reais e nenhuma meta cabe no prazo.
+    #
+    # Entao o Nav2 publica SI e demo_bringup/cmd_vel_si_to_stick converte. Ligar
+    # isto de volta em /demo/cmd_vel faz o robo andar a 40% do pedido SEM ERRO
+    # NENHUM em log.
+    cmd_vel_out_topic: "/demo/cmd_vel_si"
+    state_topic: "collision_monitor_state"
+    transform_tolerance: 0.2
+    source_timeout: 1.0
+    base_shift_correction: true
+    stop_pub_timeout: 2.0
+    polygons: ["FootprintApproach"]
+    FootprintApproach:
+      type: "polygon"
+      action_type: "approach"
+      footprint_topic: "/local_costmap/published_footprint"
+      time_before_collision: 1.2
+      simulation_time_step: 0.1
+      min_points: 6
+      visualize: false
+      enabled: true
+    observation_sources: ["cloud"]
+    cloud:
+      type: "pointcloud"
+      topic: /demo/scan_cloud
+      min_height: 0.12
+      max_height: 1.0
+      enabled: true

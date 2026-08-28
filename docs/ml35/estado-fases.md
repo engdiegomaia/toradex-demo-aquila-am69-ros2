@@ -28,8 +28,283 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 26/08/2026 | CPU fechada (307% de folga, zero recusas); portão de 8 m REPROVADO — resta **só** decisão de trajeto, agora com protocolo intercalado (`nav_campaign.py`) para medi-la — ver "Sessão 26/08 (tarde)" |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 28/08/2026 (tarde) | portão de TF **APROVADO** (99,94%) e portão de metas **PARCIAL** — 5 de 6 critérios passam, a velocidade média reprova a 0,0391 m/s contra 0,05. Aceitação da busca autônoma NÃO executada. Ver "Sessão 28/08 (tarde)", `docs/results/ml35-f5-ab-joint-states.md` e `ml35-f5-portao-tres-metas.md` |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
+
+### Sessão 28/08 (tarde) — o portão de TF fechou; a velocidade não
+
+Evidência: **`docs/results/ml35-f5-ab-joint-states.md`** e
+**`ml35-f5-portao-tres-metas.md`**, com os CSVs ao lado. Commits `a7dc097`
+(decimação), `235ac1f` (sonda), `d7efd30` (reversão do mapa), `becac77` e
+`fa1d012` (evidência).
+
+**A causa raiz era `/tf` a 1090 Hz.** O `controller_manager` roda a 1000 Hz
+porque a física roda a 1000 Hz, e um controlador sem `update_rate` próprio herda
+essa taxa. O `joint_state_broadcaster` publicava `/joint_states` a 1 kHz, o
+`robot_state_publisher` convertia cada amostra num `TFMessage`, e onze
+assinantes deserializavam o resultado — atravessando a Ethernet, porque o
+`robot_state_publisher` roda no HOST e a navegação roda no Aquila. Nav2 não
+consome nada disso: as arestas que ela usa são juntas FIXAS e já saem uma vez em
+`/tf_static`. Os 1090 Hz eram as doze juntas das PERNAS.
+
+A correção é `update_rate: 50` no broadcaster, pelo spawner
+(`demo_simulation/config/joint_state_broadcaster.yaml`), decimação exata de
+fator 20. Laço, marcha, física, IMU e odometria intocados, e há teste estrutural
+para cada um deles — o modo de falha barato é baixar a taxa do LAÇO em vez da
+do BROADCASTER, duas edições de uma linha no mesmo arquivo.
+
+**A/B pareado, uma variável, mesmo protocolo nos dois braços** (recria `sim` →
+reinicia módulo → espera SLAM → estabiliza → mede):
+
+| | 1000 Hz | 50 Hz |
+| --- | ---: | ---: |
+| `/joint_states` | 986,1 Hz | 45,1 Hz |
+| `/tf` | 1054,5 Hz | 144,6 Hz (−86,3%) |
+| `odom <- lidar` disponível | 94,75% | **99,94%** |
+| carga do módulo | 26,90 | 18,52 |
+| `nav2_container` | 298% | 240% |
+| `maze_explorer` | 67,6% | **76,0%** |
+
+**A atribuição da aresta ficou fechada:** `odom <- base` e `odom <- lidar` deram
+exatamente o mesmo número nos dois braços. A cadeia composta não perde nada além
+do que a aresta dinâmica perde. E o amostrador de 200 Hz dá o mecanismo: no
+braço A o máximo entre carimbos distintos era 120 ms num publicador de 20 ms —
+cinco ciclos perdidos de uma vez. Não era rajada de entrega; era o `odom_tf` não
+sendo escalonado a tempo de carimbar. Isto também corrige a atribuição da manhã
+(100,00% / 95,30% / 78,11%), que comparava três execuções separadas de durações
+diferentes: a conclusão qualitativa estava certa, os números não eram
+comparáveis entre si.
+
+**Uma hipótese minha foi REPROVADA e está registrada como tal.** Eu havia dito
+que os ~68% de um `maze_explorer` OCIOSO eram o `TransformListener` dele
+deserializando 1090 mensagens por segundo. Com o fluxo 86% menor ele SUBIU, para
+76,0%. A explicação plausível é estrangulamento — com a carga caindo de 26,9
+para 18,5, um nó antes disputado passa a rodar à vontade — mas isso é hipótese,
+não medição. Perfilar as threads dele (método de `ml35-f5-clock-fanout.md`) é o
+próximo passo se o objetivo for CPU.
+
+**`map_update_interval` voltou para 1.0**, em rodada independente. Ele tinha ido
+a 5.0 nesta mesma sessão por economia de CPU; a economia foi medida e não
+existia (31,4% → 30,3% no `async_slam_toolbox`, dentro do ruído). Na volta o
+custo é 1 pp, simétrico, o que confirma que o número é ruído. `/map` sobe de 0,2
+para 1,000 Hz e a `static_layer` deixa de ficar até 5 s atrás da parede que o
+SLAM já conhece.
+
+**Portão de metas, 3 corridas de 180 s em `maze11-short`:**
+
+| | 1 | 2 | 3 |
+| --- | ---: | ---: | ---: |
+| metas cumpridas | 9/10 | 8/10 | 9/10 |
+| primeiras três | ok ok ok | ok ok ok | ok ok ok |
+| tilt de pico | 1,17° | 1,06° | 1,18° |
+| folga mínima | 0,448 m | 0,448 m | 0,448 m |
+| velocidade média | 0,0383 | 0,0342 | 0,0447 m/s |
+
+Varredura de log limitada, 12 min: **zero** `worldToMap`, **zero**
+`invalid source`, **zero** extrapolação de TF. Cinco de seis critérios passam.
+
+**A velocidade reprova, e não é regressão.** A linha de base do maze11 em
+`gait_go2.yaml` é 0,0399 m/s; estas três dão média 0,0391. O que melhorou é a
+razão de trabalho em vx, de 6,2% para 15,6–22,3% — o robô passa duas a três
+vezes mais tempo com avanço efetivo, e isso NÃO virou velocidade média. É
+exatamente a distância entre o limite de MÁQUINA, que esta sessão atacou, e o
+limite de DECISÃO DE TRAJETO, isolado em `ml35-f5-clock-fanout.md` e ainda de pé.
+
+Ressalva de método, registrada para não virar precedente: `maze11-short` são
+metas a 0,5 m e boa parte de cada ciclo é reaquisição, não travessia. O critério
+de 0,05 m/s não separa travessia de reaquisição.
+
+**Onde a progressão parou, e por quê.** Nenhuma condição de parada ocorreu — o
+estouro de prazo da corrida 2 é prazo, não meta recusada. O que falta é o smoke
+de exploração e as três partidas frias de até 600 s, e antes de gastá-las há
+duas decisões em aberto:
+
+1. o critério de 0,05 m/s vale para `maze11-short`? Se o alvo é travessia, o
+   conjunto certo é `maze11` (metas de 8 m) e o número a bater é outro;
+2. o `maze_explorer` a 76% ocioso é o segundo maior consumidor do container
+   `nav` e nada aplicado nesta sessão o toca.
+
+**Armadilha nova, que custou uma corrida inteira de 180 s.** Logo depois de
+recriar o container `sim`, `/clock` aparece no grafo mas não entrega mensagem a
+assinante NOVO por alguns minutos. Qualquer script com `use_sim_time: True` que
+suba nessa janela lê relógio parado: RTF 0,000, idade da nuvem −240 s, 100% de
+carimbos "no futuro". As colunas que não usam o relógio do nó continuavam
+válidas, mas a corrida foi descartada e refeita. Antes de medir, confirme
+entrega de verdade (`ros2 topic hz /clock`), não presença no grafo — e note que
+o mapa do SLAM é `/map`, não `/demo/map`.
+
+### Sessão 28/08 — busca autônoma implementada; portão de estabilidade ainda REPROVADO
+
+Evidência: **`docs/results/ml35-f5-busca-autonoma.md`** (`PENDING EXECUTION`).
+
+A demonstração de saída autônoma do labirinto está **implementada de ponta a
+ponta e instalada**, e **nenhuma corrida de aceitação foi executada**. As duas
+frases valem ao mesmo tempo, e a segunda é a que decide se a fase fecha.
+
+**Fechado (host):**
+
+| Peça | Onde roda |
+|---|---|
+| `frontier.py` + `maze_explorer` (fronteiras, blacklist, prazos, JSON) | módulo |
+| `ExplorationGrid` (`allow_unknown: false`) + `nav_to_pose_exploration.xml` | módulo |
+| `maze_exit_detector` (painel magenta, confirmação 3 de 5) | módulo |
+| painel magenta no `quadruped_maze11.sdf` | host |
+| `maze_escape_validator` → `/demo/maze/escaped` | **host, só simulação** |
+| botões e HUD de busca no cockpit | cockpit |
+
+Suítes de host: contrato **150**, `demo_navigation` **25**, `demo_perception`
+**33**, cockpit **169**. Nenhuma delas mede navegação.
+
+**O portão continua sendo o bloqueio, e ele reprovou.** Última corrida
+(`artifacts/maze11-short-gate.csv`): 37,1 s, 0,69 m, **0,0185 m/s**, `cmd_vx`
+não-nulo em 18,7% das amostras — **abaixo do piso de 0,05 m/s**, e sem 3/3
+metas. A corrida anterior, antes de `restamp_tf: true`, tinha o robô
+**congelado** (`cmd_vx` zero em 150 s). O parâmetro destravou o comando e **não
+fechou o portão**.
+
+`restamp_tf` foi verificado como parâmetro real do `slam_toolbox` do Jazzy
+(`slam_toolbox_common.hpp:177`, e `restamp_tf: false` nos cinco
+`mapper_params_*.yaml` de `/opt/ros/jazzy/share`) — não é YAML ignorado em
+silêncio. `transform_timeout` fica em 0,2 como exigido.
+
+**`nav_trial.py` passou a arquivar a evidência por meta.** Antes o desfecho de
+cada ação morria no stdout e a meta em voo no fim do ensaio nunca era
+registrada — um portão de 3 metas relatava 2. Agora sai um CSV irmão
+`<csv>-metas.csv` com alvo, desfecho, `status`, `error_code`/`error_msg` do
+Nav2 e trocas de rota **daquela** meta, e cada amostra de telemetria carrega
+`goal_index`.
+
+**Risco aberto que precede qualquer conclusão sobre percepção:** o RAW da câmera
+não atravessa mais o fio desde `ml35-f5-camera-comprimida.md`. O `SetRemap` de
+`demo_bringup/launch/perception.launch.py` religa a imagem do detector
+automaticamente, **mas `/demo/camera/camera_info` não é remapeado**. Sem ele o
+detector publica detecção e nunca publica pose — falha silenciosa. Checar
+`ros2 topic hz /demo/camera/camera_info` **no módulo** antes de culpar a visão.
+
+### Sessão 27/08 (parte 3) — mecanismo achado: o plano global alterna a 1 Hz. `clearing: false` REPROVADO
+
+Evidência: **`docs/results/ml35-f5-memoria-costmap.md`**.
+
+**Causa raiz, lendo `/plan` a cada 5 s numa meta presa (0,0) → (0,8):**
+
+| t | comprimento | rumo inicial |
+| ---: | ---: | ---: |
+| +5 s / +10 s | **11,49 m** | 173° — rota verdadeira |
+| +15 s / +20 s | **8,59 m** | 89° — atravessa parede não vista |
+| +25 s / +30 s | 8,66 / 8,81 m | 35° / 18° |
+
+Os 11,5 m batem com a geodésica offline (12,23 m). Os 8,6 m só existem porque
+`allow_unknown: true` torna o desconhecido barato. **O MPPI recebe um caminho
+que inverte 90–180° a cada segundo** — daí girar sem transladar. Completa o
+achado da parte 2: lá ficou provado que o sintoma some com meta boa; aqui está
+o mecanismo pelo qual a meta ruim o produz.
+
+**Experimento reprovado — não repita.** `clearing: false` no `obstacle_layer`
+global ("dar memória ao mapa") melhorou margem (deslocamento 0,19 → 1,04 m,
+razão de trabalho 0,0% → 3,9%) e **não mexeu no mecanismo**: o plano continuou
+alternando 11,66 ↔ 8,77 m, zero metas. Lendo `costmap_raw`, com ele ligado
+**150 de 161 células da reta até a meta ficaram em 255 (desconhecido)**.
+
+`clearing` não é "esquecer obstáculo" — é o raytrace, e o raytrace é o **único**
+mecanismo que torna desconhecido em LIVRE nessa camada. Desligá-lo deixa o mapa
+permanentemente desconhecido e torna o atalho **mais** atraente. A correção
+agrava a causa que ataca. Travado por `tests/test_module_params_mount.py`.
+
+**O que resolve** é persistir ocupado *e* livre, e a camada de obstáculo tem um
+botão só para os dois. É mapa de `slam_toolbox` na `static_layer` (já definida e
+inerte), com `allow_unknown: true` mantido. Bloqueio real: o
+`pointcloud_to_laserscan` exige **rebuild arm64 nativo no módulo**.
+
+**Infraestrutura entregue:** `compose.module.yml` monta
+`ros2_ws/src/demo_navigation/config` sobre `/ws/src/demo_navigation/config`
+(o **alvo final do symlink**, não o caminho instalado — montar no instalado
+seria silencioso). **Parâmetro no módulo passou a custar `sync`, não `build`.**
+
+**Anomalia aberta:** o costmap global marca primeira célula ≥ 253 a **0,55 m em
++y**, onde `maze_fit.py` mede **3,47 m de pista livre**. Medir antes de rodar o
+SLAM — um mapa persistente herdaria o erro em definitivo.
+
+### Sessão 27/08 (parte 2) — PROVADO no HIL: 8 de 8 metas cumpridas, razão de trabalho 0,0% → 37,5%
+
+Evidência: **`docs/results/ml35-f5-rota-conectada.md`** + os dois CSVs ao lado.
+A/B com minutos de intervalo, **HIL real** (Nav2 no Aquila AM69), mesmas
+imagens, mesmos parâmetros, nada reconstruído. **Única variável: a geometria da
+meta.**
+
+| métrica | rota conectada | controle — patrulha (0; 8) |
+| --- | ---: | ---: |
+| **razão de trabalho `vx`** | **37,5%** | **0,0%** |
+| `cmd_vx` ≈ 0 | 12,9% | 98,6% |
+| deslocamento líquido | **7,11 m** | 0,19 m |
+| eficiência de trajeto | 57,2% | 16,2% |
+| **metas cumpridas** | **8 de 8** | 0 em 120 s |
+| deriva líquida de yaw | **+1,1°** em 240 s | **−186,8°** em 120 s |
+
+A razão de trabalho nunca passou de 8,6% em condição alguma testada neste
+projeto (CPU, `/clock`, amostragem do MPPI, câmera comprimida, Ethernet,
+correção da BT). Foi a 37,5% sem tocar em nada além da meta. Os 57,2% de
+eficiência reproduzem os 57% medidos no host em 21/08 — o módulo sempre foi
+capaz disso.
+
+**O giro unidirecional da §10 não é defeito de controlador.** Com plano válido o
+`cmd_wz` alterna 45,2% / 51,3% e a deriva é +1,1° em quatro minutos. Com meta
+atrás de parede volta a ser unidirecional — **e com o sinal invertido** em
+relação à §10, o que mata a família "assimetria de critic" / "erro de sinal na
+guinada": erro de sinal não troca de sinal.
+
+**Consequência para o portão.** "Goal Nav2 `SUCCEEDED` com o robô de pernas,
+Nav2 no módulo" foi cumprido **oito vezes numa corrida**. O que reprovava era o
+protocolo de 8 m sobre metas de patrulha. O portão do F5 tem de ser reescrito
+sobre rota conectada ou sobre mapa persistido antes de voltar a ser cobrado.
+
+**Resta déficit real, agora mensurável:** 37,5% e 0,0454 m/s médio ainda estão
+abaixo de `vx_max` 0,15 m/s. Sintonia de critic só faz sentido a partir daqui.
+
+**Armadilha nova:** toda meta do maze11 tem `x` negativo, e
+`--goals -1.50,...` é lido pelo argparse como flag — o script imprime `usage` e
+sai **0**. Com `2>/dev/null` vira corrida silenciosa que não faz nada. Use
+sempre `--goals=`. Documentado no próprio `nav_trial.py`.
+
+### Sessão 27/08 (parte 1) — as metas do ensaio estão atrás de parede; o plano global atravessa parede
+
+Evidência e números: `docs/ml35/proximos-passos-navegacao.md` §11. Medido
+**offline**, sem bancada, sem ROS e sem Gazebo — só leitura do STL do maze11,
+com a ferramenta nova `scripts/maze_geodesic.py` (6 guardas em
+`tests/test_maze_geodesic.py`, três verificadas por mutação).
+
+**As quatro `MAZE11_GOALS` têm parede na linha reta.** A geodésica pelo espaço
+navegável é 1,53× a 4,22× a reta, e do spawn o robô enxerga, com oclusão,
+**19,6%** do espaço livre dentro dos 8 m de `obstacle_max_range`.
+
+Com `global_costmap` rolante **sem `static_layer` e sem mapa** e o NavFn em
+`allow_unknown: true`, o plano dessas metas atravessa parede não observada —
+`SUCCEEDED`, caminho bonito no RViz e no cockpit, **zero erro ou log**.
+Corrobora com dado já no repositório: o caminho medido na §8 tinha ~7,0 m para
+uma meta cuja rota real é 12,23 m e cuja própria reta é 8,00 m.
+
+**Consequência de método:** as §§7–10 mediram o MPPI com uma entrada inválida.
+Isso não reabre as cinco hipóteses refutadas da §1, mas nenhuma conclusão sobre
+critics sobrevive — o teste de desligar critic desce de prioridade.
+
+**A ordenação que a §9 procurou por bearing e não achou** é por distância até a
+primeira parede na reta: 0,96 m → 0,00 m de deslocamento; 3,88 m → 0,07 m;
+3,90 m → 0,10 m. O corte cai no horizonte do MPPI (1,44 m).
+
+**Próximo passo, barato e decisivo, no host, sem tocar em imagem:** rodar a rota
+conectada do `maze_route.py` (0 de 9 pernas com parede na reta, 100% visível em
+todas, contra 4 de 4 bloqueadas na patrulha). Comando pronto na §11.
+
+**Persistir o mapa — pedido do operador — não é frente nova: é ligar o que já
+está na árvore.** O `static_layer` do Go2 já está definido e inerte com o
+procedimento ao lado, e o caminho diff-drive já navega sobre
+`maps/warehouse.{pgm,yaml}`. Os dois bloqueios reais: `slam_params.yaml` tem
+`base_frame: base_link` (parâmetro, não arquitetura) e o `slam_toolbox` consome
+`LaserScan`, enquanto o `/demo/scan` do Go2 é o anel degenerado que o delta 3 do
+`nav2_params_go2.yaml` já mediu como **zero obstáculos**. O dado bom é
+`/demo/scan_cloud`, e achatá-lo é `ros-jazzy-pointcloud-to-laserscan` (estoque,
+2.0.2 no apt do Jazzy, ainda não em imagem nenhuma). **Sem AMCL** nesta
+topologia: a odometria do Gazebo é verdade de terreno e `map`→`odom` já é a
+identidade do `odom_tf`.
 
 ### Sessão 26/08 (tarde) — reset do cockpit, telemetria do alvo, protocolo de campanha
 

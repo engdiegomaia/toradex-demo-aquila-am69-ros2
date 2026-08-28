@@ -112,6 +112,24 @@ def test_verify_requires_the_host_to_module_topic_contract() -> None:
         assert topic in script
 
 
+def test_verify_requires_a_real_clock_sample_not_only_discovery() -> None:
+    script = MODULE_SH.read_text(encoding='utf-8')
+
+    assert 'ros2 topic echo --once /clock rosgraph_msgs/msg/Clock' in script
+    assert "grep -q '^clock:'" in script
+    assert '/clock: SEM MENSAGEM' in script
+
+
+def test_hil_render_prefers_routed_interface_over_loopback() -> None:
+    """HIL external unicast must not be bound to the preferred loopback."""
+    script = MODULE_SH.read_text(encoding='utf-8')
+
+    assert '<NetworkInterface name=\\"lo\\" priority=\\"default\\"' in script
+    assert 'priority=\\"10\\"' in script
+    assert 'nao rebaixou loopback no modo HIL' in script
+    assert 'nao priorizou a interface roteada no modo HIL' in script
+
+
 def test_module_up_recreates_containers_after_dds_render() -> None:
     script = MODULE_SH.read_text(encoding='utf-8')
 

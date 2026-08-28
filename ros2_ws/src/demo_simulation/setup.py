@@ -45,6 +45,8 @@ setup(
             # Fachada std_srvs para play/pause/reset. Existe porque o container
             # do cockpit não tem (nem deve ter) ros_gz_interfaces.
             'sim_control_relay = demo_simulation.sim_control_relay:main',
+            'maze_escape_validator = '
+            'demo_simulation.maze_escape_validator:main',
         ],
     },
 )

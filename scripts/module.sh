@@ -164,8 +164,16 @@ render_host_config() {
 
   say "renderizando cyclonedds/host.rendered.xml (iface ${iface}, peer do modulo ${MODULE_IP})"
   awk -v ip="${MODULE_IP}" -v iface="${iface}" '
+    /^[[:space:]]*<NetworkInterface name="lo"[^>]*\/>[[:space:]]*$/ {
+      # In LEARN, loopback is intentionally the preferred interface.  In HIL
+      # that preference makes Cyclone bind external unicast writes to lo and
+      # host -> Aquila fails with ddsi_udp_conn_write retcode -3.  Keep lo for
+      # sibling containers, but prefer the routed interface below.
+      printf "        <NetworkInterface name=\"lo\" priority=\"default\" multicast=\"true\"/>  <!-- HIL: secundaria -->\n"
+      next
+    }
     /^[[:space:]]*<NetworkInterface autodetermine="true"[^>]*\/>[[:space:]]*$/ {
-      printf "        <NetworkInterface name=\"%s\" priority=\"default\"/>  <!-- fixado por scripts/module.sh -->\n", iface
+      printf "        <NetworkInterface name=\"%s\" priority=\"10\"/>  <!-- HIL: preferida, fixada por scripts/module.sh -->\n", iface
       next
     }
     /^[[:space:]]*<\/Peers>[[:space:]]*$/ && !done {
@@ -179,6 +187,10 @@ render_host_config() {
     || die "renderizacao do host.xml nao inseriu o peer do modulo"
   grep -q '<Peer address="127.0.0.1"/>' "${host_cfg}" \
     || die "renderizacao do host.xml perdeu o peer localhost, que e load-bearing"
+  grep -q '<NetworkInterface name="lo" priority="default" multicast="true"/>' "${host_cfg}" \
+    || die "host.rendered.xml nao rebaixou loopback no modo HIL"
+  grep -q "<NetworkInterface name=\"${iface}\" priority=\"10\"/>" "${host_cfg}" \
+    || die "host.rendered.xml nao priorizou a interface roteada no modo HIL"
   ! grep -q '<NetworkInterface autodetermine' "${host_cfg}" \
     || die "host.rendered.xml ainda usa autodetermine no elemento NetworkInterface"
   python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('${host_cfg}')" \
@@ -655,6 +667,22 @@ EOF
     else
       printf '    Nenhuma simulacao ativa neste host: nao ha o que descobrir.\n'
     fi
+  fi
+
+  # Listing /clock proves discovery metadata only.  It passed while every
+  # host-side Cyclone participant logged ddsi_udp_conn_write retcode -3 and no
+  # clock sample reached the module; wait_for_clock then held the entire Nav2
+  # launch before SLAM and lifecycle_manager_navigation.  Require one payload
+  # in the same direction as the simulated sensors.
+  say "2b/4 host publica, modulo recebe uma amostra real de /clock"
+  if remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
+    /usr/local/bin/entrypoint.sh timeout 12 ros2 topic echo --once /clock rosgraph_msgs/msg/Clock" \
+      2>&1 | grep -q '^clock:'; then
+    printf '    /clock: OK (mensagem recebida no modulo)\n'
+  else
+    printf '    /clock: SEM MENSAGEM. A lista de topicos pode estar stale; verifique\n'
+    printf '    prioridade da interface no host.rendered.xml e erros retcode -3.\n'
+    verify_failed=1
   fi
 
   # --- 3/4: module -> host, the direction the demo actually needs -----------
