@@ -40,7 +40,7 @@ def _row(**overrides):
         'odom_stamp_s': 0.0,
         'odom_age_ms': 0.0,
         'cloud_interval_ms': '',
-        'odom_interval_ms': '',
+        'odom_interval_ms': 20.0,
         'transform_available': 1,
         'transform_latency_ms': 0.0,
         'cloud_points': 10240,
@@ -183,17 +183,75 @@ def test_empty_summary_renders_a_diagnosable_message() -> None:
     assert 'NENHUMA amostra' in rendered
 
 
+def test_odom_rate_comes_from_intervals_not_from_the_sampled_column() -> None:
+    # Ha uma linha por NUVEM (~10 Hz) e `odom_stamp_s` guarda o ultimo carimbo
+    # visto naquele instante. Derivar a taxa dessa coluna limita o resultado a
+    # taxa da nuvem: na bancada isso reportou 10,00 Hz para uma odometria de
+    # ~50 Hz. O intervalo, escrito no callback da odometria, nao tem esse teto.
+    rows = [
+        _row(wall_s=0.0, sim_s=0.0, cloud_stamp_s=1.0, cloud_age_ms=10.0,
+             odom_stamp_s=1.00, odom_interval_ms=20.0),
+        _row(wall_s=0.1, sim_s=0.1, cloud_stamp_s=1.1, cloud_age_ms=10.0,
+             odom_stamp_s=1.10, odom_interval_ms=20.0),
+        _row(wall_s=0.2, sim_s=0.2, cloud_stamp_s=1.2, cloud_age_ms=10.0,
+             odom_stamp_s=1.20, odom_interval_ms=20.0),
+    ]
+
+    summary = summarise(rows)
+
+    assert summary['cloud_rate_hz'] == pytest.approx(10.0)
+    assert summary['odom_rate_hz'] == pytest.approx(50.0)
+
+
+def test_odom_rate_uses_the_median_so_one_dropout_does_not_move_it() -> None:
+    rows = [
+        _row(wall_s=0.0, sim_s=0.0, cloud_stamp_s=1.0, cloud_age_ms=0.0,
+             odom_stamp_s=1.0, odom_interval_ms=20.0),
+        _row(wall_s=0.1, sim_s=0.1, cloud_stamp_s=1.1, cloud_age_ms=0.0,
+             odom_stamp_s=1.1, odom_interval_ms=400.0),
+        _row(wall_s=0.2, sim_s=0.2, cloud_stamp_s=1.2, cloud_age_ms=0.0,
+             odom_stamp_s=1.2, odom_interval_ms=20.0),
+    ]
+
+    assert summarise(rows)['odom_rate_hz'] == pytest.approx(50.0)
+
+
+def test_odom_rate_is_absent_when_no_interval_was_ever_recorded() -> None:
+    rows = [
+        _row(wall_s=0.0, sim_s=0.0, cloud_stamp_s=1.0, cloud_age_ms=0.0,
+             odom_interval_ms=''),
+        _row(wall_s=0.1, sim_s=0.1, cloud_stamp_s=1.1, cloud_age_ms=0.0,
+             odom_interval_ms=''),
+    ]
+
+    assert summarise(rows)['odom_rate_hz'] is None
+
+
+def test_rate_verdict_tolerates_jitter_around_the_nominal_band() -> None:
+    # 10,004 Hz nao e uma reprovacao de uma faixa nominal que termina em 10.
+    rows = [_row(wall_s=0.1 * i, sim_s=0.1 * i,
+                 cloud_stamp_s=1.0 + 0.09996 * i, cloud_age_ms=10.0,
+                 odom_stamp_s=1.0 + 0.09996 * i, odom_interval_ms=20.0)
+            for i in range(20)]
+
+    rendered = format_summary(summarise(rows))
+    rate_line = [line for line in rendered.splitlines()
+                 if 'taxa da nuvem' in line][0]
+
+    assert 'XX' not in rate_line, rate_line
+
+
 def test_summary_reports_rates_ages_gaps_and_real_time_factor() -> None:
     rows = [
         _row(wall_s=0.0, sim_s=0.0, cloud_stamp_s=100.0, cloud_age_ms=50.0,
              odom_stamp_s=100.00, odom_age_ms=5.0, transform_available=1,
-             transform_latency_ms=10.0),
+             odom_interval_ms=20.0, transform_latency_ms=10.0),
         _row(wall_s=0.1, sim_s=0.1, cloud_stamp_s=100.1, cloud_age_ms=60.0,
              odom_stamp_s=100.02, odom_age_ms=6.0, transform_available=1,
-             transform_latency_ms=20.0),
+             odom_interval_ms=20.0, transform_latency_ms=20.0),
         _row(wall_s=0.2, sim_s=0.2, cloud_stamp_s=100.2, cloud_age_ms=250.0,
              odom_stamp_s=100.04, odom_age_ms=7.0, transform_available=0,
-             transform_latency_ms=30.0),
+             odom_interval_ms=20.0, transform_latency_ms=30.0),
     ]
 
     summary = summarise(rows)
