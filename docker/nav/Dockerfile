@@ -119,7 +119,8 @@ COPY --from=slam-toolbox-runtime /slam-runtime/ /
 
 # Falha no build, nao na bancada: o executavel copiado deve resolver todas as
 # libs e o payload headless nao pode reintroduzir o plugin RViz removido acima.
-RUN ! ldd /opt/ros/${ROS_DISTRO}/lib/slam_toolbox/async_slam_toolbox_node \
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && ! ldd /opt/ros/${ROS_DISTRO}/lib/slam_toolbox/async_slam_toolbox_node \
         | grep -q 'not found' \
     && test ! -e /opt/ros/${ROS_DISTRO}/lib/libSlamToolboxPlugin.so
 

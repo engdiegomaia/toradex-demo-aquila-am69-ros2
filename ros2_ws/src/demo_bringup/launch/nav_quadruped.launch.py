@@ -47,7 +47,11 @@ da origem; `patrol_commander` ja faz isso.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.actions import LogInfo, RegisterEventHandler, Shutdown
@@ -217,14 +221,27 @@ def generate_launch_description() -> LaunchDescription:
         }],
     )
 
-    slam = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(PathJoinSubstitution([
-            FindPackageShare('demo_navigation'), 'launch', 'slam.launch.py',
-        ])),
-        launch_arguments={
-            'use_sim_time': LaunchConfiguration('use_sim_time'),
-            'scan_topic': '/demo/scan_slam',
-        }.items(),
+    # Nao deixe este include herdar `params_file` do launch pai. Neste arquivo,
+    # esse argumento e o YAML do Nav2 (`nav2_params_go2.yaml`), enquanto o
+    # slam_toolbox exige seu proprio namespace e seus frames em
+    # `slam_params.yaml`. LaunchConfiguration tem escopo compartilhado entre
+    # includes; sem a passagem explicita abaixo o SLAM recebe silenciosamente o
+    # arquivo do Nav2 e volta ao default `base_footprint`.
+    slam_params = PathJoinSubstitution([
+        FindPackageShare('demo_navigation'), 'config', 'slam_params.yaml',
+    ])
+    slam = GroupAction(
+        scoped=True,
+        actions=[IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('demo_navigation'), 'launch', 'slam.launch.py',
+            ])),
+            launch_arguments={
+                'params_file': slam_params,
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'scan_topic': '/demo/scan_slam',
+            }.items(),
+        )],
     )
 
     # O caminho da arvore de comportamento tem de ser ABSOLUTO, e nao pode ficar
