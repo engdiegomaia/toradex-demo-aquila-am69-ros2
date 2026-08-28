@@ -185,6 +185,39 @@
   cursor: crosshair;
 }
 
+.map-zoom {
+  position: absolute;
+  top: var(--pad);
+  right: var(--pad);
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  background: color-mix(in srgb, #ffffff 86%, transparent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.map-zoom__btn {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  font: 700 var(--text-md) / 1 var(--font-ui);
+  color: white;
+  cursor: pointer;
+  background: var(--brand-blue);
+  border: 1px solid var(--brand-blue);
+  border-radius: var(--radius-sm);
+}
+
+.map-zoom__btn:hover {
+  background: color-mix(in srgb, var(--brand-blue) 78%, white);
+}
+
+.map-zoom__btn:focus-visible {
+  outline: 2px solid var(--brand-green);
+  outline-offset: 1px;
+}
+
 /* Detection boxes, over the video. pointer-events: none so the canvas never
    swallows a click meant for the panel underneath. */
 .overlay {
