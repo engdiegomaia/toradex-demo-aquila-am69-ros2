@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import json
 import math
+import time
 
 from action_msgs.msg import GoalStatus
 from action_msgs.srv import CancelGoal
@@ -69,7 +70,20 @@ class MazeExplorer(Node):
         self._state = 'idle'
         self._message = ''
         self._map: OccupancyGrid | None = None
+        # Sequencia do mapa, e nao o proprio mapa, como chave de cache: comparar
+        # duas OccupancyGrid celula a celula custaria mais que a extracao que o
+        # cache existe para evitar.
+        self._map_seq = 0
+        self._selection_key: tuple[int, int, int] | None = None
         self._frontier_count = 0
+        # Instrumentacao. Medida com relogio MONOTONICO, nunca com /clock: sob
+        # `use_sim_time` o relogio de simulacao pode pausar, saltar ou correr
+        # fora do tempo real, e o que se quer aqui e CPU gasta de verdade.
+        self._frontier_extract_ms = 0.0
+        self._frontier_cells = 0
+        self._frontier_clusters = 0
+        self._path_requests = 0
+        self._selection_cycle = 0
         self._current: Frontier | None = None
         self._blacklist: list[tuple[float, float]] = []
         self._started_s = 0.0
@@ -118,7 +132,12 @@ class MazeExplorer(Node):
         return response
 
     def _on_map(self, message: OccupancyGrid) -> None:
+        # Guardar e contar, so. Um mapa novo NAO troca a meta em voo: quem
+        # decide seleção é `_tick`, e ele só chama `_begin_selection` no estado
+        # `selecting`. Reagir aqui faria o robô abandonar a fronteira a cada
+        # publicação do SLAM.
         self._map = message
+        self._map_seq += 1
 
     def _on_exit_pose(self, message: PoseStamped) -> None:
         try:
@@ -197,7 +216,27 @@ class MazeExplorer(Node):
         if grid is None or robot is None:
             self._state = 'waiting_map'
             return
+
+        # Sem mapa novo, sem blacklist nova e sem epoca nova, a extracao daria
+        # exatamente o mesmo resultado. Sem esta guarda, o caso "planner
+        # rejeitou todas as fronteiras" deixa `_pending` em False e o `_tick`
+        # reextrai o mapa INTEIRO a cada segundo, indefinidamente -- que era o
+        # explorador segurando um core do AM69 sem produzir nada.
+        #
+        # A epoca entra na chave para que iniciar ou cancelar a busca force uma
+        # extracao, mesmo que o mapa e a blacklist estejam iguais.
+        key = (self._epoch, self._map_seq, len(self._blacklist))
+        if key == self._selection_key:
+            return
+        self._selection_key = key
+
+        started = time.monotonic()
         frontiers = extract_frontiers(grid)
+        self._frontier_extract_ms = round((time.monotonic() - started) * 1e3, 1)
+        self._selection_cycle += 1
+        self._frontier_clusters = len(frontiers)
+        self._frontier_cells = sum(item.cells for item in frontiers)
+
         frontiers = [item for item in frontiers if not any(
             math.hypot(item.x - x, item.y - y) <= float(
                 self.get_parameter('blacklist_radius_m').value)
@@ -229,6 +268,7 @@ class MazeExplorer(Node):
         goal.planner_id = 'ExplorationGrid'
         goal.use_start = False
         self._pending = True
+        self._path_requests += 1
         epoch = self._epoch
         future = self._path_client.send_goal_async(goal)
         future.add_done_callback(
@@ -400,6 +440,14 @@ class MazeExplorer(Node):
             'frontier_count': self._frontier_count,
             'goal': goal,
             'blacklisted': len(self._blacklist),
+            # Custo da busca, para o operador e para o gate de CPU. Estes cinco
+            # campos sao aditivos: o cockpit ignora o que nao conhece.
+            'frontier_extract_ms': self._frontier_extract_ms,
+            'frontier_cells': self._frontier_cells,
+            'frontier_clusters': self._frontier_clusters,
+            'candidates_checked': self._candidate_index,
+            'path_requests': self._path_requests,
+            'selection_cycle': self._selection_cycle,
             'marker_visible': (
                 self._exit_pose_map is not None
                 and now - self._exit_seen_s <= float(

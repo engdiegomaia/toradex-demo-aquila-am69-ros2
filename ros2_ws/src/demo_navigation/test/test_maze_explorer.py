@@ -259,3 +259,127 @@ def test_exit_pose_without_tf_is_dropped_rather_than_used_raw(node) -> None:
     pose.pose.position.x = 3.0
     node._on_exit_pose(pose)
     assert node._exit_pose_map is None
+
+
+# --- custo da selecao de fronteira -----------------------------------------
+#
+# Medido neste host x86 sobre um mapa de SLAM do tamanho do maze11 (234 x 284
+# celulas) a 95% explorado: `extract_frontiers` custava 158,6 ms e era chamado a
+# cada tick de 1 Hz enquanto o estado fosse `selecting` sem meta pendente -- que
+# e exatamente o caso "planner rejeitou todas as fronteiras". No AM69 isso e um
+# core preso sem produzir nada. O gate da Etapa 4 pede p95 abaixo de 100 ms.
+
+def _map_message(width: int = 4, height: int = 3) -> OccupancyGrid:
+    message = OccupancyGrid()
+    message.info.width = width
+    message.info.height = height
+    message.info.resolution = 0.05
+    message.info.origin.orientation.w = 1.0
+    message.data = [0] * (width * height)
+    return message
+
+
+@pytest.fixture
+def selecting(node, monkeypatch):
+    """Um nó pronto para selecionar, com a extração contada em vez de corrida."""
+    calls: list[int] = []
+
+    def counted(grid, **kwargs):
+        calls.append(1)
+        return []
+
+    monkeypatch.setattr(
+        'demo_navigation.maze_explorer.extract_frontiers', counted)
+    node._robot_pose = lambda: (0.0, 0.0)
+    node._on_map(_map_message())
+    node._state = 'selecting'
+    node.extract_calls = calls
+    return node
+
+
+def test_selection_is_not_recomputed_while_map_and_blacklist_stand(selecting):
+    """Sem mapa novo a extração daria o mesmo resultado -- e custa um core."""
+    selecting._begin_selection()
+    for _ in range(5):
+        selecting._begin_selection()
+
+    assert len(selecting.extract_calls) == 1
+    assert selecting._selection_cycle == 1
+
+
+def test_a_new_map_invalidates_the_selection_cache(selecting):
+    """Mapa novo é informação nova: aí sim vale reextrair."""
+    selecting._begin_selection()
+    selecting._on_map(_map_message())
+    selecting._begin_selection()
+
+    assert len(selecting.extract_calls) == 2
+
+
+def test_a_new_blacklist_entry_invalidates_the_selection_cache(selecting):
+    """A fronteira reprovada muda o resultado mesmo com o mapa parado."""
+    selecting._begin_selection()
+    selecting._blacklist.append((1.0, 1.0))
+    selecting._begin_selection()
+
+    assert len(selecting.extract_calls) == 2
+
+
+def test_restarting_the_run_invalidates_the_selection_cache(selecting):
+    """
+    Iniciar ou cancelar a busca tem de forçar extração.
+
+    A época entra na chave por isso: sem ela, um `start` logo após um `cancel`,
+    com o mesmo mapa e a blacklist já limpa, herdaria o cache da corrida
+    anterior e o explorador ficaria parado esperando um mapa novo.
+    """
+    selecting._begin_selection()
+    selecting._epoch += 1
+    selecting._begin_selection()
+
+    assert len(selecting.extract_calls) == 2
+
+
+def test_a_map_update_while_navigating_does_not_replace_the_goal(selecting):
+    """Reagir a /map em voo faria o robô abandonar a fronteira a cada mapa."""
+    goal = Frontier(x=2.0, y=3.0, cells=12, information_gain_m=1.0)
+    selecting._current = goal
+    selecting._state = 'navigating'
+    selecting._started_s = selecting._now_s()
+    selecting._goal_started_s = selecting._now_s()
+
+    selecting._on_map(_map_message())
+    selecting._tick()
+
+    assert selecting._current == goal
+    assert selecting._state == 'navigating'
+    assert selecting.extract_calls == []
+
+
+def test_status_carries_the_cost_of_the_search(selecting):
+    """Sem estes campos não há como provar o gate de CPU da Etapa 4."""
+    selecting._begin_selection()
+    selecting._publish_status()
+    payload = selecting.published[-1]
+
+    for field in ('frontier_extract_ms', 'frontier_cells', 'frontier_clusters',
+                  'candidates_checked', 'path_requests', 'selection_cycle'):
+        assert field in payload, field
+    assert payload['selection_cycle'] == 1
+
+
+def test_extraction_is_timed_on_a_monotonic_clock(selecting, monkeypatch):
+    """
+    O tempo de extração NÃO pode sair de `/clock`.
+
+    Sob `use_sim_time` o relógio de simulação pausa, salta e corre fora do tempo
+    real -- os três já observados neste projeto. O número que se quer aqui é CPU
+    gasta de verdade, e ele só existe no relógio monotônico.
+    """
+    ticks = iter([100.0, 100.25])
+    monkeypatch.setattr(
+        'demo_navigation.maze_explorer.time.monotonic', lambda: next(ticks))
+
+    selecting._begin_selection()
+
+    assert selecting._frontier_extract_ms == pytest.approx(250.0)
