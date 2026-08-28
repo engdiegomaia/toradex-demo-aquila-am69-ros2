@@ -1,9 +1,9 @@
 # ML3.5 — plano de movimentação do Go2
 
 Escrito em 19/08/2026, depois de pesquisa da documentação de controle de
-quadrúpedes em ROS 2 e de reler a evidência de 18/08. Substitui
-`plano-proximos-passos.md`, cujas Fases 1, 2 e 3 **já foram executadas** —
-resultados em `docs/results/ml35-f4-parcial.md` §"Fases 1-3".
+quadrúpedes em ROS 2 e de reler a evidência de 18/08. Substitui o antigo plano
+das Fases 1–3, já executadas; os resultados permanecem em
+`docs/results/ml35-f4-parcial.md` §"Fases 1-3".
 
 Cada fase para no portão e espera, conforme `estado-fases.md`.
 

@@ -1,223 +1,230 @@
-# S5 — Nav2 desviando de obstáculos
+# S5 — Nav2 avoiding obstacles
 
-Mundo: `quadruped_objects.sdf` · Estação x86 · ~10 min
+World: `quadruped_objects.sdf` · x86 workstation · ~10 min
 
-## Para que serve
+## Purpose
 
-É o primeiro cenário em que o robô decide para onde ir. Nos cenários S0–S4 quem
-comandava era `gait_trial.sh` ou `demo_routine`, publicando velocidade direto.
-Aqui o comando é uma **meta**, o Nav2 planeja, e o desvio é consequência do
-costmap — não de um roteiro escrito à mão.
+This is the first scenario in which the robot decides where to go. In scenarios
+S0–S4, `gait_trial.sh` or `demo_routine` issued commands by publishing velocity
+directly. Here the command is a **goal**, Nav2 plans, and avoidance is a
+consequence of the costmap—not a hand-written route.
 
-Isso exercita, de ponta a ponta: a nuvem do lidar → costmap → planejador → MPPI →
-`/demo/cmd_vel` → `twist_to_inputs` → controlador de marcha → Gazebo → odometria
-→ TF → costmap. Uma volta fechada. Quase todo defeito desta pilha aparece aqui.
+This exercises the full chain end to end: lidar cloud → costmap → planner → MPPI
+→ `/demo/cmd_vel` → `twist_to_inputs` → gait controller → Gazebo → odometry →
+TF → costmap. A closed loop. Almost every defect in this stack appears here.
 
-## Onde cada coisa roda
+## Where each component runs
 
-| componente | máquina | por quê |
+| component | machine | reason |
 | --- | --- | --- |
-| Gazebo + robô + bridge | container `aquila-go2`, host x86 | OGRE 2, regra 1 do `CLAUDE.md` |
-| Nav2 + `odom_tf` + patrulha | host x86 em learn; Aquila AM69 em HIL | mesma imagem multi-arch e mesmo launch |
+| Gazebo + robot + bridge | `aquila-go2` container, x86 host | OGRE 2, rule 1 in `CLAUDE.md` |
+| Nav2 + `odom_tf` + patrol | x86 host in learn; Aquila AM69 in HIL | same multi-arch image and same launch |
 
-O HIL foi executado no Aquila em 21/08/2026 com Nav2 composto; a evidência está
-em `docs/results/ml35-hil-aquila.md`. Gazebo permanece no host nos dois modos.
+HIL was run on the Aquila on 21/08/2026 with composed Nav2; the evidence is in
+`docs/results/ml35-hil-aquila.md`. Gazebo remains on the host in both modes.
 
-## Geometria e por que as metas são estas
+## Geometry and goal rationale
 
-Obstáculos do mundo (do próprio SDF):
+World obstacles (from the SDF itself):
 
-| objeto | posição (x, y) | meia-extensão no plano |
+| object | position (x, y) | planar half-extent |
 | --- | --- | --- |
-| caixa vermelha | 1,5 · 0,0 | 0,21 (meia-diagonal) |
-| cilindro verde | 3,0 · +0,45 | 0,18 |
-| caixa azul | 3,0 · −0,55 | 0,28 (meia-diagonal) |
-| cilindro amarelo | 4,5 · 0,0 | 0,12 |
+| red box | 1,5 · 0,0 | 0,21 (half-diagonal) |
+| green cylinder | 3,0 · +0,45 | 0,18 |
+| blue box | 3,0 · −0,55 | 0,28 (half-diagonal) |
+| yellow cylinder | 4,5 · 0,0 | 0,12 |
 
-Raio circunscrito do tronco do Go2: **0,383 m**.
+Go2 trunk circumscribed radius: **0,383 m**.
 
-O percurso default do `patrol_commander` é um triângulo de três metas escolhido
-para que **cada meta seja alcançável** e **cada trecho tenha a reta bloqueada**:
+The default `patrol_commander` route is a triangle of three goals chosen so
+**each goal is reachable** and **the straight line along each leg is blocked**:
 
-Folga calculada por **distância ponto-segmento**, não pela distância vertical
-num `x` escolhido — aquela superestima a folga e foi o erro da primeira versão
-desta tabela.
+Clearance is calculated using **point-to-segment distance**, not vertical
+distance at a chosen `x`; the latter overestimates clearance and was the error
+in the first version of this table.
 
-| trecho | folga da reta | consequência |
+| leg | straight-line clearance | consequence |
 | --- | --- | --- |
-| (0,0) → (4, 1,5) | **−0,068 m** da caixa vermelha | reta bloqueada |
-| (4, 1,5) → (4, −1,5) | **−0,003 m** do cilindro amarelo | reta bloqueada |
-| (4, −1,5) → (0,0) | **−0,127 m** da caixa azul | reta bloqueada |
+| (0,0) → (4, 1,5) | **−0,068 m** from the red box | line blocked |
+| (4, 1,5) → (4, −1,5) | **−0,003 m** from the yellow cylinder | line blocked |
+| (4, −1,5) → (0,0) | **−0,127 m** from the blue box | line blocked |
 
-As três retas estão bloqueadas, então o desvio é obrigatório. E as três **metas**
-são folgadas — +0,887, +0,713 e +0,905 m — porque meta apertada faz o Nav2 falhar
-por chegada impossível, o que se confunde com falha de desvio. Se o robô andar em linha reta, ou o costmap está vazio ou ele passou
-por dentro do obstáculo; as duas coisas são falha.
+All three lines are blocked, so avoidance is mandatory. All three **goals** also
+have ample clearance—+0,887, +0,713, and +0,905 m—because a tight goal makes
+Nav2 fail due to an impossible arrival, which can be mistaken for an avoidance
+failure. If the robot walks in a straight line, either the costmap is empty or
+it passed through the obstacle; both are failures.
 
-### O quadrado de 3 m que parece óbvio não serve
+### The seemingly obvious 3 m square does not work
 
-A meta (3,0) cai no vão entre o cilindro verde e a caixa azul. Esse vão tem
-0,45 − 0,18 = 0,27 de um lado e −0,55 + 0,28 = −0,27 do outro: **0,54 m de
-largura livre**, contra **0,77 m** que o robô precisa. A meta é impossível.
+The (3,0) goal falls in the gap between the green cylinder and blue box. That
+gap has 0,45 − 0,18 = 0,27 on one side and −0,55 + 0,28 = −0,27 on the other:
+**0,54 m of free width**, versus the **0,77 m** the robot needs. The goal is
+impossible.
 
-E o Nav2 **aceita** essa meta. Ele só reprova depois de esgotar as recuperações,
-e o que aparece no log é aborto de navegação — que se lê como "o desvio não
-funciona" e é uma meta que nunca teve solução. Confira a aritmética antes de
-culpar o planejador.
+Nav2 **accepts** this goal. It rejects it only after exhausting recovery
+behaviors, and the log shows a navigation abort—which reads as "avoidance does
+not work" but is actually a goal that never had a solution. Check the arithmetic
+before blaming the planner.
 
-## Rodar
+## Run
 
-Terminal 1 — simulador:
+Terminal 1—simulator:
 
 ```bash
 ./scripts/run_quadruped_sim.sh quadruped_objects.sdf
 ```
 
-Espere `state=fixed stand` no log. **Não siga antes disso.**
+Wait for `state=fixed stand` in the log. **Do not continue before that.**
 
-Terminal 2 — Nav2 e TF:
+Terminal 2—Nav2 and TF:
 
 ```bash
 cd ros2_ws && source install/setup.bash
 ros2 launch demo_bringup nav_quadruped.launch.py
 ```
 
-O portão de prontidão é a linha `Managed nodes are active` do
-`lifecycle_manager_navigation`. Espere por ela.
+The readiness gate is the `Managed nodes are active` line from
+`lifecycle_manager_navigation`. Wait for it.
 
-Terminal 3 — patrulha:
+Terminal 3—patrol:
 
 ```bash
 source ros2_ws/install/setup.bash
 ros2 run demo_bringup patrol_commander --ros-args -p use_sim_time:=true
 ```
 
-## Armadilhas, todas medidas
+## Pitfalls, all measured
 
-### `ros2 action list` travando para sempre
+### `ros2 action list` hangs forever
 
-Não use `ros2 action list` como portão de prontidão em script. Com o grafo
-incompleto ele **bloqueia indefinidamente** — não devolve vazio, não expira.
-Um runner meu ficou 10 min preso nisso. Use o log do `lifecycle_manager`.
+Do not use `ros2 action list` as a scripted readiness gate. With an incomplete
+graph, it **blocks indefinitely**—it does not return an empty result or time out.
+One runner remained stuck there for 10 min. Use the `lifecycle_manager` log.
 
-### Nada sobe e nada dá erro
+### Nothing starts and there is no error
 
-Sintoma: o log do launch termina em `odom_tf` e mais nada; `navigate_to_pose`
-nunca aparece.
+Symptom: the launch log ends at `odom_tf` and nothing else;
+`navigate_to_pose` never appears.
 
-Causa: `use_composition` ligado ao incluir só o `navigation_launch.py`. Aquele
-arquivo usa `LoadComposableNodes` para carregar os servidores dentro de
-`/nav2_container`, mas **não cria** esse container — quem o cria é o
-`bringup_launch.py`, que é justamente o que não estamos incluindo. Os nós vão
-para um container inexistente, em silêncio.
+Cause: `use_composition` is enabled while including only `navigation_launch.py`.
+That file uses `LoadComposableNodes` to load servers into `/nav2_container`, but
+it **does not create** that container—`bringup_launch.py` creates it, and that is
+the file not being included. The nodes silently target a nonexistent container.
 
-`nav_quadruped.launch.py` fixa `use_composition: 'False'` por isso.
+For this reason, `nav_quadruped.launch.py` fixes `use_composition: 'False'`.
 
-### O robô anda em espasmos
+### The robot moves in spasms
 
-`demo_routine` está rodando junto. Os dois publicam `/demo/cmd_vel` — o Nav2 pelo
-`collision_monitor`, a rotina direto. `twist_to_inputs` obedece a última mensagem
-que chegou e alterna entre as duas a 20 Hz. Nenhum log menciona isso.
-
-```bash
-ros2 topic info /demo/cmd_vel --verbose | grep -c "Node name"   # tem de ser 1
-```
-
-Um `patrol_commander` **de uma execução anterior** dá o mesmo sintoma, e é fácil
-deixar um para trás: ele não morre quando o simulador cai, só fica esperando a
-ação voltar. Aconteceu quatro vezes numa bateria de medição, e os órfãos seguiam
-publicando no domínio 69. Antes de subir, confira:
+`demo_routine` is running at the same time. Both publish `/demo/cmd_vel`—Nav2
+through `collision_monitor`, the routine directly. `twist_to_inputs` follows the
+latest message received and alternates between the two at 20 Hz. No log mentions
+this.
 
 ```bash
-pgrep -af "patrol_commander|demo_routine"   # tem de estar vazio
+ros2 topic info /demo/cmd_vel --verbose | grep -c "Node name"   # must be 1
 ```
 
-### Dois publicadores na TF
+A `patrol_commander` **from a previous run** produces the same symptom and is
+easy to leave behind: it does not exit when the simulator stops; it simply waits
+for the action to return. This happened four times in a measurement batch, and
+the orphan processes kept publishing on domain 69. Before starting, check:
 
-`odom_tf` publica `map -> odom` como identidade. AMCL e SLAM também publicam essa
-aresta. Rodar os dois não dá erro: o consumidor alterna entre duas crenças de
-onde o robô está. Se subir AMCL ou SLAM, passe
+```bash
+pgrep -af "patrol_commander|demo_routine"   # must be empty
+```
+
+### Two TF publishers
+
+`odom_tf` publishes `map -> odom` as identity. AMCL and SLAM also publish this
+edge. Running both produces no error: the consumer alternates between two
+beliefs about the robot's location. When starting AMCL or SLAM, pass
 `publish_map_identity:=false`.
 
-### `Failed to make progress` a cada 10 s
+### `Failed to make progress` every 10 s
 
-Verificador de progresso com os valores do TurtleBot 4: 0,5 m em 10 s. O Go2 gira
-a 0,12 rad/s, então reorientar 90° consome 13 s com avanço quase nulo — o aborto é
-garantido antes de o robô começar a andar. `nav2_params_go2.yaml` usa 0,20 m em
-40 s.
+The progress checker uses TurtleBot 4 values: 0,5 m in 10 s. The Go2 turns at
+0,12 rad/s, so reorienting by 90° takes 13 s with almost no forward movement—an
+abort is guaranteed before the robot starts walking. `nav2_params_go2.yaml`
+uses 0,20 m in 40 s.
 
-Sintoma na primeira medição: **22 abortos em 5 min, zero quedas.** Quando o
-verificador reprova e o robô não cai, o suspeito é o verificador.
+Symptom in the first measurement: **22 aborts in 5 min, zero falls.** When the
+checker fails and the robot does not fall, suspect the checker.
 
-### O robô anda a 40 % do pedido e nada acusa
+### The robot moves at 40% of the request with no warning
 
-`/demo/cmd_vel` **não está em SI.** É um `Twist` que carrega posição normalizada
-de manche, e o controlador multiplica `linear.x` por 0,4 e `angular.z` por 0,5 ao
-receber (`StateTrotting.cpp:192`, `twist_to_inputs.py:283`).
+`/demo/cmd_vel` **is not in SI units.** It is a `Twist` carrying normalized
+joystick position, and the controller multiplies `linear.x` by 0,4 and
+`angular.z` by 0,5 upon receipt (`StateTrotting.cpp:192`,
+`twist_to_inputs.py:283`).
 
-O Nav2 não pode publicar ali direto, porque o MPPI **integra** `vx` como m/s para
-prever posição. Por isso existe `cmd_vel_si_to_stick`: o Nav2 publica SI em
-`/demo/cmd_vel_si` e o nó converte. Se você ligar o Nav2 de volta em
-`/demo/cmd_vel`, o robô anda a 40 % do pedido sem erro nenhum em log.
+Nav2 cannot publish there directly because MPPI **integrates** `vx` as m/s to
+predict position. This is why `cmd_vel_si_to_stick` exists: Nav2 publishes SI
+units to `/demo/cmd_vel_si`, and the node converts them. If you reconnect Nav2
+to `/demo/cmd_vel`, the robot moves at 40% of the request with no log error.
 
 ```bash
-ros2 topic info /demo/cmd_vel_si --verbose | grep -c "Node name"   # 1: o Nav2
-ros2 topic info /demo/cmd_vel    --verbose | grep -c "Node name"   # 1: o conversor
+ros2 topic info /demo/cmd_vel_si --verbose | grep -c "Node name"   # 1: Nav2
+ros2 topic info /demo/cmd_vel    --verbose | grep -c "Node name"   # 1: the converter
 ```
 
-### O robô chega na meta e a meta reprova
+### The robot reaches the goal but the goal fails
 
-Orientação final. Se o `yaw` da meta não for o rumo de **chegada**, o Nav2 pede
-giro parado ao chegar — 110 a 139° no percurso default, 16 a 20 s ao teto de
-guinada. E girar parado não fica parado: medido, o robô chegou a 3,8 cm da meta e
-derivou 0,78 m em y girando, saindo da tolerância de posição.
+Final orientation. If the goal `yaw` is not the **arrival** heading, Nav2
+requests an in-place turn on arrival—110 to 139° on the default route, or 16 to
+20 s at the yaw-rate limit. An in-place turn does not remain in place: in
+measurements, the robot came within 3,8 cm of the goal and drifted 0,78 m in y
+while turning, leaving the position tolerance.
 
-`patrol_commander` usa o rumo de chegada por isso, e
-`yaw_goal_tolerance` é 0,5 rad.
+For this reason, `patrol_commander` uses the arrival heading, and
+`yaw_goal_tolerance` is 0,5 rad.
 
-## Resultados medidos (20/08/2026)
+## Measured results (20/08/2026)
 
-Percurso (4 · 1,5) → (4 · −1,5) → (0 · 0), ciclo, 300 s de tempo de simulação.
-Detalhe e evidência em [`../../results/ml35-nav2-quadrupede.md`](../../results/ml35-nav2-quadrupede.md).
+Route (4 · 1,5) → (4 · −1,5) → (0 · 0), repeated, over 300 s of simulation
+time. Details and evidence in
+[`../../results/ml35-nav2-quadrupede.md`](../../results/ml35-nav2-quadrupede.md).
 
-| corrida | mudança | caminho | deslocamento | `cmd_vx` máx SI | abortos | quedas |
+| run | change | path | displacement | maximum SI `cmd_vx` | aborts | falls |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1 | parâmetros do TB4 | 4,16 m | 0,73 m (**para trás**) | 0,016 m/s | 22 | 0 |
-| 2 | horizonte 1,44 m, laço 10 Hz | 5,21 m | 0,74 m | 0,023 m/s | 3 | 0 |
-| 3 | fronteira de unidades | **8,36 m** | **3,51 m** | **0,119 m/s** | 2 | 0 |
-| 4 | metas com rumo de chegada, 420 s | 10,87 m | 0,60 m | 0,119 m/s | 4 | 0 |
+| 1 | TB4 parameters | 4,16 m | 0,73 m (**backward**) | 0,016 m/s | 22 | 0 |
+| 2 | 1,44 m horizon, 10 Hz loop | 5,21 m | 0,74 m | 0,023 m/s | 3 | 0 |
+| 3 | unit boundary | **8,36 m** | **3,51 m** | **0,119 m/s** | 2 | 0 |
+| 4 | goals with arrival heading, 420 s | 10,87 m | 0,60 m | 0,119 m/s | 4 | 0 |
 
-Na corrida 3 o robô chegou a 3,8 cm da primeira meta, passando pelos quatro
-obstáculos com folga positiva — mínima de 0,014 m no cilindro verde.
+In run 3, the robot came within 3,8 cm of the first goal, passing all four
+obstacles with positive clearance—a minimum of 0,014 m at the green cylinder.
 
-Na corrida 4 **a primeira meta foi concluída** e o ciclo seguiu, com movimento
-contínuo por 420 s, zero colisões (folga mínima 0,159 m) e zero quedas.
+In run 4, **the first goal completed** and the cycle continued, with continuous
+movement for 420 s, zero collisions (minimum clearance 0,159 m), and zero falls.
 
-**Cuidado ao comparar 3 com 4.** O MPPI é um amostrador estocástico
-(`regenerate_noises: true`) e há **n = 1 por condição**: a piora no deslocamento
-não é atribuível à mudança. Para atribuir, é preciso repetição por condição.
+**Be careful when comparing 3 with 4.** MPPI is a stochastic sampler
+(`regenerate_noises: true`), and there is **n = 1 per condition**: the worse
+displacement cannot be attributed to the change. Attribution requires repeated
+runs for each condition.
 
-O costmap foi medido separadamente, com o robô parado: custo **0** na célula do
-robô, **0** dentro de 0,6 m, 42 células letais nos obstáculos, zero desconhecidas.
-Dos 2097 pontos da nuvem, 1848 são chão e são descartados pelo corte de 0,12 m.
+The costmap was measured separately with the robot stationary: cost **0** in the
+robot cell, **0** within 0,6 m, 42 lethal cells at obstacles, and zero unknown
+cells. Of the 2097 cloud points, 1848 are ground and are discarded by the
+0,12 m cutoff.
 
-## O que este cenário NÃO valida
+## What this scenario does NOT validate
 
-- **Localização.** `/demo/odom` é ground truth do Gazebo, e `odom_tf` só a
-  republica como TF. O robô sabe exatamente onde está porque o simulador contou.
-  Estimativa de estado com perna é F5.
-- **Percepção.** `demo_perception` continua stub sintético. O que desvia aqui é o
-  lidar, pela `obstacle_layer`; a `perception_layer` está no costmap por contrato,
-  alimentada por um stub.
-- **Desempenho.** Números de CPU, taxa de laço e FPS aqui são da estação x86.
-  Nada disso transfere para o Aquila AM69, e emulação arm64 não mede desempenho
-  (regra 5 do `CLAUDE.md`).
+- **Localization.** `/demo/odom` is Gazebo ground truth, and `odom_tf` merely
+  republishes it as TF. The robot knows its exact location because the simulator
+  reported it. Leg-based state estimation is F5.
+- **Perception.** `demo_perception` remains a synthetic stub. The lidar performs
+  avoidance here through `obstacle_layer`; `perception_layer` is in the costmap
+  by contract and is fed by a stub.
+- **Performance.** CPU, loop-rate, and FPS figures here are from the x86
+  workstation. None transfer to the Aquila AM69, and arm64 emulation does not
+  measure performance (rule 5 in `CLAUDE.md`).
 
-## Aceitação
+## Acceptance
 
-- [ ] `Managed nodes are active` aparece no log do `lifecycle_manager`
-- [ ] `ros2 topic info /demo/cmd_vel --verbose` mostra **um** publicador
-- [ ] a árvore TF tem raiz `map` (`ros2 run tf2_tools view_frames`)
-- [ ] `/demo/scan_cloud` publica e o costmap local mostra células ocupadas
-- [ ] a trajetória gravada tem folga positiva para todos os quatro obstáculos
-- [ ] zero `mode=RECOVER` no log do simulador (o robô não caiu)
+- [ ] `Managed nodes are active` appears in the `lifecycle_manager` log
+- [ ] `ros2 topic info /demo/cmd_vel --verbose` shows **one** publisher
+- [ ] the TF tree is rooted at `map` (`ros2 run tf2_tools view_frames`)
+- [ ] `/demo/scan_cloud` publishes and the local costmap shows occupied cells
+- [ ] the recorded trajectory has positive clearance from all four obstacles
+- [ ] zero `mode=RECOVER` in the simulator log (the robot did not fall)

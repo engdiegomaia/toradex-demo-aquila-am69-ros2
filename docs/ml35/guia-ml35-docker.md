@@ -1,16 +1,19 @@
-# ML3.5, arquitetura containerizada e guia de execução
+# ML3.5, containerized architecture and execution guide
 
-Spec de implementação. Vale sobre o plano original onde houver divergência.
+Implementation spec. It goes on the original plan where there is divergence.
 
-Alvo: ROS 2 Jazzy, Gazebo Harmonic, quadrúpede A1, host x86 de simulação mais módulo Aquila AM69 rodando Torizon OS.
+Target: ROS 2 Jazzy, Gazebo Harmonic, quadrupede A1, host x86 simulation more module
+Aquila AM69 running Torizon OS.
 
 ---
 
-## 1. Eixo de modularidade
+## 1. Modularity axis
 
-A decomposição não é por pacote ROS. É por resposta a uma pergunta: o que precisa ser trocado quando a simulação vira hardware real?
+Decomp is not by package ROS. It is by answering a question: what needs to be changed
+when the simulation becomes real hardware?
 
-A resposta é uma coisa só, a planta. Tudo acima dela consome o mesmo contrato de tópicos e não sabe se está falando com Gazebo ou com um A1 físico.
+The answer is one thing, the plant. Everything above it consumes the same topic contract
+and does not know if you are talking to Gazebo or a physical A1.
 
 ```
         planta (trocável)                consumidores (fixos)
@@ -22,28 +25,39 @@ A resposta é uma coisa só, a planta. Tudo acima dela consome o mesmo contrato 
             contrato: /demo/cmd_vel  /demo/odom  /demo/scan  /demo/camera/image_raw
 ```
 
-Por que `sim` é um container só e não dois: `gz_ros2_control` é plugin do Gazebo e carrega o `controller_manager` dentro do processo do `gz sim`. Separar Gazebo dos controladores em containers diferentes não é possível sem reescrever a integração. Então a planta simulada é uma unidade: Gazebo, `gz_ros2_control`, controladores de marcha, `robot_state_publisher` e a ponte `ros_gz_bridge`.
+Why `sim` is a container only and not two: `gz_ros2_control` is Gazebo plugin and loads
+`controller_manager` within the `gz sim` process. Separate Gazebo from controllers in
+different containers is not possible without rewriting integration. So the simulated
+plant is a unit: Gazebo, `gz_ros2_control`, march controllers, ZZXQ005QXZZ and the
+ZZXQ006QXZZ bridge.
 
 ---
 
 ## 2. Containers
 
-| Container | Arquitetura | Onde roda | Conteúdo |
+| Container | Architecture | Where it spins | Content |
 |---|---|---|---|
-| `sim` | x86_64 apenas | host | Gazebo Harmonic, `ros_gz_sim`, `ros_gz_bridge`, `gz_ros2_control`, controladores quadrúpede, descrição do robô, mundo |
-| `nav` | x86_64 e arm64 | host ou módulo | Nav2, mapa, params, costmaps |
-| `perception` | x86_64 e arm64 | host ou módulo | `demo_perception`, sem alteração |
-| `viz` | x86_64 apenas | host apenas | RViz2, rqt |
-| `tools` | x86_64 e arm64 | qualquer | teleop, CLI ROS 2, colcon, execução dos testes |
-| `hw` | arm64 apenas | módulo | placeholder, A1 físico, fora do escopo do ML3.5 |
+| `sim` | x86 64 only | host | Gazebo Harmonic, `ros_gz_sim`, `ros_gz_bridge`, `gz_ros2_control`, quadruped controllers, robot description, world |
+| `nav` | x86 64 and arm64 | host or module | Nav2, map, params, costmaps |
+| `perception` | x86 64 and arm64 | host or module | `demo_perception` without change |
+| `viz` | x86 64 only | host only | RViz2, rqt |
+| `tools` | x86 64 and arm64 | any | teleop, CLI ROS ZZX0002QXZZ, colcon, test run |
+| `hw` | arm64 only | module | placeholder, A1 physical, outside the scope of ML3.5 |
 
-`sim` e `viz` nunca vão para arm64. Regra 1 do projeto, Gazebo é OGRE 2 e RViz2 quer GL de desktop. A build multi-arch é seletiva, não uniforme.
+`sim` and `viz` never go to arm64. 1 rule of the project, Gazebo is OGRE ZZX0004QXZZ and
+RViz2 either ZZXQ005QXZZ desktop. The multi-arch build is selective, not uniform.
 
-`hw` existe no repo desde F1, vazio, com um README de uma linha. É onde a colisão de invariantes registrada no plano vai bater: a base de `quadruped_ros2_control` documenta conflito entre CycloneDDS e `unitree_sdk2` e recomenda FastDDS, enquanto a regra 2 do projeto é CycloneDDS sempre. Enquanto o A1 for simulado, o SDK não entra e não há colisão. O container vazio serve para o problema ficar visível no lugar certo em vez de aparecer como surpresa.
+`hw` exists in the repo since F1, empty, with a README of a line. This is where the
+collision of invariants registered in the plan will hit: the basis of
+`quadruped_ros2_control` documents conflict between CyclonedDS and `unitree_sdk2` and
+recommends FastDDS, while the project's 2 rule is CyclonedDS always. As long as the
+ZZXQ006QXZZ is simulated, the SDK does not enter and there is no collision. The empty
+container serves to make the problem visible in the right place instead of appearing as
+a surprise.
 
 ---
 
-## 3. Layout no repositório
+## 3. Layout in repository
 
 ```
 docker/
@@ -64,20 +78,22 @@ docs/ml35/
   guia-ml35-docker.md       # este arquivo
 ```
 
-`base` centraliza a configuração de RMW e o `source` do overlay. Um lugar para mudar, não seis.
+`base` centralizes RMW configuration and `source` overlay configuration. A place to
+change, not six.
 
 ---
 
-## 4. Imagem base
+## 4. Base Image
 
-`ros:jazzy-ros-base` tem tag arm64 e serve host e módulo. Torizon OS é um host Docker, então a imagem oficial roda no módulo sem adaptação de userspace.
+`ros:jazzy-ros-base` has an arm64 tag and serves host and module. Torizon OS is a Docker
+host, so the official image runs in the module without userspace adaptation.
 
-Duas restrições que valem para as imagens arm64:
+Two restrictions that apply to the arm64 images:
 
-- O storage de containers no Torizon fica na partição de dados. Camada gorda custa espaço real. Use `--no-install-recommends`, limpe `/var/lib/apt/lists` na mesma layer e mantenha `nav` e `perception` sem nada de gráfico.
-- Acesso ao acelerador do AM69 a partir do container exige os device nodes e o runtime da TI, que a imagem ROS genérica não traz. Se `demo_perception` for para inferência acelerada em algum momento, confirme os nodes e a stack na documentação Toradex e TI antes de assumir qualquer coisa. Liste `/dev` no host primeiro. Enquanto a percepção for CPU e OpenCV, nada disso é necessário.
+- Torizon container storage is on the data partition. Fat layer costs real space. Use `--no-install-recommends`, clean `/var/lib/apt/lists` in the same layer and keep ZZX0002QXZZ and `perception` without any graphics.
+- Access to the AM69 accelerator from the container requires the device nodes and runtime of TI, which the generic ROS image does not bring. If `demo_perception` is for accelerated inference at any time, confirm the nodes and stack in the Toradex and TI documentation before assuming anything. List ZZXQ005QXZZ on host first. As long as the perception is CPU and OpenCV, none of this is necessary.
 
-Build arm64 a partir do host x86:
+Build arm64 from host x86:
 
 ```bash
 docker run --privileged --rm tonistiigi/binfmt --install arm64
@@ -86,15 +102,18 @@ docker buildx build --platform linux/arm64 \
   -f docker/nav/Dockerfile -t ${REGISTRY}/demo-nav:${TAG} --push .
 ```
 
-QEMU aqui constrói imagem. Não mede nada. Regra 5.
+QEMU here builds image. It doesn't measure anything. 5 rule.
 
 ---
 
-## 5. DDS entre containers e entre máquinas
+## 5. DDS between containers and between machines
 
-Todos os containers usam `network_mode: host`. Isso resolve descoberta entre containers da mesma máquina sem configuração adicional e evita a classe de problema de DDS atrás de bridge NAT.
+All containers use `network_mode: host`. This solves discovery between containers of the
+same machine without additional configuration and avoids the problem class of DDS behind
+bridge NAT.
 
-Entre host e módulo, multicast costuma morrer em Wi-Fi e em switch gerenciado. Não dependa dele. Use peers explícitos.
+Between host and module, multicast usually dies in Wi-Fi and managed switch. Don't
+depend on him. Use explicit pears.
 
 `docker/cyclonedds/host.xml`:
 
@@ -118,7 +137,8 @@ Entre host e módulo, multicast costuma morrer em Wi-Fi e em switch gerenciado. 
 </CycloneDDS>
 ```
 
-`module.xml` é o mesmo arquivo com a interface do módulo. Ajuste `NetworkInterface name` ao que existe na máquina, confira com `ip -br link`.
+`module.xml` is the same file with the module interface. Adjust `NetworkInterface name`
+to what is on the machine, check with `ip -br link`.
 
 `.env.example`:
 
@@ -131,13 +151,14 @@ MODULE_IP=192.0.2.11
 DISPLAY=:0
 ```
 
-`ROS_DOMAIN_ID` igual nas duas máquinas. Domínio diferente é a causa mais comum de "os tópicos não aparecem" e não gera erro nenhum.
+`ROS_DOMAIN_ID` the same on both machines. Different domain is the most common cause of
+"the topics do not appear" and does not cause any error.
 
 ---
 
-## 6. Compose do host
+## 6. Host Compose
 
-`docker/compose.host.yml`, trecho:
+`docker/compose.host.yml`, excerpt:
 
 ```yaml
 x-common: &common
@@ -193,15 +214,19 @@ services:
     command: ros2 launch demo_bringup viz.launch.py
 ```
 
-`nav` e `perception` ficam sob o profile `learn`. No modo HIL eles simplesmente não sobem no host, sem edição de arquivo.
+`nav` and `perception` are under the `learn` profile. In HIL mode they just don't go on
+the host, without editing the file.
 
-Para NVIDIA no host, troque o mapeamento de `/dev/dri` por `gpus: all` com o nvidia-container-toolkit instalado. Para Intel e AMD, `/dev/dri` basta.
+For NVIDIA on the host, change the mapping of `/dev/dri` by `gpus: all` with the
+nvidia-container-toolkit installed. For Intel and AMD, `/dev/dri` is enough.
 
-`use_sim_time` é `true` em tudo que consome a simulação, inclusive no módulo em modo HIL, e a ponte precisa publicar `/clock`. Relógio errado no módulo produz TF extrapolando e Nav2 recusando goal sem mensagem óbvia.
+`use_sim_time` is `true` in everything that consumes the simulation, including in the
+module in HIL mode, and the bridge needs to publish `/clock`. Wrong clock in module
+produces TF extrapolating and Nav2 refusing goal without obvious message.
 
 ---
 
-## 7. Compose do módulo
+## 7. Module Compose
 
 `docker/compose.module.yml`:
 
@@ -231,37 +256,40 @@ services:
     command: ros2 launch demo_bringup perception.launch.py use_sim_time:=true
 ```
 
-Sem `sim`, sem `viz`, sem X11, sem `/dev/dri`. Nada gráfico chega ao módulo.
-O mesmo `ROBOT_TYPE` seleciona a planta no host e o Nav2 correspondente nos dois
-Compose. No quadrúpede, `odom_tf` ainda deriva a TF do ground truth do Gazebo;
-estimativa por pernas permanece fora do fechamento da ML3.5.
+No `sim`, no `viz`, no X11, no `/dev/dri`. Nothing graphic gets to the module. The same
+`ROBOT_TYPE` selects the plant in the host and the corresponding Nav2 in the two
+Compose. In the quadruped, `odom_tf` still derives the ZZXQ00006QXZZ from Gazebo's
+ground truth; leg estimation remains outside the closure of ML3.ZZXQ008QXZZ.
 
-Quando houver câmera real, no modo deploy, `perception` ganha o mapeamento do device:
+When there is a real camera in deploy mode, `perception` wins the device mapping:
 
 ```yaml
     devices:
       - "/dev/video0:/dev/video0"
 ```
 
-Antes de debugar permissão de container, confirme que o node existe no host. Se o Device Tree não instanciou o sensor, não há mapeamento que resolva.
+Before debugging container permission, confirm that the node exists in the host. If
+Device Tree didn't instigate the sensor, there's no mapping it can solve.
 
 ---
 
-## 8. Modos de execução
+## 8. Execution modes
 
-| Modo | Host x86 | Módulo Aquila AM69 | Para que serve |
+| Mode | Host x86 | Module Aquila AM69 | What is it for? |
 |---|---|---|---|
-| `learn` | `sim`, `nav`, `perception`, `viz` | desligado | desenvolvimento e o portão de F2 a F5 |
-| `hil` | `sim`, `viz` | `nav`, `perception` | prova que a divisão funciona, é o entregável do ML3.5 |
-| `deploy` | nada | `nav`, `perception`, `hw` | A1 físico, fora do escopo |
+| `learn` | `sim`, `nav`, `perception`, `viz` | off | development and gate of F2 to F5 |
+| `hil` | `sim`, `viz` | `nav`, `perception` | proves that the division works, is the deliverable of ML3.5 |
+| `deploy` | Nothing | `nav`, `perception`, `hw` | A1 physical, out of scope |
 
-`learn` é o que existe hoje, containerizado. `hil` é o modo que vale a pena demonstrar: a simulação roda onde tem GPU, a navegação e a percepção rodam onde vão rodar em produção.
+`learn` is what exists today, containerized. `hil` is the way to demonstrate: the
+simulation wheel where it has GPU, navigation and perception run where they will run in
+production.
 
 ---
 
-## 9. Como rodar
+## 9. How to rotate
 
-### Modo learn, tudo no host
+### Learn mode, all in the host
 
 ```bash
 cd docker
@@ -270,7 +298,7 @@ xhost +local:docker
 docker compose -f compose.host.yml --profile learn up --build
 ```
 
-Verificação, de outro terminal:
+Verification from another terminal:
 
 ```bash
 docker compose -f compose.host.yml exec tools bash
@@ -280,30 +308,30 @@ ros2 topic echo /demo/odom --once
 ros2 control list_controllers
 ```
 
-Goal de navegação, mesmo critério que o ML3 já bateu:
+Navigation goal, same criterion as ML3 has already hit:
 
 ```bash
 ros2 action send_goal /navigate_to_pose nav2_msgs/action/NavigateToPose \
   "{pose: {header: {frame_id: map}, pose: {position: {x: 2.0, y: 0.0}}}}"
 ```
 
-Encerrar:
+Close:
 
 ```bash
 docker compose -f compose.host.yml --profile learn down
 xhost -local:docker
 ```
 
-### Modo hil, simulação no host e navegação no módulo
+### Hil mode, host simulation and module navigation
 
-Host, só a planta e a visualização:
+Host, only the plant and the display:
 
 ```bash
 cd docker
 docker compose -f compose.host.yml up sim viz
 ```
 
-Publicar as imagens arm64 e levar o compose para o módulo:
+Post the arm64 images and take the compose to the module:
 
 ```bash
 docker buildx build --platform linux/arm64 -f nav/Dockerfile \
@@ -314,13 +342,13 @@ docker buildx build --platform linux/arm64 -f perception/Dockerfile \
 scp compose.module.yml .env cyclonedds/module.xml torizon@${MODULE_IP}:~/demo/
 ```
 
-Sem registry acessível, transfira a imagem direto:
+No register accessible, download the direct image:
 
 ```bash
 docker save ${REGISTRY}/demo-nav:${TAG} | ssh torizon@${MODULE_IP} docker load
 ```
 
-Módulo:
+Module:
 
 ```bash
 ssh torizon@${MODULE_IP}
@@ -328,7 +356,7 @@ cd ~/demo && docker compose -f compose.module.yml up -d
 docker compose -f compose.module.yml logs -f nav
 ```
 
-Verificação de que as duas máquinas se enxergam, do módulo:
+Check that the two machines see each other from the module:
 
 ```bash
 ros2 daemon stop && ros2 daemon start
@@ -336,41 +364,50 @@ ros2 topic list | grep /demo/
 ros2 topic hz /demo/scan
 ```
 
-Se a lista vier vazia, a ordem de checagem é: `ROS_DOMAIN_ID` igual nos dois lados, `ip -br link` batendo com o `NetworkInterface name` do XML, IPs do `Peers` corretos, firewall do host liberando UDP 7400 e adjacentes.
+If the list is empty, the check order is: `ROS_DOMAIN_ID` equal on both sides, `ip -br
+link` hitting with the `NetworkInterface name` ZZX0003QXZZ, `Peers` IPs correct, host
+firewall releasing ZZXQ005QXZZ ZZXQ006QXZZ and adjacent.
 
-### Modo deploy
+### Deploy Mode
 
-Fora do escopo do ML3.5. O container `hw` fica vazio até existir A1 físico, e é onde a decisão CycloneDDS contra FastDDS vai precisar ser tomada.
+Outside the scope of ML3.5. `hw` container is empty until it exists A1 physical, and
+that's where the CycloneDDS decision against FastDDS will need to be made.
 
 ---
 
-## 10. Onde cada fase toca a infraestrutura
+## 10. Where each phase touches the infrastructure
 
-| Fase | Docker | ROS |
+| Phase | Docker | ROS |
 |---|---|---|
-| F0 | nada | changelog do ML3.1, commit das 1047 linhas |
-| F1 | cria `docker/` inteiro, `base`, `sim`, `nav`, `perception`, `viz`, `tools`, os dois composes, o XML de DDS | nenhuma mudança de comportamento, só empacotamento do diff-drive atual |
-| F2 | tag descartável `demo-sim:spike-go2` | clone da base upstream, Go2 sem modificação |
-| F3 | mesma imagem `sim`, muda o conteúdo | descrição do A1, cinemática, massas, limites de junta, malhas |
-| F4 | nada | remaps para `/demo/*`, `demo_perception` intocado |
-| F5 | promove `nav` e `perception` para arm64, valida `hil` | odometria de pernas contra costmap, `robot_radius`, footprint, tolerâncias |
-| F6 | profile e variável `ROBOT_TYPE` no compose | `robot_type:=quadruped\|diffdrive`, testes estendidos |
+| F0 | Nothing | ML3.1, 1047 line commit |
+| F1 | creates `docker/` whole, `base`, `sim`, `nav`, `perception`, `viz`, `tools`, the two compounds, XML by ZZXQ008QXZZ | no behavior change, just packing the current diff-drive |
+| F2 | Disposable tag `demo-sim:spike-go2` | clone from upstream base, Go2 without modification |
+| F3 | same image `sim`, changes content | description of A1, kinematics, masses, joint limits, knitted or crocheted |
+| F4 | Nothing | remaps for `/demo/*`, `demo_perception` untouched |
+| F5 | promotes `nav` and `perception` for arm64, valid `hil` | `robot_radius`, footprint, tolerances |
+| F6 | profile and variable `ROBOT_TYPE` no compose | # Robot type #|diffdrive`, extended tests |
 
-F1 antes de F2 é deliberado. Se o compose quebrar depois que o quadrúpede entrar, você não sabe se foi Docker, DDS ou marcha. Containerizando o que já funciona, F2 falha por um motivo só.
+F1 before F2 is deliberate. If you make it break after the quadruped enters, you don't
+know if it was Docker, DDS or march. Containering what already works, F2 fails for one
+reason only.
 
 ---
 
-## 11. Pontos a confirmar, não a assumir
+## 11. Points to confirm, not to assume
 
-O plano original afirma coisas sobre `quadruped_ros2_control` que precisam ser verificadas no momento do clone, em F2:
+The original plan states things about `quadruped_ros2_control` that need to be checked
+at the time of the clone in F2:
 
-- Suporte real a Jazzy e a Harmonic na branch default.
-- Licença, antes de vendorizar qualquer descrição derivada de `unitree_ros`.
-- Ausência de config do A1 e o que exatamente vem de `chvmp/robots`.
+- Real support for Jazzy and Harmonic at the default branch.
+- License before selling any description derived from `unitree_ros`.
+- Absence of A1 config and what exactly comes from `chvmp/robots`.
 
-Sobre o módulo:
+About module:
 
-- Device nodes e runtime necessários para o acelerador do AM69 dentro de container. Confirme na documentação Toradex e TI, liste `/dev` no host antes.
-- Espaço livre na partição de dados do Torizon antes de subir as imagens.
+- Device nodes and runtime required for the AM69 accelerator inside container. Confirm in the Toradex and TI documentation, list `/dev` in the host before.
+- Free space on Torizon data partition before uploading images.
 
-Risco silencioso que continua valendo do plano original: parâmetro de marcha sintonizado para Go2 rodando num A1 produz robô que anda mal sem gerar erro. Mesma classe da armadilha de escala que o ML3.1 já pagou. O portão de F3 é robô em pé e estável respondendo a `cmd_vel`, não build limpo.
+Silent risk that continues to be worth the original plane: tuned gait parameter for Go2
+running on a A1 produces robot that walks poorly without generating error. Same class as
+the scaling trap ML3.1 has already paid for. The F3 gate is robot standing and stable
+responding to `cmd_vel`, not built clean.

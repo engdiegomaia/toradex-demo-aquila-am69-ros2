@@ -1,7 +1,7 @@
 # ML3.5 F5 — a rota de exploração de 19 metas: o MPPI manda girar, a planta não gira
 
 Data: 27/08/2026. Topologia: **HIL real** — Gazebo Harmonic no host x86,
-Nav2 + percepção no Aquila AM69 (`192.0.2.5`, `enp0s31f6`, RTT 0,170 ms),
+Nav2 + percepção no Aquila AM69 (`<MODULE_IP>`, `enp0s31f6`, RTT 0,170 ms),
 `bt_navigator` em `active`, `slam_toolbox` como único autor de `map -> odom`.
 
 Amostras cruas: `ml35-f5-slam-exploration.csv` (2400 amostras, 10 Hz).

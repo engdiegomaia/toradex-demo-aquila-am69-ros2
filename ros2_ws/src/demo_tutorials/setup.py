@@ -18,7 +18,7 @@ setup(
     install_requires=['setuptools'],
     zip_safe=True,
     maintainer='Diego Maia',
-    maintainer_email='diego.maia@toradex.com',
+    maintainer_email='engdiegomaia@users.noreply.github.com',
     description='L1 learning code — heartbeat pub/sub, service example, launch composition.',
     license='Apache-2.0',
     tests_require=['pytest'],

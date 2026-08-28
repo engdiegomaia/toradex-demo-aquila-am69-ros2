@@ -1,186 +1,192 @@
-# Cenários de simulação
+# Simulation scenarios
 
-Seis mundos, cada um exercitando uma parte diferente da pilha. Um guia por
-cenário, com o que ele mede, como rodar, e o que aceitar como resultado.
+Six worlds, each exercising a different part of the stack. One guide per
+scenario describes what it measures, how to run it, and what result to accept.
 
-**Todos rodam na estação x86.** Gazebo Harmonic é OGRE 2 e não roda no Aquila
-AM69 — regra 1 do `CLAUDE.md`. Nenhum número medido aqui vale como validação de
-hardware.
+**All run on the x86 workstation.** Gazebo Harmonic uses OGRE 2 and does not run
+on the Aquila AM69—rule 1 in `CLAUDE.md`. No figure measured here constitutes
+hardware validation.
 
-Resultado da bateria de 20/08/2026, RTF 1,00 em todas:
+Results from the 20/08/2026 batch, all at RTF 1,00:
 
-| # | resultado | `RECOVER` | tilt pico | caranguejo | erro do estimador em y |
+| # | result | `RECOVER` | peak tilt | crabbing | estimator y error |
 | --- | --- | --- | --- | --- | --- |
-| S0 plano | passa | 0 | 1,08° | 3,20% | −0,145 m |
-| S1 rampa 6° | passa | 0 | **0,96°** | 2,38% | −0,111 m |
-| S2 irregular | passa | 0 | 2,81° | **6,31%** | **−0,244 m** |
-| S3 corredor | passa | 0 | 1,38° | 0,33% | −0,141 m |
-| S4 objetos | passa (câmera) | 0 | — | — | — |
+| S0 plane | passes | 0 | 1,08° | 3,20% | −0,145 m |
+| S1 6° ramp | passes | 0 | **0,96°** | 2,38% | −0,111 m |
+| S2 rough | passes | 0 | 2,81° | **6,31%** | **−0,244 m** |
+| S3 corridor | passes | 0 | 1,38° | 0,33% | −0,141 m |
+| S4 objects | passes (camera) | 0 | — | — | — |
 
-O caranguejo acompanha o erro do estimador em todos os cenários, e não a
-dificuldade da marcha: é **maior em terreno irregular** e **menor em rampa** do
-que no plano. Confirma que a deriva lateral é o Defeito 1 e não sintonia de
-marcha. O S2 é o cenário de referência para trabalhar o estimador.
+Crabbing tracks estimator error across all scenarios, not gait difficulty: it
+is **greater on rough terrain** and **lower on the ramp** than on the plane. This
+confirms that lateral drift is Defect 1, not gait tuning. S2 is the reference
+scenario for estimator work.
 
-| # | Cenário | Mundo | Exercita | Guia |
+| # | Scenario | World | Exercises | Guide |
 | --- | --- | --- | --- | --- |
-| S0 | Plano vazio | `quadruped_empty.sdf` | marcha, referência de tudo | [s0-plano-vazio.md](s0-plano-vazio.md) |
-| S1 | Rampa 6° | `quadruped_ramp.sdf` | equilíbrio em inclinação, limite de tilt | [s1-rampa.md](s1-rampa.md) |
-| S2 | Terreno irregular | `quadruped_rough.sdf` | colocação de pé, estimador fora do plano | [s2-terreno-irregular.md](s2-terreno-irregular.md) |
-| S3 | Corredor | `quadruped_corridor.sdf` | `/demo/scan`, caminho do costmap (F5) | [s3-corredor.md](s3-corredor.md) |
-| S4 | Objetos | `quadruped_objects.sdf` | `/demo/camera/*`, contrato de percepção | [s4-objetos.md](s4-objetos.md) |
-| S5 | Nav2 desviando | `quadruped_objects.sdf` | malha fechada: nuvem → costmap → MPPI → marcha | [s5-nav2-desvio.md](s5-nav2-desvio.md) |
-| S6 | Labirinto interativo | `quadruped_maze11.sdf` | metas por clique, TF, lidar e câmera no RViz | [s6-labirinto.md](s6-labirinto.md) |
+| S0 | Empty plane | `quadruped_empty.sdf` | gait, reference for everything | [s0-plano-vazio.md](s0-plano-vazio.md) |
+| S1 | 6° ramp | `quadruped_ramp.sdf` | incline balance, tilt limit | [s1-rampa.md](s1-rampa.md) |
+| S2 | Rough terrain | `quadruped_rough.sdf` | foot placement, off-plane estimator | [s2-terreno-irregular.md](s2-terreno-irregular.md) |
+| S3 | Corridor | `quadruped_corridor.sdf` | `/demo/scan`, costmap path (F5) | [s3-corredor.md](s3-corredor.md) |
+| S4 | Objects | `quadruped_objects.sdf` | `/demo/camera/*`, perception contract | [s4-objetos.md](s4-objetos.md) |
+| S5 | Nav2 avoidance | `quadruped_objects.sdf` | closed loop: cloud → costmap → MPPI → gait | [s5-nav2-desvio.md](s5-nav2-desvio.md) |
+| S6 | Interactive maze | `quadruped_maze11.sdf` | click-to-set goals, TF, lidar and camera in RViz | [s6-labirinto.md](s6-labirinto.md) |
 
-O S6 passou de `maze10` para **`maze11`** em 21/08/2026: mesma largura de
-corredor (1,20 m) e mesma altura de parede (0,60 m), com **35,4 m² navegáveis
-contra 18,4 m²**, num único componente conectado. `quadruped_maze.sdf` (maze10)
-continua na árvore como a referência que produziu a evidência anterior.
-Geometria medida por `scripts/maze_fit.py`, números em
+S6 changed from `maze10` to **`maze11`** on 21/08/2026: the same corridor width
+(1,20 m) and wall height (0,60 m), with **35,4 m² navigable versus 18,4 m²** in
+a single connected component. `quadruped_maze.sdf` (maze10) remains in the tree
+as the reference that produced the earlier evidence. Geometry measured by
+`scripts/maze_fit.py`, with figures in
 [`../../results/ml35-labirinto.md`](../../results/ml35-labirinto.md).
 
-## Como rodar qualquer um
+## How to run any scenario
 
 ```bash
-# na estação x86, terminal 1 -- sobe o mundo
+# on the x86 workstation, terminal 1 -- start the world
 ./scripts/run_quadruped_sim.sh quadruped_ramp.sdf
 
-# terminal 2 -- verifica o contrato de tópicos
+# terminal 2 -- verify the topic contract
 source /opt/ros/jazzy/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=69
 python3 scripts/scenario_check.py --seconds 20
 ```
 
-O argumento de `run_quadruped_sim.sh` **sem barra** é resolvido no `share` de
-`demo_simulation`. Com barra, é tratado como caminho absoluto. Passar um nome
-que não existe faz o Gazebo subir com um mundo vazio e sem erro visível — se o
-robô aparecer num plano infinito quando você pediu uma rampa, foi isso.
+An argument to `run_quadruped_sim.sh` **without a slash** is resolved in the
+`demo_simulation` `share`. With a slash, it is treated as an absolute path.
+Passing a nonexistent name starts Gazebo with an empty world and no visible
+error—if the robot appears on an infinite plane when you requested a ramp, this
+is what happened.
 
-## O verificador
+## The checker
 
-`scripts/scenario_check.py` é só leitura: não publica em `/demo/cmd_vel`, então
-pode rodar em paralelo com qualquer roteiro de movimento. Ele mede taxa por
-tópico contra um piso, e o piso não é alvo de projeto — é o valor abaixo do qual
-o consumidor a jusante quebra de forma observável. Um tópico a 0 Hz com o nome
-aparecendo no `ros2 topic list` é o modo de falha mais silencioso desta
-simulação, e é a razão de o script existir.
+`scripts/scenario_check.py` is read-only: it does not publish to
+`/demo/cmd_vel`, so it can run alongside any movement routine. It measures each
+topic's rate against a floor; that floor is not a design target, but the value
+below which a downstream consumer visibly breaks. A topic at 0 Hz whose name
+appears in `ros2 topic list` is this simulation's quietest failure mode and the
+reason the script exists.
 
-## O que é conhecido e esperado em TODOS os cenários
+## What is known and expected in ALL scenarios
 
-Não são defeitos deste ou daquele mundo; são o estado da aplicação hoje.
+These are not defects in a particular world; they are the application's current
+state.
 
-- **A árvore TF fecha quando o Nav2 do Go2 está ativo.** `odom_tf` publica
-  `odom → base` a partir de `/demo/odom` e `map → odom` como identidade. Essa
-  odometria é ground truth do Gazebo: serve à demo HIL, mas não valida
-  localização por pernas. Sem o launch de navegação, essas duas arestas estarem
-  ausentes é esperado.
-- **Desvio só existe nos cenários comandados pelo Nav2.** `gait_trial.sh` e
-  `demo_routine` continuam em malha aberta por desenho. S5/S6 usam
-  `/demo/scan_cloud`, os 16 anéis do lidar, porque o `/demo/scan` de um anel não
-  vê objetos isolados de forma confiável.
-- **`/demo/perception/detections` só existe se `demo_perception` estiver
-  rodando**, e quando existe é um stub **determinístico e sintético**: ele não
-  olha a imagem. Nenhum cenário aqui valida detecção.
-- **Caranguejo de ~2% da distância de avanço.** O estimador acredita que andou
-  reto enquanto o robô escorrega de lado. Causa medida em
-  `../../results/ml35-postura-parada.md`; é o Defeito 1, e não há ganho de
-  marcha que corrija.
-- **Tremor de ~2,6° de guinada pico a pico quando parado.**
+- **The TF tree connects when Go2 Nav2 is active.** `odom_tf` publishes
+  `odom → base` from `/demo/odom` and `map → odom` as identity. This odometry
+  is Gazebo ground truth: it serves the HIL demo but does not validate leg-based
+  localization. Without the navigation launch, those two edges are expected to
+  be absent.
+- **Avoidance exists only in Nav2-commanded scenarios.** `gait_trial.sh` and
+  `demo_routine` remain open-loop by design. S5/S6 use `/demo/scan_cloud`, all
+  16 lidar rings, because the single-ring `/demo/scan` does not reliably see
+  isolated objects.
+- **`/demo/perception/detections` exists only while `demo_perception` is
+  running**, and when present it is a **deterministic synthetic** stub: it does
+  not inspect the image. No scenario here validates detection.
+- **Crabbing of ~2% of forward distance.** The estimator believes it traveled
+  straight while the robot slips sideways. The cause was measured in
+  `../../results/ml35-postura-parada.md`; it is Defect 1, and no gait gain fixes
+  it.
+- **~2,6° peak-to-peak yaw jitter while stationary.**
 
-## Armadilha: "a simulação travou, o robô não levantou"
+## Pitfall: "the simulation froze; the robot did not stand up"
 
-Sintoma: o Gazebo abre, o robô aparece deitado ou de pé rígido, e nada acontece.
-O log repete:
+Symptom: Gazebo opens, the robot appears lying down or standing rigidly, and
+nothing happens. The log repeats:
 
 ```
 [controller_manager]: No clock received, using time argument instead!
 ```
 
-**Não é o robô.** É o `/clock` não chegando ao lado ROS. Sem ele o
-`controller_manager` não avança, a FSM nunca sai do estado inicial, e o robô
-nunca fica de pé. Medido em 20/08/2026: o Gazebo estava rodando normalmente —
-sim_time 524,9 s, RTF 0,9997, 524.932 iterações — e a `ros_gz_bridge` estava viva
-e inscrita no tópico Gazebo certo. Ela simplesmente não repassou.
+**The robot is not the problem.** `/clock` is not reaching the ROS side. Without
+it, `controller_manager` does not advance, the FSM never leaves its initial
+state, and the robot never stands. Measured on 20/08/2026: Gazebo was running
+normally—sim_time 524,9 s, RTF 0,9997, 524.932 iterations—and `ros_gz_bridge`
+was alive and subscribed to the correct Gazebo topic. It simply did not relay
+the messages.
 
-### Como distinguir em 30 segundos
+### How to identify this in 30 seconds
 
 ```bash
-# 1. O Gazebo esta avancando? (dentro do container)
+# 1. Is Gazebo advancing? (inside the container)
 docker exec aquila-go2 bash -c '. /opt/ros/jazzy/setup.sh; \
   gz topic -e -t /world/<nome_do_mundo>/stats -n 1'
-# -> se real_time_factor ~1.0 e iterations sobe, a fisica esta OK
+# -> if real_time_factor ~1.0 and iterations increases, physics is OK
 
-# 2. O gz /clock publica?
+# 2. Does gz /clock publish?
 docker exec aquila-go2 bash -c '. /opt/ros/jazzy/setup.sh; \
   gz topic -e -t /clock -n 2'
 
-# 3. O ROS /clock recebe?
+# 3. Does ROS /clock receive messages?
 docker exec aquila-go2 bash -c '. /opt/ros/jazzy/setup.sh; \
   ros2 topic hz /clock'
 ```
 
-Gazebo avançando + `gz /clock` publicando + `ros2 topic hz /clock` **sem saída** =
-esta falha. Note que `ros2 topic info /clock` mostra contagens de publisher e
-subscriber corretas mesmo assim — a contagem não prova entrega, e é por isso que
-o `scenario_check.py` conta mensagens numa janela em vez de listar tópicos.
+Gazebo advancing + `gz /clock` publishing + `ros2 topic hz /clock` **with no
+output** = this failure. Note that `ros2 topic info /clock` still shows correct
+publisher and subscriber counts—counts do not prove delivery, which is why
+`scenario_check.py` counts messages over a window instead of listing topics.
 
-### Causa e conduta
+### Cause and response
 
-A falha apareceu no quarto container consecutivo de uma bateria, com troca rápida
-de containers em `--network=host` e o mesmo `ROS_DOMAIN_ID`. Reproduzindo o mesmo
-cenário **sozinho, do zero**, ele sobe normalmente: 0 ocorrências de `No clock`.
-Portanto não é o mundo, e não é o cenário — é estado de descoberta DDS
-atravessado entre containers.
+The failure appeared in the fourth consecutive container in a batch, with rapid
+turnover of containers using `--network=host` and the same `ROS_DOMAIN_ID`.
+Running the same scenario **alone, from scratch** starts normally: 0 occurrences
+of `No clock`. Therefore, neither the world nor the scenario is at fault; stale
+DDS discovery state is crossing between containers.
 
-Conduta:
+Response:
 
-1. **Nunca rode duas simulações ao mesmo tempo.** Elas disputam o nome
-   `aquila-go2` e o domínio DDS. Foi assim que esta falha foi provocada.
-2. Derrube o container, espere ele **sair de `docker ps -a`** (com `--rm` a
-   remoção é assíncrona e o nome fica reservado), e suba de novo.
-3. Entre cenários de uma bateria, dê alguns segundos de folga em vez de
-   reiniciar imediatamente.
+1. **Never run two simulations at the same time.** They compete for the
+   `aquila-go2` name and DDS domain. This is how the failure was triggered.
+2. Stop the container, wait for it to **disappear from `docker ps -a`** (with
+   `--rm`, removal is asynchronous and the name remains reserved), then start
+   it again.
+3. Between scenarios in a batch, allow a few seconds of idle time instead of
+   restarting immediately.
 
-## Estado do caminho de navegação (medido em 20/08/2026)
+## Navigation-path status (measured on 20/08/2026)
 
-Os três bloqueios que esta seção listava como abertos **estão fechados**. O Nav2
-sobe, ativa e planeja sobre o quadrúpede. O histórico está preservado abaixo
-porque cada bloqueio foi fechado de um jeito que tem consequência.
+The three blockers this section previously listed as open **are closed**. Nav2
+starts, activates, and plans for the quadruped. The history is preserved below
+because the way each blocker was closed has consequences.
 
-| peça | estado | evidência |
+| component | status | evidence |
 | --- | --- | --- |
-| lidar como sensor real | **sim** | `L1_lidar`, `gpu_lidar`, 640 × 16, 0,05–10 m, 10 Hz |
-| `/demo/scan` (LaserScan) | sim, 10 Hz | **2D: um anel dos 16.** Inútil para costmap |
-| `/demo/scan_cloud` (PointCloud2) | **sim** | os 16 anéis. 2097 pontos, 249 acima do chão a 1,31–4,43 m |
-| odometria `/demo/odom` | sim, 50 Hz | **ground truth do Gazebo**, não estimativa com perna |
-| `odom` → `base` na TF | **sim** | `demo_bringup/odom_tf` |
-| `map` → `odom` na TF | **sim** | identidade, mesmo nó. Não é localização |
-| árvore TF completa | **sim** | 22 arestas, 9 estáticas, raiz `map` |
-| frame base | resolvido | é `base`; quem cedeu foi o Nav2, não o URDF |
-| Nav2 configurado para o Go2 | **sim** | `nav2_params_go2.yaml`, 13 deltas sobre o do TB4 |
-| Nav2 ativando e planejando | **sim** | `Managed nodes are active`; ver [s5-nav2-desvio.md](s5-nav2-desvio.md) |
+| lidar as a real sensor | **yes** | `L1_lidar`, `gpu_lidar`, 640 × 16, 0,05–10 m, 10 Hz |
+| `/demo/scan` (LaserScan) | yes, 10 Hz | **2D: one of 16 rings.** Useless for the costmap |
+| `/demo/scan_cloud` (PointCloud2) | **yes** | all 16 rings. 2097 points, 249 above ground at 1,31–4,43 m |
+| `/demo/odom` odometry | yes, 50 Hz | **Gazebo ground truth**, not leg-based estimation |
+| `odom` → `base` in TF | **yes** | `demo_bringup/odom_tf` |
+| `map` → `odom` in TF | **yes** | identity, same node. Not localization |
+| complete TF tree | **yes** | 22 edges, 9 static, root `map` |
+| base frame | resolved | it is `base`; Nav2 changed, not the URDF |
+| Nav2 configured for Go2 | **yes** | `nav2_params_go2.yaml`, 13 deltas from TB4 |
+| Nav2 activating and planning | **yes** | `Managed nodes are active`; see [s5-nav2-desvio.md](s5-nav2-desvio.md) |
 
-### Como cada bloqueio foi fechado, e o que isso custou
+### How each blocker was closed and the tradeoff
 
-1. **Frames.** `demo_bringup/odom_tf` republica `/demo/odom` como `odom → base` e
-   publica `map → odom` como identidade. Isso **não é estimativa de estado** — é
-   ground truth do simulador virando TF. Serve para exercitar percepção e
-   planejamento; é inútil como validação de localização, e sai quando a F5
-   entregar o estimador com perna.
+1. **Frames.** `demo_bringup/odom_tf` republishes `/demo/odom` as `odom → base`
+   and publishes `map → odom` as identity. This **is not state estimation**;
+   it turns simulator ground truth into TF. It exercises perception and
+   planning, but is useless for localization validation and will be removed
+   when F5 delivers the leg-based estimator.
 
-   Armadilha: dois publicadores na mesma aresta da TF **não dão erro**. O
-   consumidor recebe as duas e usa a última que chegou. Se subir SLAM ou AMCL,
-   passe `publish_map_identity:=false`.
+   Pitfall: two publishers on the same TF edge **produce no error**. The
+   consumer receives both and uses the last one received. When starting SLAM or
+   AMCL, pass `publish_map_identity:=false`.
 
-2. **Nome do frame.** Quem cedeu foi o arquivo de parâmetros, não o URDF:
-   `nav2_params_go2.yaml` usa `base`. `go2_description` é vendorizado com garantia
-   byte-a-byte que sustenta o argumento de licença, então o nome do frame é dado.
+2. **Frame name.** The parameter file changed, not the URDF:
+   `nav2_params_go2.yaml` uses `base`. `go2_description` is vendored with a
+   byte-for-byte guarantee supporting the licensing argument, so the frame name
+   is fixed.
 
-3. **Representação do lidar.** Nem reapontar o sensor nem editar o URDF: a ponte
-   passou a expor `/scan/points` como `PointCloud2` em `/demo/scan_cloud`, e o
-   costmap consome isso. A ponte é o ponto de injeção que o projeto possui.
+3. **Lidar representation.** Neither reorient the sensor nor edit the URDF: the
+   bridge now exposes `/scan/points` as `PointCloud2` on `/demo/scan_cloud`, and
+   the costmap consumes it. The bridge is the project's available injection
+   point.
 
-   O número que justifica: no mundo `quadruped_objects.sdf`, com quatro objetos a
-   1,5–4,5 m, `/demo/scan` dá **zero** obstáculos — numericamente idêntico ao
-   mundo vazio — e `/demo/scan_cloud` dá **249** pontos de obstáculo. No corredor,
-   2422 a partir de 1,06 m.
+   The supporting figure: in the `quadruped_objects.sdf` world, with four
+   objects at 1,5–4,5 m, `/demo/scan` produces **zero** obstacles—numerically
+   identical to the empty world—while `/demo/scan_cloud` produces **249**
+   obstacle points. In the corridor, it produces 2422 starting at 1,06 m.

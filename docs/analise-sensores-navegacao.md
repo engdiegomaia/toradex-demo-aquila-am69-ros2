@@ -1,64 +1,66 @@
-# Sensores da simulação e cadeia de navegação
+# Simulation sensors and the navigation chain
 
-Documento de análise da fase L3. Descreve **exatamente** quais dados de sensor
-saem do Gazebo, por onde passam até chegar ao Nav2, e como o comando de
-navegação volta até os atuadores do robô.
+Analysis document for phase L3. Describes **exactly** which sensor data comes
+out of Gazebo, where it flows through on its way to Nav2, and how the navigation
+command travels back down to the robot's actuators.
 
-Todos os números abaixo foram **medidos** na simulação (Gazebo Harmonic 8.14.0,
-mundo `nav2_minimal_tb4_sim/worlds/warehouse.sdf`), não copiados de
-documentação. Onde um valor não pôde ser verificado, está marcado como tal.
+Every number below was **measured** in simulation (Gazebo Harmonic 8.14.0,
+world `nav2_minimal_tb4_sim/worlds/warehouse.sdf`), not copied from
+documentation. Where a value could not be verified, it is marked as such.
 
-> **Onde isto roda:** tudo neste documento roda na **workstation x86**. Gazebo,
-> `ros_gz_bridge` e RViz2 nunca rodam no módulo Aquila AM69 (regra 1 do
-> `CLAUDE.md`: a GPU do AM69 só expõe OpenGL ES 3.2 / Vulkan 1.2, e o Gazebo é
-> OGRE 2 / OpenGL desktop). Em modo `target`, apenas Nav2, bringup, percepção e
-> `rosbridge_server` migram para o módulo — o simulador permanece no host.
+> **Where this runs:** everything in this document runs on the **x86
+> workstation**. Gazebo, `ros_gz_bridge` and RViz2 never run on the Aquila AM69
+> module (rule 1 of `CLAUDE.md`: the AM69 GPU only exposes OpenGL ES 3.2 /
+> Vulkan 1.2, and Gazebo is OGRE 2 / desktop OpenGL). In `target` mode, only
+> Nav2, bringup, perception and `rosbridge_server` move to the module — the
+> simulator stays on the host.
 
 ---
 
-## 1. O modelo do robô
+## 1. The robot model
 
-O robô é o **TurtleBot 4 upstream**, incluído diretamente de
-`nav2_minimal_tb4_description` (mantido pela equipe Nav2):
+The robot is the **upstream TurtleBot 4**, included directly from
+`nav2_minimal_tb4_description` (maintained by the Nav2 team):
 
 ```
 /opt/ros/jazzy/share/nav2_minimal_tb4_description/urdf/standard/turtlebot4.urdf.xacro
 ```
 
-`demo_description/urdf/demo_robot.urdf.xacro` é hoje apenas um **wrapper fino**
-sobre esse arquivo.
+`demo_description/urdf/demo_robot.urdf.xacro` is now just a **thin wrapper**
+around that file.
 
-**Por que isso mudou.** A versão anterior montava o robô peça por peça a partir
-dos meshes individuais do TB4, com offsets derivados de medição de bounding box —
-manutenção difícil e propensa a erro. O modelo upstream já vem montado.
+**Why this changed.** The previous version assembled the robot piece by piece
+from the individual TB4 meshes, with offsets derived from bounding-box
+measurements — hard to maintain and error-prone. The upstream model already
+comes assembled.
 
-### ⚠️ O robô com "partes separadas" no RViz: a causa mais provável
+### ⚠️ The robot with "separated parts" in RViz: the most likely cause
 
-**Verifique isto ANTES de mexer no modelo.** Duas trocas de modelo e uma correção
-de física não resolveram esse sintoma, porque a causa estava na configuração do
-RViz — não no robô.
+**Check this BEFORE touching the model.** Two model swaps and one physics fix
+did not resolve this symptom, because the cause was in the RViz configuration —
+not in the robot.
 
-O `nav2_bringup/rviz/nav2_default_view.rviz` (que o `learn.launch.py` usava) vem
-com:
+`nav2_bringup/rviz/nav2_default_view.rviz` (which `learn.launch.py` used) ships
+with:
 
-| Display | Valor upstream | Efeito |
+| Display | Upstream value | Effect |
 | --- | --- | --- |
-| `RobotModel` | `Enabled: false` | **o corpo do robô não é desenhado** |
-| `TF` | `Enabled: true`, Show Axes + Show Names | **33 triedros de eixos** desenhados |
+| `RobotModel` | `Enabled: false` | **the robot body is not drawn** |
+| `TF` | `Enabled: true`, Show Axes + Show Names | **33 axis triads** drawn |
 
-Resultado na tela: nenhum corpo de robô e 33 marcadores de eixo rotulados
-flutuando (4 colunas da torre, 4 blocos de peso, 6 zonas de para-choque, 6 frames
-da OAK-D, IMU, rodas, rodízio) exatamente onde o robô deveria estar. Isso **parece
-idêntico** a um robô com as peças separadas.
+Result on screen: no robot body and 33 labelled axis markers floating (4 tower
+columns, 4 weight blocks, 6 bumper zones, 6 OAK-D frames, IMU, wheels, caster)
+exactly where the robot should be. That **looks identical** to a robot with its
+parts separated.
 
-Diagnosticado lendo as flags de display, não o URDF.
+Diagnosed by reading the display flags, not the URDF.
 
-**Correção:** `demo_bringup/rviz/demo_view.rviz` — cópia do arquivo do Nav2 com
-`RobotModel` ligado e `TF` desligado. Para depurar frames, marque `TF` na barra
-lateral e desmarque depois.
+**Fix:** `demo_bringup/rviz/demo_view.rviz` — a copy of the Nav2 file with
+`RobotModel` on and `TF` off. To debug frames, tick `TF` in the sidebar and
+untick it afterwards.
 
 ```bash
-# Confirme as flags do arquivo que o RViz realmente carrega
+# Confirm the flags of the file RViz actually loads
 python3 -c "
 import yaml
 d=yaml.safe_load(open('install/demo_bringup/share/demo_bringup/rviz/demo_view.rviz'))
@@ -68,157 +70,157 @@ for x in d['Visualization Manager']['Displays']:
 "   # RobotModel True / TF False
 ```
 
-### ⚠️ Juntas fixas não fundidas (problema distinto, também real)
+### ⚠️ Unwelded fixed joints (a distinct problem, also real)
 
-Trocar o modelo **não** resolveu esse sintoma, e vale registrar por quê, porque a
-explicação anterior (offsets de mesh errados) estava **incorreta**.
+Swapping the model did **not** resolve this symptom, and it is worth recording
+why, because the previous explanation (wrong mesh offsets) was **incorrect**.
 
-O upstream marca 22 juntas fixas com:
+Upstream marks 22 fixed joints with:
 
 ```xml
 <gazebo reference="..."><preserveFixedJoint>true</preserveFixedJoint></gazebo>
 ```
 
-Essa tag diz ao Gazebo para **não** fundir (weld) o filho da junta no corpo rígido
-do pai. Sem fusão, o robô nasce como **13 corpos de física independentes** (casco,
-4 colunas da torre, placa de sensores, lidar, câmera, para-choque, rodas, rodízio,
-base), ligados apenas por restrições de junta fixa. O solver **não** os mantém
-rígidos: sob gravidade e contato as peças acomodam e se afastam — a torre inclina,
-a placa e o lidar flutuam acima das colunas.
+That tag tells Gazebo **not** to weld the joint's child into the parent's rigid
+body. Without welding, the robot is born as **13 independent physics bodies**
+(shell, 4 tower columns, sensor plate, lidar, camera, bumper, wheels, caster,
+base), linked only by fixed-joint constraints. The solver does **not** keep them
+rigid: under gravity and contact the parts settle and drift apart — the tower
+tilts, the plate and lidar float above the columns.
 
-**Não é bug de geometria.** Os offsets e as rotações `rpy` por visual do modelo
-upstream estão corretos. Fundir ou não fundir não muda **onde as peças são
-desenhadas**, apenas se a física pode movê-las umas em relação às outras. É por
-isso que remedir offsets nunca resolveu — e por isso trocar o modelo do robô
-também não resolveu.
+**This is not a geometry bug.** The offsets and the per-visual `rpy` rotations of
+the upstream model are correct. Welding or not welding does not change **where
+the parts are drawn**, only whether physics can move them relative to one
+another. That is why re-measuring offsets never fixed it — and why swapping the
+robot model did not fix it either.
 
-**Detalhe que torna isso difícil de atribuir:** o RViz2 **ignora** blocos
-`<gazebo>` por completo, então sempre desenhou o robô montado corretamente. O
-modelo parece perfeito no RViz e se desmonta no Gazebo.
+**Detail that makes this hard to attribute:** RViz2 **ignores** `<gazebo>` blocks
+entirely, so it always drew the robot correctly assembled. The model looks
+perfect in RViz and falls apart in Gazebo.
 
-**Correção.** O xacro não consegue remover uma tag emitida por um `include`, então
-a remoção acontece no pipeline que alimenta o Gazebo:
+**Fix.** Xacro cannot remove a tag emitted by an `include`, so the removal
+happens in the pipeline that feeds Gazebo:
 
 ```bash
 weld_fixed_joints.py demo_robot.urdf.xacro robot_name:=demo_robot > robot.urdf
 ```
 
-`demo_simulation/launch/simulation.launch.py` já faz isso. Se você spawnar esse
-xacro por qualquer outro caminho, passe pelo script também.
+`demo_simulation/launch/simulation.launch.py` already does this. If you spawn
+that xacro through any other path, run it through the script as well.
 
-Dois detalhes do script, ambos aprendidos na prática:
-- Ele é **silencioso** em caso de sucesso. A substituição `Command` do launch
-  aborta o launch inteiro se o comando escrever **qualquer coisa** em stderr
-  (`executed command showed stderr output`) — uma mensagem de progresso amigável
-  derrubava a simulação. Use `--verbose` ao rodar à mão.
-- Ele é chamado **em vez de** `xacro`, não em pipe: `Command` passa a string por
-  `shlex.split`, não por um shell, então um `|` chegaria ao xacro como argumento
-  literal.
+Two details about the script, both learned the hard way:
+- It is **silent** on success. The launch `Command` substitution aborts the
+  entire launch if the command writes **anything** to stderr
+  (`executed command showed stderr output`) — a friendly progress message was
+  bringing the simulation down. Use `--verbose` when running it by hand.
+- It is called **instead of** `xacro`, not piped into it: `Command` passes the
+  string through `shlex.split`, not through a shell, so a `|` would reach xacro
+  as a literal argument.
 
-Travado por `test_weld_script_removes_every_preserve_fixed_joint`.
+Locked down by `test_weld_script_removes_every_preserve_fixed_joint`.
 
-**Efeito colateral positivo:** ganhamos sensores que não existiam antes — câmera
-RGBD estéreo (OAK-D Pro) e IMU.
+**Positive side effect:** we gained sensors that did not exist before — a stereo
+RGBD camera (OAK-D Pro) and an IMU.
 
-### Árvore TF relevante
+### Relevant TF tree
 
 ```
-odom                              ← publicado pelo plugin DiffDrive do Gazebo
-  └── base_link                   RAIZ do URDF; robot_base_frame do Nav2
-        ├── base_footprint        transform IDENTIDADE (xyz 0 0 0, rpy 0 0 0)
+odom                              ← published by the Gazebo DiffDrive plugin
+  └── base_link                   URDF ROOT; Nav2's robot_base_frame
+        ├── base_footprint        IDENTITY transform (xyz 0 0 0, rpy 0 0 0)
         ├── shell_link
         │     ├── rplidar_link            z = +0.193 m
         │     └── oakd_camera_bracket
         │           └── oakd_link
         │                 └── oakd_rgb_camera_frame → …_optical_frame  z = +0.244 m
         ├── imu_link                      z = +0.084 m
-        ├── left_wheel / right_wheel      (juntas continuous)
+        ├── left_wheel / right_wheel      (continuous joints)
         └── front_caster_link
 ```
 
-**Atenção — a árvore está invertida em relação ao modelo antigo:**
+**Careful — the tree is inverted relative to the old model:**
 
-| | raiz | filho |
+| | root | child |
 |---|---|---|
-| modelo antigo (nosso) | `base_footprint` | `base_link` |
-| modelo atual (upstream) | `base_link` | `base_footprint` |
+| old model (ours) | `base_footprint` | `base_link` |
+| current model (upstream) | `base_link` | `base_footprint` |
 
-O `DiffDrive` do upstream tem `child_frame_id` **fixo em `base_link`**, definido
-em `icreate/create3.urdf.xacro`, e **não existe argumento xacro** para alterá-lo.
+The upstream `DiffDrive` has its `child_frame_id` **hard-coded to `base_link`**,
+defined in `icreate/create3.urdf.xacro`, and **there is no xacro argument** to
+change it.
 
-Por isso o Nav2 foi apontado para `base_link` (`robot_base_frame: base_link` em
-todos os pontos de `nav2_params.yaml`), em vez de tentar forçar `base_footprint`.
-Isso é seguro porque `base_footprint_joint` é uma transformação identidade — os
-dois frames coincidem numericamente. Existe um teste
+That is why Nav2 was pointed at `base_link` (`robot_base_frame: base_link` at
+every point in `nav2_params.yaml`), instead of trying to force `base_footprint`.
+This is safe because `base_footprint_joint` is an identity transform — the two
+frames coincide numerically. There is a test
 (`demo_description/test/test_urdf_parses.py::test_base_footprint_coincides_with_base_link`)
-que **falha** se uma atualização futura do upstream der um offset real a essa
-junta e quebrar essa equivalência.
+that **fails** if a future upstream update gives that joint a real offset and
+breaks the equivalence.
 
-> **Armadilha (custou tempo real).** A tentativa óbvia — redeclarar o bloco
-> `<gazebo><plugin ...DiffDrive>` no nosso wrapper para trocar só o
-> `child_frame_id` — **não funciona**. O xacro **concatena** blocos `<gazebo>`,
-> não os substitui. O resultado é um URDF com **dois** plugins DiffDrive
-> controlando as mesmas duas juntas, ambos integrando odometria e publicando TF.
-> O Gazebo carrega os dois sem reclamar. Verificação:
+> **Trap (cost real time).** The obvious attempt — redeclaring the
+> `<gazebo><plugin ...DiffDrive>` block in our wrapper just to change the
+> `child_frame_id` — **does not work**. Xacro **concatenates** `<gazebo>` blocks,
+> it does not replace them. The result is a URDF with **two** DiffDrive plugins
+> controlling the same two joints, both integrating odometry and publishing TF.
+> Gazebo loads both without complaining. Check:
 > ```bash
-> xacro src/demo_description/urdf/demo_robot.urdf.xacro | grep -c diff-drive-system   # deve ser 1
+> xacro src/demo_description/urdf/demo_robot.urdf.xacro | grep -c diff-drive-system   # must be 1
 > ```
-> Há um teste que trava isso: `test_exactly_one_of_each_gz_system_plugin`.
+> There is a test that locks this down: `test_exactly_one_of_each_gz_system_plugin`.
 
 ---
 
-## 2. Dados de sensor recebidos da simulação
+## 2. Sensor data received from the simulation
 
-### 2.1 Tabela completa (valores medidos)
+### 2.1 Complete table (measured values)
 
-| Sensor | Tópico gz | Tópico ROS | Tipo ROS | Taxa | `frame_id` | Consumidor |
+| Sensor | gz topic | ROS topic | ROS type | Rate | `frame_id` | Consumer |
 |---|---|---|---|---|---|---|
-| Lidar 2D (RPLIDAR A1) | `/scan` | `/demo/scan` | `sensor_msgs/LaserScan` | 10 Hz | `rplidar_link` | Nav2 (ambos costmaps), AMCL, SLAM |
-| Câmera RGB (OAK-D Pro) | `/rgbd_camera/image` | `/demo/camera/image_raw` | `sensor_msgs/Image` | 10 Hz | `oakd_rgb_camera_optical_frame` | `demo_perception` |
-| Intrínsecos | `/rgbd_camera/camera_info` | `/demo/camera/camera_info` | `sensor_msgs/CameraInfo` | 10 Hz | idem | `demo_perception` |
-| Profundidade | `/rgbd_camera/depth_image` | `/demo/camera/depth_image` | `sensor_msgs/Image` | 10 Hz | idem | **nenhum ainda** |
-| Nuvem de pontos | `/rgbd_camera/points` | `/demo/camera/points` | `sensor_msgs/PointCloud2` | 10 Hz | idem | **nenhum ainda** |
-| IMU | `/imu` | `/demo/imu` | `sensor_msgs/Imu` | 200 Hz | `imu_link` | **nenhum ainda** |
-| Odometria de roda | `/odom` | `/demo/odom` | `nav_msgs/Odometry` | 30 Hz | `odom` → `base_link` | Nav2 (controller, bt_navigator) |
-| Ângulos de junta | `/joint_states` | `/joint_states` | `sensor_msgs/JointState` | 30 Hz | — | `robot_state_publisher` |
-| Relógio | `/clock` | `/clock` | `rosgraph_msgs/Clock` | — | — | **todos** os nós |
+| 2D lidar (RPLIDAR A1) | `/scan` | `/demo/scan` | `sensor_msgs/LaserScan` | 10 Hz | `rplidar_link` | Nav2 (both costmaps), AMCL, SLAM |
+| RGB camera (OAK-D Pro) | `/rgbd_camera/image` | `/demo/camera/image_raw` | `sensor_msgs/Image` | 10 Hz | `oakd_rgb_camera_optical_frame` | `demo_perception` |
+| Intrinsics | `/rgbd_camera/camera_info` | `/demo/camera/camera_info` | `sensor_msgs/CameraInfo` | 10 Hz | same | `demo_perception` |
+| Depth | `/rgbd_camera/depth_image` | `/demo/camera/depth_image` | `sensor_msgs/Image` | 10 Hz | same | **none yet** |
+| Point cloud | `/rgbd_camera/points` | `/demo/camera/points` | `sensor_msgs/PointCloud2` | 10 Hz | same | **none yet** |
+| IMU | `/imu` | `/demo/imu` | `sensor_msgs/Imu` | 200 Hz | `imu_link` | **none yet** |
+| Wheel odometry | `/odom` | `/demo/odom` | `nav_msgs/Odometry` | 30 Hz | `odom` → `base_link` | Nav2 (controller, bt_navigator) |
+| Joint angles | `/joint_states` | `/joint_states` | `sensor_msgs/JointState` | 30 Hz | — | `robot_state_publisher` |
+| Clock | `/clock` | `/clock` | `rosgraph_msgs/Clock` | — | — | **all** nodes |
 
-### 2.2 Lidar — parâmetros medidos
+### 2.2 Lidar — measured parameters
 
-Verificado com `gz topic -e -t /scan -n 1`:
+Verified with `gz topic -e -t /scan -n 1`:
 
 ```
 frame_id   = rplidar_link
-count      = 360          amostras por varredura
+count      = 360          samples per scan
 range_min  = 0.164 m
 range_max  = 20.0 m
 update     = 10 Hz
 ```
 
-O `range_max` de **20 m** é importante: o lidar antigo, feito à mão, declarava
-12 m, e o `nav2_params.yaml` ainda estava configurado para 12 m. Ver
-"Otimização 2".
+The **20 m** `range_max` matters: the old hand-built lidar declared 12 m, and
+`nav2_params.yaml` was still configured for 12 m. See "Optimization 2".
 
-### 2.3 IMU — depende do mundo, não só do robô
+### 2.3 IMU — depends on the world, not just the robot
 
-O sensor IMU está declarado no URDF, mas **só publica se o MUNDO carregar o
-sistema `gz-sim-imu-system`**. O `warehouse.sdf` do `nav2_minimal_tb4_sim`
-carrega (verificado). Um mundo escrito à mão pode não carregar, e nesse caso o
-sensor fica **silencioso, sem erro nenhum**.
+The IMU sensor is declared in the URDF, but it **only publishes if the WORLD
+loads the `gz-sim-imu-system` system**. The `warehouse.sdf` from
+`nav2_minimal_tb4_sim` does load it (verified). A hand-written world may not, and
+in that case the sensor stays **silent, with no error at all**.
 
 ```bash
-gz topic -l | grep imu      # se vazio, o mundo não tem o plugin imu-system
+gz topic -l | grep imu      # if empty, the world has no imu-system plugin
 ```
 
-Foi exatamente assim que este documento quase registrou "IMU morta": um mundo de
-teste mínimo sem o plugin. O sensor estava correto o tempo todo.
+That is exactly how this document nearly recorded "IMU dead": a minimal test
+world without the plugin. The sensor was correct the whole time.
 
-### 2.4 Como o dado atravessa a fronteira Gazebo → ROS
+### 2.4 How the data crosses the Gazebo → ROS boundary
 
-O Gazebo **não fala ROS**. A tradução é feita pelo `ros_gz_bridge`
-(`parameter_bridge`), configurado em
-`demo_simulation/config/bridge_warehouse.yaml`. Cada linha é um par
-(tópico gz, tópico ROS, tipo, direção).
+Gazebo **does not speak ROS**. The translation is done by `ros_gz_bridge`
+(`parameter_bridge`), configured in
+`demo_simulation/config/bridge_warehouse.yaml`. Each line is a tuple
+(gz topic, ROS topic, type, direction).
 
 ```
 Gazebo (gz-transport, protobuf)        ros_gz_bridge         ROS 2 (DDS/CycloneDDS)
@@ -229,19 +231,19 @@ Gazebo (gz-transport, protobuf)        ros_gz_bridge         ROS 2 (DDS/CycloneD
   /cmd_vel       gz.msgs.Twist       ◄───────────────   /demo/cmd_vel  geometry_msgs/Twist
 ```
 
-**Armadilha de nomes (documentada no próprio YAML).** Todos os nomes do lado gz
-são **literais e não escopados** (`/cmd_vel`, `/odom`, `/scan`). O Gazebo
-*também* anuncia nomes parecidos e escopados por modelo
-(`/model/demo_robot/cmd_vel`) que **aparecem em `gz topic -l` mas não têm
-publicador algum por trás**. Fazer bridge para esses nomes produz um robô que
-nunca se move e odometria que nunca publica — **sem erro em lugar nenhum**.
-Sempre confira com `gz topic -l` com a simulação rodando.
+**Naming trap (documented in the YAML itself).** All names on the gz side are
+**literal and unscoped** (`/cmd_vel`, `/odom`, `/scan`). Gazebo *also* advertises
+similar, model-scoped names (`/model/demo_robot/cmd_vel`) that **show up in
+`gz topic -l` but have no publisher behind them at all**. Bridging those names
+produces a robot that never moves and odometry that never publishes — **with no
+error anywhere**. Always check with `gz topic -l` while the simulation is
+running.
 
 ---
 
-## 3. Como a navegação chega aos atuadores
+## 3. How navigation reaches the actuators
 
-### 3.1 Cadeia completa
+### 3.1 Complete chain
 
 ```
         ┌─ /demo/scan (10 Hz) ──► costmaps (obstacle_layer)
@@ -250,15 +252,15 @@ Sempre confira com `gz topic -l` com a simulação rodando.
         │
         ├─ /demo/scan ──────────► AMCL ──► TF: map → odom
         │
-        ├─ /demo/odom (30 Hz) ──► controller_server (velocidade atual)
+        ├─ /demo/odom (30 Hz) ──► controller_server (current velocity)
         │
-        └─ /demo/perception/detection_cloud ──► perception_layer (ambos costmaps)
+        └─ /demo/perception/detection_cloud ──► perception_layer (both costmaps)
 
-  objetivo (RViz2 / BT) ──► bt_navigator ──► planner_server (NavFn, 20 Hz)
+      goal (RViz2 / BT) ──► bt_navigator ──► planner_server (NavFn, 20 Hz)
                                                     │
                                                     ▼ nav_msgs/Path (global)
                                             controller_server (20 Hz)
-                                                    │  MPPI: 2000 trajetórias
+                                                    │  MPPI: 2000 trajectories
                                                     ▼
                                           geometry_msgs/Twist
                                                     │
@@ -267,10 +269,10 @@ Sempre confira com `gz topic -l` com a simulação rodando.
                                                     ▼
                                             /cmd_vel  (Gazebo)
                                                     │
-                                    plugin gz-sim-diff-drive-system
-                                                    │  cinemática inversa
+                                    gz-sim-diff-drive-system plugin
+                                                    │  inverse kinematics
                                                     ▼
-                            torque em left_wheel_joint / right_wheel_joint
+                            torque on left_wheel_joint / right_wheel_joint
                                                     │
                                     ┌───────────────┴────────────────┐
                                     ▼                                ▼
@@ -278,196 +280,198 @@ Sempre confira com `gz topic -l` com a simulação rodando.
                                                                       │
                                                           robot_state_publisher
                                                                       ▼
-                                                          TF das rodas (visual)
+                                                            wheel TF (visual)
 ```
 
-### 3.2 O único ponto de atuação: `/demo/cmd_vel`
+### 3.2 The single actuation point: `/demo/cmd_vel`
 
-Não existem controladores de junta, nem `ros2_control`, nem
-`controller_manager`. Toda a atuação passa por **um único tópico**:
-`/demo/cmd_vel` (`geometry_msgs/Twist`).
+There are no joint controllers, no `ros2_control`, no `controller_manager`. All
+actuation goes through **a single topic**: `/demo/cmd_vel`
+(`geometry_msgs/Twist`).
 
-O plugin `gz-sim-diff-drive-system` recebe esse `Twist` e resolve a cinemática
-inversa do diferencial:
+The `gz-sim-diff-drive-system` plugin receives that `Twist` and solves the
+differential inverse kinematics:
 
 ```
-v_esq = (v_linear − ω · L/2) / r
-v_dir = (v_linear + ω · L/2) / r
+v_left  = (v_linear − ω · L/2) / r
+v_right = (v_linear + ω · L/2) / r
 
-onde  L = wheel_separation = 0.233 m
-      r = wheel_radius     = 0.03575 m
+where  L = wheel_separation = 0.233 m
+       r = wheel_radius     = 0.03575 m
 ```
 
-**`wheel_separation` e `wheel_radius` são os dois valores que nunca podem
-divergir do modelo físico.** O plugin os integra para produzir odometria; se
-divergirem dos meshes/colisões, o robô **desliza visivelmente enquanto reporta
-uma linha reta** — e nada dá erro. Herdar esses valores do upstream (em vez de
-redeclará-los) os mantém travados à geometria por definição.
+**`wheel_separation` and `wheel_radius` are the two values that can never
+diverge from the physical model.** The plugin integrates them to produce
+odometry; if they diverge from the meshes/collisions, the robot **visibly slides
+while reporting a straight line** — and nothing raises an error. Inheriting these
+values from upstream (instead of redeclaring them) keeps them locked to the
+geometry by definition.
 
-Verificado em execução: comando `linear.x = 0.3` por 2 s deslocou o robô
-**0.6046 m** (esperado 0.6 m) com odometria acompanhando.
+Verified at runtime: a `linear.x = 0.3` command for 2 s moved the robot
+**0.6046 m** (expected 0.6 m) with odometry tracking it.
 
-### 3.3 Limites que o simulador impõe
+### 3.3 Limits imposed by the simulator
 
-O `DiffDrive` do upstream **satura internamente**:
+The upstream `DiffDrive` **saturates internally**:
 
-| Limite | Valor |
+| Limit | Value |
 |---|---|
 | `max_linear_velocity` | 0.5 m/s |
 | `max_angular_velocity` | 2.0 rad/s |
 | `max_linear_acceleration` | 2.0 m/s² |
 | `max_angular_acceleration` | 3.0 rad/s² |
 
-**Consequência prática:** configurar o Nav2 com velocidade acima desses valores
-faz o controlador comandar velocidades que o simulador **silenciosamente recusa
-atingir**. O sintoma parece erro de tuning do controlador — e não é. Os limites
-em `nav2_params.yaml` foram alinhados a esses valores (`vx_max: 0.5`,
-`wz_max: 1.9`, com margem em ω).
+**Practical consequence:** configuring Nav2 with velocities above these values
+makes the controller command speeds that the simulator **silently refuses to
+reach**. The symptom looks like a controller tuning error — and it is not. The
+limits in `nav2_params.yaml` were aligned to these values (`vx_max: 0.5`,
+`wz_max: 1.9`, with margin on ω).
 
-### 3.4 Quem publica cada aresta de TF
+### 3.4 Who publishes each TF edge
 
-Duplicar qualquer uma destas produz um robô tremendo, sem mensagem de erro.
+Duplicating any of these produces a jittering robot, with no error message.
 
-| Aresta | Publicador |
+| Edge | Publisher |
 |---|---|
-| `map → odom` | AMCL (ou `slam_toolbox` em SLAM) |
-| `odom → base_link` | plugin DiffDrive do Gazebo (via bridge `/tf`) |
-| `base_link → *` (sensores, rodas) | `robot_state_publisher` |
+| `map → odom` | AMCL (or `slam_toolbox` in SLAM) |
+| `odom → base_link` | Gazebo DiffDrive plugin (via the `/tf` bridge) |
+| `base_link → *` (sensors, wheels) | `robot_state_publisher` |
 
 ---
 
-## 4. Otimizações
+## 4. Optimizations
 
-### Aplicadas nesta sessão
+### Applied in this session
 
-#### Otimização 1 — `robot_radius` 0.22 → 0.18 m
+#### Optimization 1 — `robot_radius` 0.22 → 0.18 m
 
-O raio real do chassi do TB4 é ~0.17 m (`shell_radius` 0.12 + para-choque). O
-valor 0.22 vinha do chassi do modelo antigo e adicionava ~5 cm de largura
-fantasma. Efeito: o robô **recusa vãos pelos quais fisicamente passa**, o que num
-corredor de galpão se manifesta como falha do planejador.
+The real radius of the TB4 chassis is ~0.17 m (`shell_radius` 0.12 + bumper). The
+0.22 value came from the old model's chassis and added ~5 cm of phantom width.
+Effect: the robot **refuses gaps it physically fits through**, which in a
+warehouse aisle shows up as a planner failure.
 
-#### Otimização 2 — alcance do lidar 12 → 20 m
+#### Optimization 2 — lidar range 12 → 20 m
 
-O `obstacle_layer` estava com `raytrace_max_range: 12.0`, herdado do lidar antigo.
-O sensor real alcança **20 m** (medido). Quando o raytrace é menor que o alcance
-real, a camada **para de limpar células que nunca observou de fato**, deixando
-obstáculos obsoletos congelados no costmap.
+The `obstacle_layer` had `raytrace_max_range: 12.0`, inherited from the old
+lidar. The real sensor reaches **20 m** (measured). When the raytrace range is
+smaller than the real range, the layer **stops clearing cells it never actually
+observed**, leaving stale obstacles frozen in the costmap.
 
-Também adicionado `obstacle_min_range: 0.17` (acima do `range_min` de 0.164 do
-sensor): retornos mais próximos são artefatos de medição, e marcá-los planta
-obstáculos **dentro da própria pegada do robô**, disparando comportamentos de
-recuperação espúrios.
+Also added `obstacle_min_range: 0.17` (above the sensor's `range_min` of 0.164):
+closer returns are measurement artifacts, and marking them plants obstacles
+**inside the robot's own footprint**, triggering spurious recovery behaviors.
 
-`obstacle_max_range` (15 m) fica deliberadamente **abaixo** de
-`raytrace_max_range` (20 m): marcar obstáculo de forma conservadora, limpar espaço
-livre de forma generosa.
+`obstacle_max_range` (15 m) is deliberately **below** `raytrace_max_range`
+(20 m): mark obstacles conservatively, clear free space generously.
 
-#### Otimização 3 — inflação 0.55 → 0.35 m, `cost_scaling_factor` 3.0 → 5.0
+#### Optimization 3 — inflation 0.55 → 0.35 m, `cost_scaling_factor` 3.0 → 5.0
 
-0.55 m é **mais de 3× o raio do robô**. Nos corredores estreitos do galpão, uma
-"saia" de 0.55 m em cada parede tornava o corredor inteiro quase letal: o
-planejador global desviava de corredores por onde o robô passa, e o local
-oscilava dentro deles.
+0.55 m is **more than 3× the robot radius**. In the warehouse's narrow aisles, a
+0.55 m "skirt" on each wall made the whole aisle nearly lethal: the global
+planner routed around aisles the robot fits through, and the local one oscillated
+inside them.
 
-0.35 m cobre a pegada de 0.18 m com ~0.17 m de folga. **Nunca reduza abaixo de
-`robot_radius`** — inflação menor que a pegada permite caminhos cujas curvas
-raspam obstáculos.
+0.35 m covers the 0.18 m footprint with ~0.17 m of clearance. **Never reduce it
+below `robot_radius`** — inflation smaller than the footprint allows paths whose
+curves graze obstacles.
 
-`cost_scaling_factor` 5.0 faz o custo cair mais rápido com a distância, deixando
-o planejador se comprometer com o **centro** do corredor livre.
+`cost_scaling_factor` 5.0 makes cost drop faster with distance, letting the
+planner commit to the **center** of the free aisle.
 
-Os dois costmaps foram mantidos **idênticos** nesses valores: inflação divergente
-entre global e local é causa clássica de "o plano global vai por onde o local se
-recusa a seguir" — o robô trava no meio do corredor.
+Both costmaps were kept **identical** on these values: divergent inflation
+between global and local is a classic cause of "the global plan goes where the
+local one refuses to follow" — the robot stalls in the middle of the aisle.
 
-#### Otimização 4 — DWB → MPPI
+#### Optimization 4 — DWB → MPPI
 
-**Por que.** O DWB pontua uma grade fixa de arcos de curvatura constante. Num
-diferencial em corredor estreito isso produz dois artefatos visíveis: ele
-**oscila entre amostras vizinhas** (o robô serpenteia num corredor reto) e não
-consegue representar manobra que exija inversão de sinal de velocidade no meio da
-trajetória, então curvas fechadas degeneram em para-gira-anda.
+**Why.** DWB scores a fixed grid of constant-curvature arcs. On a differential
+drive in a narrow aisle this produces two visible artifacts: it **oscillates
+between neighboring samples** (the robot snakes down a straight aisle) and it
+cannot represent a maneuver that requires a velocity sign reversal mid-trajectory,
+so tight turns degenerate into stop-turn-go.
 
-O MPPI amostra 2000 trajetórias ruidosas por ciclo e tira a média ponderada por
-custo, então o comando é **contínuo** em vez de preso a uma amostra da grade. É a
-recomendação atual do Nav2 para diferencial.
+MPPI samples 2000 noisy trajectories per cycle and takes the cost-weighted
+average, so the command is **continuous** instead of pinned to a grid sample. It
+is Nav2's current recommendation for differential drive.
 
-Detalhes de configuração:
-- `motion_model: DiffDrive` — **não** `Omni`. Este robô não anda de lado;
-  declarar `Omni` faz o MPPI amostrar velocidades laterais inexecutáveis e então
-  perseguir um caminho que nunca consegue seguir.
-- `CostCritic` em vez de `ObstaclesCritic`: respeita o gradiente da camada de
-  inflação em vez de aplicar o próprio modelo de pegada, então a
-  `inflation_radius` ajustada acima é de fato o que guia o robô.
-- Os 8 críticos foram **verificados** contra `libmppi_critics.so`. Um crítico com
-  nome errado **não é carregado e não gera erro** — simplesmente para de
-  contribuir.
+Configuration details:
+- `motion_model: DiffDrive` — **not** `Omni`. This robot does not strafe;
+  declaring `Omni` makes MPPI sample unexecutable lateral velocities and then
+  chase a path it can never follow.
+- `CostCritic` instead of `ObstaclesCritic`: it respects the inflation layer's
+  gradient instead of applying its own footprint model, so the `inflation_radius`
+  tuned above is in fact what guides the robot.
+- The 8 critics were **verified** against `libmppi_critics.so`. A critic with a
+  wrong name **is not loaded and raises no error** — it simply stops
+  contributing.
 
-> ⚠️ **Custo de CPU — só mensurável no hardware real.** O MPPI é
-> significativamente mais pesado que o DWB. No host x86 (modo `learn`) é
-> tranquilo. No Aquila AM69 em modo `target` este é o nó mais caro da pilha, e
-> **se 20 Hz se sustenta lá não pode ser respondido a partir do modo `learn` nem
-> de emulação arm64** (regra 5 do `CLAUDE.md`: emulação não mede performance).
-> Precisa ser medido no módulo real. Se não sustentar, reduza `batch_size` para
-> 1000 **antes** de baixar `controller_frequency` — metade do lote custa menos
-> precisão que metade da taxa de controle.
+> ⚠️ **CPU cost — only measurable on real hardware.** MPPI is significantly
+> heavier than DWB. On the x86 host (`learn` mode) it is comfortable. On the
+> Aquila AM69 in `target` mode this is the most expensive node in the stack, and
+> **whether 20 Hz holds there cannot be answered from `learn` mode or from arm64
+> emulation** (rule 5 of `CLAUDE.md`: emulation does not measure performance). It
+> has to be measured on the real module. If it does not hold, reduce `batch_size`
+> to 1000 **before** lowering `controller_frequency` — halving the batch costs
+> less precision than halving the control rate.
 
-#### Otimização 5 — expor profundidade, nuvem de pontos e IMU no bridge
+#### Optimization 5 — expose depth, point cloud and IMU on the bridge
 
-Bridge dos novos sensores para `/demo/camera/depth_image`,
-`/demo/camera/points` e `/demo/imu`. Ainda **não consumidos** — mas disponíveis e
-mensuráveis, e prontos para o trabalho de TIDL (MX-TIDL) sem alterar o bridge.
+Bridged the new sensors to `/demo/camera/depth_image`, `/demo/camera/points` and
+`/demo/imu`. **Not consumed yet** — but available and measurable, and ready for
+the TIDL (MX-TIDL) work without changing the bridge.
 
-> ⚠️ **Banda:** `/demo/camera/points` é de longe o tópico mais pesado
-> (~640×480 XYZRGB a 10 Hz). Em modo `target` esse tráfego DDS atravessa a rede
-> até o módulo. Comente a entrada se o demo não precisar de obstáculos 3D.
+> ⚠️ **Bandwidth:** `/demo/camera/points` is by far the heaviest topic
+> (~640×480 XYZRGB at 10 Hz). In `target` mode that DDS traffic crosses the
+> network to the module. Comment the entry out if the demo does not need 3D
+> obstacles.
 
-### Recomendadas, ainda não aplicadas
+### Recommended, not yet applied
 
-Estas ficaram de fora **deliberadamente**, por alterarem estrutura (não apenas
-tuning) e merecerem validação isolada:
+These were left out **deliberately**, because they change structure (not just
+tuning) and deserve isolated validation:
 
-#### A — Fusão IMU + odometria via EKF (`robot_localization`)
+#### A — IMU + odometry fusion via EKF (`robot_localization`)
 
-**Ganho.** A odometria de roda pura acumula deriva de rumo em **toda** rotação
-(escorregamento de roda). O IMU a 200 Hz corrige exatamente isso. É a melhoria de
-localização com melhor relação custo/benefício disponível agora.
+**Gain.** Pure wheel odometry accumulates heading drift on **every** rotation
+(wheel slip). The 200 Hz IMU corrects exactly that. It is the best
+cost/benefit localization improvement available right now.
 
-**Por que não foi aplicada agora.** Um `ekf_node` passa a ser o dono da aresta
-`odom → base_link`, que hoje é do plugin DiffDrive. **Dois publicadores na mesma
-aresta produzem um robô tremendo, sem mensagem de erro.** Exige:
-1. criar `demo_navigation/config/ekf.yaml`;
-2. **desativar** a publicação de TF do DiffDrive (ou remover `/tf` do bridge);
-3. revalidar a árvore com `ros2 run tf2_tools view_frames`.
+**Why it was not applied now.** An `ekf_node` becomes the owner of the
+`odom → base_link` edge, which today belongs to the DiffDrive plugin. **Two
+publishers on the same edge produce a jittering robot, with no error message.**
+It requires:
+1. creating `demo_navigation/config/ekf.yaml`;
+2. **disabling** DiffDrive's TF publication (or removing `/tf` from the bridge);
+3. revalidating the tree with `ros2 run tf2_tools view_frames`.
 
-`robot_localization` já está instalado (`ekf_node` verificado).
+`robot_localization` is already installed (`ekf_node` verified).
 
-#### B — Obstáculos 3D via `voxel_layer` na nuvem de pontos
+#### B — 3D obstacles via `voxel_layer` on the point cloud
 
-Hoje o robô só vê obstáculos **no plano do lidar** (z ≈ 0.19 m). Ele é cego a
-paletes baixos e a saliências acima do plano. A nuvem OAK-D já está no bridge;
-falta uma `nav2_costmap_2d::VoxelLayer`. Custa CPU e banda — medir no módulo.
+Today the robot only sees obstacles **in the lidar plane** (z ≈ 0.19 m). It is
+blind to low pallets and to overhangs above the plane. The OAK-D cloud is already
+on the bridge; what is missing is a `nav2_costmap_2d::VoxelLayer`. It costs CPU
+and bandwidth — measure on the module.
 
-#### C — `RotationShimController` em torno do MPPI
+#### C — `RotationShimController` wrapped around MPPI
 
-Faz o robô **girar no lugar** para se alinhar ao caminho antes de acelerar, em vez
-de sair em arco. Melhora bastante a leitura visual do demo em partidas e curvas
-fechadas. Verificado como instalado
+Makes the robot **rotate in place** to align with the path before accelerating,
+instead of pulling away in an arc. It considerably improves how the demo reads
+visually at starts and on tight turns. Verified as installed
 (`nav2_rotation_shim_controller::RotationShimController`).
 
-#### D — Trocar NavFn por Smac Planner (`SmacPlannerHybrid`)
+#### D — Replace NavFn with Smac Planner (`SmacPlannerHybrid`)
 
-NavFn produz caminhos em grade, com quinas de 45°. O Smac Hybrid gera caminhos
-cinematicamente viáveis para diferencial. Ganho estético e de suavidade; custo de
-CPU maior no planejador global (que roda a 1 Hz, então o impacto é menor que no
-controlador).
+NavFn produces grid paths with 45° corners. Smac Hybrid generates kinematically
+feasible paths for differential drive. The gain is aesthetic and in smoothness;
+the cost is more CPU in the global planner (which runs at 1 Hz, so the impact is
+smaller than in the controller).
 
 ---
 
-## 4.5 Metas em espaço desconhecido (não é bug de tuning)
+## 4.5 Goals in unknown space (not a tuning bug)
 
-Sintoma no log, ao clicar uma meta no RViz:
+Symptom in the log, when clicking a goal in RViz:
 
 ```
 [ERROR] [planner_server]: Failed to create a plan from potential when a legal
@@ -476,30 +480,30 @@ Sintoma no log, ao clicar uma meta no RViz:
         "Failed to create plan with tolerance of: 0.500000"
 ```
 
-A mensagem "This shouldn't happen" sugere bug interno do planejador. **Não é.**
+The "This shouldn't happen" message suggests an internal planner bug. **It is
+not.**
 
-O `warehouse.pgm` salvo tem **55% das células desconhecidas**, porque o SLAM só
-mapeou os corredores por onde o robô passou:
+The saved `warehouse.pgm` has **55% unknown cells**, because SLAM only mapped the
+aisles the robot drove through:
 
-| Classe | Células | % |
+| Class | Cells | % |
 | --- | --- | --- |
 | FREE | 98 863 | 43.6% |
 | OCCUPIED | 3 393 | 1.5% |
 | **UNKNOWN** | **124 319** | **54.9%** |
 
-A meta `(11.01, 10.61)` está **inteiramente** em espaço desconhecido — valor 205
-no PGM em toda a vizinhança de 1 m. A meta `(-4.84, 3.38)`, que funcionou, estava
-em espaço livre (254).
+The goal `(11.01, 10.61)` is **entirely** in unknown space — value 205 in the PGM
+across its whole 1 m neighborhood. The goal `(-4.84, 3.38)`, which worked, was in
+free space (254).
 
-`allow_unknown: true` **não resolve** esse caso: ele permite atravessar células
-desconhecidas alcançáveis, não criar um corredor até uma meta cercada de
-desconhecido.
+`allow_unknown: true` **does not fix** this case: it allows crossing reachable
+unknown cells, not carving a corridor to a goal surrounded by unknown.
 
-**Como checar uma meta antes de clicar:**
+**How to check a goal before clicking it:**
 
 ```bash
 python3 - <<'EOF'
-X, Y = 11.01, 10.61      # a meta que você quer testar
+X, Y = 11.01, 10.61      # the goal you want to test
 res, ox, oy = 0.05, -12.077, -12.215
 p='install/demo_navigation/share/demo_navigation/maps/warehouse.pgm'
 f=open(p,'rb'); f.readline(); l=f.readline()
@@ -512,28 +516,26 @@ print(f"pgm={v} ->", 'OCCUPIED' if occ>0.65 else ('FREE' if occ<0.196 else 'UNKN
 EOF
 ```
 
-**Soluções, em ordem de esforço:**
-1. Clique metas apenas em área branca (livre) do mapa no RViz — o cinza é
-   desconhecido.
-2. Refaça o mapa cobrindo mais área: rode o SLAM e dirija o robô pelos corredores
-   que faltam antes de salvar (`map_saver_cli`).
-3. Para o demo, defina metas fixas verificadas em vez de cliques livres.
+**Solutions, in order of effort:**
+1. Click goals only in white (free) map area in RViz — gray is unknown.
+2. Redo the map covering more area: run SLAM and drive the robot through the
+   missing aisles before saving (`map_saver_cli`).
+3. For the demo, define fixed, verified goals instead of free clicking.
 
-Isto **não** é regressão das otimizações da seção 4 — a primeira meta do mesmo
-run completou com `Reached the goal!` / `Goal succeeded`.
+This is **not** a regression from the section 4 optimizations — the first goal of
+that same run completed with `Reached the goal!` / `Goal succeeded`.
 
-## 5. Como verificar tudo isto
+## 5. How to verify all of this
 
 ```bash
 cd ~/toradex/demo/aquila-am69-ros2/ros2_ws
-source install/setup.bash          # obrigatório em CADA terminal novo
+source install/setup.bash          # mandatory in EVERY new terminal
 
-# 1) O URDF expande, tem 1 plugin de cada, e a árvore TF é a esperada
+# 1) The URDF expands, has 1 of each plugin, and the TF tree is as expected
 python3 -m pytest src/demo_description/test/test_urdf_parses.py -q
 
-# Conte os ELEMENTOS de plugin, não linhas de texto. Qualquer grep aqui é
-# inútil: os próprios comentários do xacro citam o nome do plugin e casam com o
-# padrão. Parseie o XML.
+# Count plugin ELEMENTS, not lines of text. Any grep here is useless: the xacro's
+# own comments mention the plugin name and match the pattern. Parse the XML.
 xacro src/demo_description/urdf/demo_robot.urdf.xacro | python3 -c "
 import sys,xml.etree.ElementTree as ET
 from collections import Counter
@@ -541,29 +543,30 @@ r=ET.fromstring(sys.stdin.read())
 print(Counter(p.get('name') for g in r.findall('gazebo') for p in g.findall('plugin')))
 "   # DiffDrive: 1, JointStatePublisher: 1
 
-# 2) Nenhuma junta fixa preservada — senão o robô se desmonta no Gazebo
+# 2) No preserved fixed joints — otherwise the robot falls apart in Gazebo
 python3 src/demo_description/scripts/weld_fixed_joints.py --verbose \
   src/demo_description/urdf/demo_robot.urdf.xacro | grep -c preserveFixedJoint  # 0
 
-# 2) Lado Gazebo: os nomes literais existem e têm publicador
+# 2) Gazebo side: the literal names exist and have a publisher
 gz topic -l | sort
 gz topic -e -t /scan -n 1 | grep -E "frame|count|range_m"
-gz topic -l | grep imu             # vazio ⇒ o mundo não tem gz-sim-imu-system
+gz topic -l | grep imu             # empty ⇒ the world has no gz-sim-imu-system
 
-# 3) Lado ROS: taxa real de cada sensor (não só "o tópico existe")
+# 3) ROS side: the real rate of each sensor (not just "the topic exists")
 ros2 topic hz /demo/scan           # ~10 Hz
 ros2 topic hz /demo/odom           # ~30 Hz
 ros2 topic hz /demo/imu            # ~200 Hz
 ros2 topic hz /demo/camera/image_raw
 
-# 4) Árvore TF sem aresta duplicada nem frame órfão
+# 4) TF tree with no duplicate edge and no orphan frame
 ros2 run tf2_tools view_frames
 
-# 5) Atuação de ponta a ponta
+# 5) End-to-end actuation
 ros2 topic pub --once /demo/cmd_vel geometry_msgs/msg/Twist "{linear: {x: 0.2}}"
-ros2 topic echo /demo/odom --once  # a posição deve ter mudado
+ros2 topic echo /demo/odom --once  # the position must have changed
 ```
 
-**Regra geral deste projeto:** um tópico que existe em `ros2 topic list` **não**
-prova que há publicador. Use sempre `ros2 topic hz` / `gz topic -i`. Quase toda
-falha silenciosa documentada aqui aparece como um tópico presente e mudo.
+**General rule for this project:** a topic that exists in `ros2 topic list` does
+**not** prove there is a publisher. Always use `ros2 topic hz` / `gz topic -i`.
+Almost every silent failure documented here shows up as a topic that is present
+and mute.

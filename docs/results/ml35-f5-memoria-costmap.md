@@ -1,7 +1,7 @@
 # ML3.5 F5 — por que o plano global oscila, e por que `clearing: false` NÃO conserta
 
 Data: 27/08/2026, na sequência de `ml35-f5-rota-conectada.md`. Topologia HIL
-real: Gazebo no host x86, Nav2 + percepção no Aquila AM69 (`192.0.2.5`).
+real: Gazebo no host x86, Nav2 + percepção no Aquila AM69 (`<MODULE_IP>`).
 
 Este arquivo registra **um achado de causa raiz e um experimento reprovado**.
 O experimento está travado por `tests/test_module_params_mount.py` para que

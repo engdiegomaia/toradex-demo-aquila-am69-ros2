@@ -2,7 +2,7 @@
 
 **Data:** 21/08/2026
 **Hardware:** Aquila AM69, Torizon OS 7.7.0, 8 × Cortex-A72, 31 GiB
-**Host:** x86, Wi-Fi `wlp0s20f3` (192.0.2.15) — módulo em 192.0.2.16
+**Host:** x86, Wi-Fi `wlp0s20f3` (<HOST_IP>) — módulo em <MODULE_IP>
 **Mundo:** `quadruped_maze11.sdf`, metas `MAZE11_GOALS`, protocolo
 `nav_trial.py --seconds 180` (prazo de meta 90 s)
 

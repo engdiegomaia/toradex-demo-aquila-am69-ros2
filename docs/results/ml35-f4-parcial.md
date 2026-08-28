@@ -501,7 +501,7 @@ atitude. Em `calcFootPos`:
 
 ```
 next_yaw = d_yaw·(1−phase)·t_swing + d_yaw·t_stance/2 + k_yaw_·(0 − d_yaw)
-next_step += raio · [cos, sin](yaw + ângulo_inicial + next_yaw)
+`next_step += raio · [cos, sin](yaw + ângulo_inicial + next_yaw)`
 ```
 
 Os dois primeiros termos giram o ponto de pouso de cada pé em torno do corpo
@@ -708,7 +708,8 @@ com a ressalva do Ensaio 8.
 
 ## Fases 1-3 do plano de próximos passos — 18/08/2026
 
-Executadas conforme `docs/ml35/plano-proximos-passos.md`.
+Executadas conforme o plano histórico das Fases 1–3, posteriormente substituído
+por `docs/ml35/plano-movimentacao.md`.
 
 ### Fase 1 — envelope de velocidade, reescrito em `v_cmd`
 

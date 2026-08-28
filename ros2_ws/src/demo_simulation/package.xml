@@ -8,7 +8,7 @@
     Warehouse world, robot spawn, ros_gz_bridge mappings and keyboard teleop.
     x86 host only — Gazebo is an OGRE 2 application and never runs on the module.
   </description>
-  <maintainer email="diego.maia@toradex.com">Diego Maia</maintainer>
+  <maintainer email="engdiegomaia@users.noreply.github.com">Diego Maia</maintainer>
   <license>Apache-2.0</license>
 
   <depend>launch</depend>

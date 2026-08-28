@@ -1,74 +1,75 @@
-# S6 — Labirinto interativo com metas por clique
+# S6 — Interactive maze with click-to-set goals
 
-Mundo: `quadruped_maze11.sdf` · Estação x86 · Nav2 + RViz2
+World: `quadruped_maze11.sdf` · x86 workstation · Nav2 + RViz2
 
-Este é o fluxo para dirigir o Go2 por metas, sem publicar velocidade manual.
-O Gazebo roda no container e o Nav2/RViz no host x86. O `GoalTool` do RViz
-transforma cada clique-e-arraste em uma ação `NavigateToPose`; o robô planeja,
-desvia pelo costmap e entra em trote sozinho.
+This workflow drives the Go2 using goals without manually publishing velocity.
+Gazebo runs in the container and Nav2/RViz on the x86 host. RViz's `GoalTool`
+turns each click-and-drag into a `NavigateToPose` action; the robot plans,
+avoids obstacles using the costmap, and starts trotting on its own.
 
-## 1. Preparar os modelos do labirinto (uma vez)
+## 1. Prepare the maze models (once)
 
-O STL do labirinto é uma dependência externa e não está versionado no projeto —
-o `package.xml` do upstream declara `<license>TODO</license>` e não há arquivo
-LICENSE. Baixe fora do repositório, **num caminho estável**:
+The maze STL is an external dependency and is not versioned in the project—the
+upstream `package.xml` declares `<license>TODO</license>` and there is no LICENSE
+file. Download it outside the repository, **to a stable path**:
 
 ```bash
 git clone --depth 1 https://github.com/cafemesa/ros_maze_worlds.git \
   ~/ros_maze_worlds
 ```
 
-Se o diretório já existir, atualize-o com `git -C ~/ros_maze_worlds pull
---ff-only`. O script precisa receber o diretório `models`, não a raiz do clone.
+If the directory already exists, update it with `git -C ~/ros_maze_worlds pull
+--ff-only`. The script must receive the `models` directory, not the clone root.
 
-**Não use `/tmp`.** Um reboot no meio de uma demonstração apaga o clone, e o
-sintoma não é um erro: o Gazebo sobe, o labirinto simplesmente não aparece.
+**Do not use `/tmp`.** A reboot during a demo deletes the clone, and the symptom
+is not an error: Gazebo starts, but the maze simply does not appear.
 
-Confirme que o labirinto serve para este robô antes de rodar:
+Confirm that the maze fits this robot before running:
 
 ```bash
 python3 scripts/maze_fit.py --models ~/ros_maze_worlds/models maze11
 ```
 
-Espere `VEREDITO: SERVE`. O script também imprime a `<pose>` recomendada — é de
-onde saiu a que está no SDF. Método e números em
+Wait for `VEREDITO: SERVE`. The script also prints the recommended `<pose>`—the
+source of the value in the SDF. Method and figures are in
 [`docs/results/ml35-labirinto.md`](../../results/ml35-labirinto.md).
 
-## 2. Subir o Gazebo
+## 2. Start Gazebo
 
-No primeiro terminal, na raiz do repositório:
+In the first terminal, at the repository root:
 
 ```bash
 export MAZE_MODELS=~/ros_maze_worlds/models
 ./scripts/run_quadruped_sim.sh quadruped_maze11.sdf
 ```
 
-O script imprime duas linhas de confirmação antes de subir:
+The script prints two confirmation lines before starting:
 
 ```
 Modelos externos: /home/você/ros_maze_worlds/models -> /maze/models
 Yaw de nascimento: 1.5708 rad
 ```
 
-Espere o log chegar a `state=fixed stand`, e o mundo aparecer como
+Wait for the log to reach `state=fixed stand` and for the world to appear as
 `World [quadruped_maze11] initialized`.
 
-**A partida é o canto inferior direito do labirinto**, para que a demonstração
-comece numa ponta e atravesse tudo. Nesse canto `+x` é parede a 16 cm, e o robô
-nasce olhando para `+x` — então o mundo declara o próprio yaw de nascimento numa
-linha `<!-- go2_spawn_yaw: 1.5708 -->` e o script a lê. **Não há nada a passar na
-linha de comando**; `GO2_SPAWN_YAW=<rad>` sobrepõe se você quiser experimentar
-outro rumo. Confirme no `scenario_check` que a pose sai com `yaw=90.0 deg`.
+**The starting point is the maze's lower-right corner**, so the demo starts at
+one end and crosses the entire maze. At that corner, `+x` is a wall 16 cm away,
+and the robot spawns facing `+x`; the world therefore declares its own spawn yaw
+in a `<!-- go2_spawn_yaw: 1.5708 -->` line, which the script reads. **There is
+nothing to pass on the command line**; `GO2_SPAWN_YAW=<rad>` overrides it if you
+want to try another heading. Confirm in `scenario_check` that the pose reports
+`yaw=90.0 deg`.
 
-Sem `MAZE_MODELS` o `run_quadruped_sim.sh` **recusa** qualquer mundo
-`quadruped_maze*.sdf` e explica por quê. Esse guard existe porque a falha que
-ele evita é silenciosa: malha que não resolve é uma linha de aviso no meio do
-log, não um erro fatal, e o robô então anda em campo aberto — uma corrida que
-parece um desvio perfeito.
+Without `MAZE_MODELS`, `run_quadruped_sim.sh` **rejects** any
+`quadruped_maze*.sdf` world and explains why. This guard exists because the
+failure it prevents is silent: an unresolved mesh produces one warning line in
+the middle of the log, not a fatal error, and the robot then walks in an open
+field—a run that looks like perfect obstacle avoidance.
 
-## 3. Abrir Nav2 e RViz interativo
+## 3. Open Nav2 and interactive RViz
 
-No segundo terminal, no host x86:
+In the second terminal, on the x86 host:
 
 ```bash
 cd ros2_ws
@@ -81,88 +82,88 @@ export ROS_LOG_DIR=/tmp
 ros2 launch demo_bringup maze_nav_rviz.launch.py
 ```
 
-O portão de prontidão é `Managed nodes are active`. Não inicie
-`demo_routine`, `patrol_commander` ou outro publicador de `/demo/cmd_vel` junto
-com esse launch.
+The readiness gate is `Managed nodes are active`. Do not start `demo_routine`,
+`patrol_commander`, or any other `/demo/cmd_vel` publisher alongside this
+launch.
 
-## 4. Mandar o robô para um local
+## 4. Send the robot to a location
 
-No RViz:
+In RViz:
 
-1. Use a vista superior (`TopDownOrtho`) e deixe o `Fixed Frame` em `map`.
-2. Selecione a ferramenta **Nav2 Goal** (ícone de alvo/seta).
-3. Clique no destino e arraste na direção do heading final; solte para enviar.
-4. Clique e arraste outra meta para cancelar/substituir a atual.
+1. Use the top view (`TopDownOrtho`) and leave `Fixed Frame` set to `map`.
+2. Select the **Nav2 Goal** tool (target/arrow icon).
+3. Click the destination and drag toward the final heading; release to send.
+4. Click and drag another goal to cancel/replace the current one.
 
-As metas devem ficar dentro dos corredores e do alcance do lidar. O costmap é
-rolante e não existe mapa estático: clicar numa parede ou numa área ainda não
-observada pode fazer o planejador rejeitar a meta.
+Goals must remain inside corridors and within lidar range. The costmap is
+rolling and there is no static map: clicking a wall or an area not yet observed
+may cause the planner to reject the goal.
 
-### Onde as metas cabem no `maze11`
+### Where goals fit in `maze11`
 
-O componente navegável, em coordenadas do robô (que nasce em 0,0, no canto
-inferior direito — logo o labirinto todo fica em `−x` e `+y`):
+The navigable component in robot coordinates (the robot spawns at 0,0 in the
+lower-right corner, so the entire maze lies in `−x` and `+y`):
 
 ```
 x[-9,87 ... +0,16]     y[-0,94 ... +9,87]
 ```
 
-Metas medidas em centro de corredor, dentro dos 8 m que o `patrol_commander`
-aceita — são também as default do `nav_trial.py`:
+Goals measured at corridor centers, within the 8 m accepted by
+`patrol_commander`; these are also the defaults in `nav_trial.py`:
 
 ```
 (0.00, 8.00)   (-8.00, 0.00)   (-1.60, 1.60)   (-5.83, 4.91)
 ```
 
-Duas restrições que não se anunciam:
+Two restrictions that are not announced:
 
-- **Corredor de 1,20 m com margem de 21,7 cm por lado.** Com `robot_radius` de
-  0,38 m e `inflation_radius` de 0,55 m, quase todo o corredor carrega custo; a
-  faixa sem custo é a linha de centro. O planejador funciona nisso, mas metas
-  colocadas junto à parede são as que ele rejeita.
-- **`patrol_commander` rejeita metas além de 8 m** (`MAX_GOAL_RADIUS_M`). A ponta
-  `y = −10,38` está fora desse raio. Pelo RViz não há esse limite, mas o
-  costmap global é janela rolante: meta muito longe é *aceita* e depois falha
-  perto da borda.
+- **A 1,20 m corridor with 21,7 cm clearance on each side.** With a
+  `robot_radius` of 0,38 m and `inflation_radius` of 0,55 m, almost the entire
+  corridor carries cost; the cost-free strip is the centerline. The planner
+  works under these conditions, but it rejects goals placed near the wall.
+- **`patrol_commander` rejects goals beyond 8 m** (`MAX_GOAL_RADIUS_M`). The
+  `y = −10,38` end lies outside that radius. RViz does not impose this limit,
+  but the global costmap is a rolling window: a distant goal is *accepted* and
+  then fails near the edge.
 
-### Trocar de labirinto
+### Change the maze
 
-Os 11 labirintos do upstream não são intercambiáveis: cada um tem a sua pose, e
-**reaproveitar a pose de outro coloca o robô dentro de uma parede** — sem erro
-do Gazebo.
+The 11 upstream mazes are not interchangeable: each has its own pose, and
+**reusing another maze's pose places the robot inside a wall** without a Gazebo
+error.
 
-| labirinto | escala | `<pose>` | yaw | área navegável |
+| maze | scale | `<pose>` | yaw | navigable area |
 | --- | --- | --- | --- | --- |
 | `maze10` (`quadruped_maze.sdf`) | 0,002 | `-2.670 3.061 0 0 0 0` | 0 | 18,4 m² |
 | **`maze11`** (`quadruped_maze11.sdf`) | 0,002 | `-11.672 11.649 0 0 0 0` | 1,5708 | 35,4 m² |
 
-Para um labirinto novo, meça em vez de estimar:
+For a new maze, measure rather than estimate:
 
 ```bash
 python3 scripts/maze_fit.py --models ~/ros_maze_worlds/models maze7 \
   --start se --goals 4
 ```
 
-O script imprime a `<pose>`, o `yaw:=` recomendado (medindo a pista livre nas
-quatro direções na célula de partida) e metas em centro de corredor. `--start`
-aceita `run` (maior pista em `+x`, para ensaio de marcha reta) ou um canto:
-`se`, `ne`, `nw`, `sw`.
+The script prints the `<pose>`, the recommended `yaw:=` (by measuring free space
+in all four directions from the starting cell), and goals at corridor centers.
+`--start` accepts `run` (the longest clear path in `+x`, for a straight-walking
+trial) or a corner: `se`, `ne`, `nw`, `sw`.
 
-Os STL de 1 a 7 estão com **Y para cima** e precisariam de `roll 1.5708`; 8 a 11
-já estão com Z para cima e usam `rpy 0 0 0`. Os mundos deste projeto referenciam
-a malha direto justamente por isso — um `<include>model://mazeN` deita o
-labirinto de lado, porque o `model.sdf` do upstream declara roll para todos.
+STLs 1 through 7 use **Y-up** and would require `roll 1.5708`; 8 through 11 are
+already Z-up and use `rpy 0 0 0`. This is why the worlds in this project
+reference the mesh directly—an `<include>model://mazeN` lays the maze on its
+side because the upstream `model.sdf` declares roll for all of them.
 
-## 5. Displays já abertos
+## 5. Displays already open
 
-O arquivo `demo_view.rviz`, carregado automaticamente, deixa habilitados:
+The automatically loaded `demo_view.rviz` file enables:
 
-- **TF:** `map`, `odom`, `base`, `trunk`, `lidar`, `front_camera` e `imu_link`;
+- **TF:** `map`, `odom`, `base`, `trunk`, `lidar`, `front_camera`, and `imu_link`;
 - **LaserScan:** `/demo/scan`;
-- **Lidar PointCloud:** `/demo/scan_cloud` (a nuvem 3D usada pelo costmap);
+- **Lidar PointCloud:** `/demo/scan_cloud` (the 3D cloud used by the costmap);
 - **Go2Camera:** `/demo/camera/image_raw`.
 
-Para conferir pelo terminal, o contrato pode ser medido sem publicar comando:
+To check from the terminal, measure the contract without publishing commands:
 
 ```bash
 cd ..
@@ -171,14 +172,15 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp ROS_DOMAIN_ID=69 ROS_LOG_DIR=/tmp
 python3 scripts/scenario_check.py --seconds 10
 ```
 
-O resultado esperado é `PASSOU: 0 problema(s)`, câmera em aproximadamente 10 Hz,
-lidar em 10 Hz e TF com raiz `map`.
+The expected result is `PASSOU: 0 problema(s)`, camera at approximately 10 Hz,
+lidar at 10 Hz, and TF rooted at `map`.
 
-## 6. Encerrar
+## 6. Shut down
 
-Feche o RViz/Nav2 com `Ctrl-C` e depois o terminal do Gazebo com `Ctrl-C`. Não
-inicie outra simulação até o container `aquila-go2` desaparecer de `docker ps`.
+Close RViz/Nav2 with `Ctrl-C`, then the Gazebo terminal with `Ctrl-C`. Do not
+start another simulation until the `aquila-go2` container disappears from
+`docker ps`.
 
-Essa execução usa `/demo/odom` do Gazebo como ground truth para fechar
-`odom → base`; ela valida planejamento e percepção na simulação, não localização
-ou o estimador de estado do hardware real.
+This run uses Gazebo's `/demo/odom` as ground truth to close `odom → base`; it
+validates planning and perception in simulation, not localization or the real
+hardware's state estimator.
