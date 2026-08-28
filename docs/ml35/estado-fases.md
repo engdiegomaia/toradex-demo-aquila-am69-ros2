@@ -28,8 +28,56 @@ semanas de trabalho, resultado incerto. As alternativas descartadas estão em
 | **F2** | Spike Go2 dentro do container `sim` | ✅ **concluída** 14/08/2026 | (spike descartável, não commitado) |
 | **F3** | Go2 na árvore do projeto (era "retarget A1") | ✅ **concluída** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contrato atravessando fronteira de container | ✅ **concluída** 24/08/2026 | contrato e perception revalidados no Go2 headless |
-| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 26/08/2026 | CPU fechada (307% de folga, zero recusas); portão de 8 m REPROVADO — resta **só** decisão de trajeto, agora com protocolo intercalado (`nav_campaign.py`) para medi-la — ver "Sessão 26/08 (tarde)" |
+| **F5** | Nav2 sobre pernas + modo HIL | 🟡 **em andamento** 28/08/2026 | busca autônoma implementada e instalada, aceitação NÃO executada; o portão de estabilidade (3 metas curtas) segue **REPROVADO** a 0,0185 m/s — ver "Sessão 28/08" e `docs/results/ml35-f5-busca-autonoma.md` |
 | **F6** | Fallback selecionável e testes | ✅ **concluída** 24/08/2026 | cold start + goal `SUCCEEDED` nos dois robôs |
+
+### Sessão 28/08 — busca autônoma implementada; portão de estabilidade ainda REPROVADO
+
+Evidência: **`docs/results/ml35-f5-busca-autonoma.md`** (`PENDING EXECUTION`).
+
+A demonstração de saída autônoma do labirinto está **implementada de ponta a
+ponta e instalada**, e **nenhuma corrida de aceitação foi executada**. As duas
+frases valem ao mesmo tempo, e a segunda é a que decide se a fase fecha.
+
+**Fechado (host):**
+
+| Peça | Onde roda |
+|---|---|
+| `frontier.py` + `maze_explorer` (fronteiras, blacklist, prazos, JSON) | módulo |
+| `ExplorationGrid` (`allow_unknown: false`) + `nav_to_pose_exploration.xml` | módulo |
+| `maze_exit_detector` (painel magenta, confirmação 3 de 5) | módulo |
+| painel magenta no `quadruped_maze11.sdf` | host |
+| `maze_escape_validator` → `/demo/maze/escaped` | **host, só simulação** |
+| botões e HUD de busca no cockpit | cockpit |
+
+Suítes de host: contrato **150**, `demo_navigation` **25**, `demo_perception`
+**33**, cockpit **169**. Nenhuma delas mede navegação.
+
+**O portão continua sendo o bloqueio, e ele reprovou.** Última corrida
+(`artifacts/maze11-short-gate.csv`): 37,1 s, 0,69 m, **0,0185 m/s**, `cmd_vx`
+não-nulo em 18,7% das amostras — **abaixo do piso de 0,05 m/s**, e sem 3/3
+metas. A corrida anterior, antes de `restamp_tf: true`, tinha o robô
+**congelado** (`cmd_vx` zero em 150 s). O parâmetro destravou o comando e **não
+fechou o portão**.
+
+`restamp_tf` foi verificado como parâmetro real do `slam_toolbox` do Jazzy
+(`slam_toolbox_common.hpp:177`, e `restamp_tf: false` nos cinco
+`mapper_params_*.yaml` de `/opt/ros/jazzy/share`) — não é YAML ignorado em
+silêncio. `transform_timeout` fica em 0,2 como exigido.
+
+**`nav_trial.py` passou a arquivar a evidência por meta.** Antes o desfecho de
+cada ação morria no stdout e a meta em voo no fim do ensaio nunca era
+registrada — um portão de 3 metas relatava 2. Agora sai um CSV irmão
+`<csv>-metas.csv` com alvo, desfecho, `status`, `error_code`/`error_msg` do
+Nav2 e trocas de rota **daquela** meta, e cada amostra de telemetria carrega
+`goal_index`.
+
+**Risco aberto que precede qualquer conclusão sobre percepção:** o RAW da câmera
+não atravessa mais o fio desde `ml35-f5-camera-comprimida.md`. O `SetRemap` de
+`demo_bringup/launch/perception.launch.py` religa a imagem do detector
+automaticamente, **mas `/demo/camera/camera_info` não é remapeado**. Sem ele o
+detector publica detecção e nunca publica pose — falha silenciosa. Checar
+`ros2 topic hz /demo/camera/camera_info` **no módulo** antes de culpar a visão.
 
 ### Sessão 27/08 (parte 3) — mecanismo achado: o plano global alterna a 1 Hz. `clearing: false` REPROVADO
 
