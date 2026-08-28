@@ -44,6 +44,7 @@ def test_slam_runtime_excludes_the_rviz_plugin_from_the_module() -> None:
     dockerfile = NAV_DOCKERFILE.read_text(encoding='utf-8')
     assert 'apt-get download ros-${ROS_DISTRO}-slam-toolbox' in dockerfile
     assert '/lib/libSlamToolboxPlugin.so' in dockerfile
+    assert '. /opt/ros/${ROS_DISTRO}/setup.sh' in dockerfile
     assert "grep -q 'not found'" in dockerfile
     install_block = dockerfile.split(
         'RUN apt-get update && apt-get install', 1)[1].split(
@@ -82,11 +83,29 @@ def test_slam_owns_map_to_odom_and_uses_the_go2_frame() -> None:
     assert "LaunchConfiguration('scan_topic')" in slam_launch
 
 
+def test_slam_include_does_not_inherit_the_nav2_params_file() -> None:
+    """The parent's params_file is nav2_params_go2.yaml, not a SLAM config."""
+    slam_params = ast.unparse(_assignment('slam_params'))
+    assert "FindPackageShare('demo_navigation')" in slam_params
+    assert "'config'" in slam_params
+    assert "'slam_params.yaml'" in slam_params
+
+    slam_include = ast.unparse(_assignment('slam'))
+    assert 'GroupAction(scoped=True' in slam_include
+    assert "'params_file': slam_params" in slam_include
+    assert "LaunchConfiguration('params_file')" not in slam_include
+
+
 def test_global_costmap_retains_slam_free_and_occupied_space() -> None:
     for path in (GO2_PARAMS, ALIGN8_PARAMS):
         document = yaml.safe_load(path.read_text(encoding='utf-8'))
         params = document['global_costmap']['global_costmap']['ros__parameters']
-        assert params['rolling_window'] is False
+        # The first live SLAM map is tightly cropped around observations. A
+        # non-rolling StaticLayer resizes the master to that crop and can leave
+        # the robot footprint on the last row/column (`worldToMap failed`).
+        assert params['rolling_window'] is True
+        assert params['width'] == 20
+        assert params['height'] == 20
         assert params['plugins'][0] == 'static_layer'
         static = params['static_layer']
         assert static['map_subscribe_transient_local'] is True
