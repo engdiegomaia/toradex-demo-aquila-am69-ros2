@@ -25,6 +25,24 @@ def test_slam_tf_is_restamped_for_distributed_hil_clock():
     assert slam['transform_timeout'] == 0.2
 
 
+def test_slam_publishes_the_grid_at_the_upstream_default_period():
+    # 5.0 e o default do upstream
+    # (`/opt/ros/jazzy/share/slam_toolbox/config/mapper_params_online_async.yaml`).
+    # Ficou em 1.0 ate 28/08/2026, pagando 5x a rasterizacao do pose-graph no
+    # AM69 sem que nada exigisse essa taxa.
+    #
+    # As outras quatro chaves estao aqui como TRAVA de A/B, nao por gosto: a
+    # rodada que mede o efeito de `map_update_interval` so significa alguma
+    # coisa se elas nao tiverem se mexido junto.
+    params = yaml.safe_load((NAV / 'config/slam_params.yaml').read_text())
+    slam = params['slam_toolbox']['ros__parameters']
+    assert slam['map_update_interval'] == 5.0
+    assert slam['restamp_tf'] is True
+    assert slam['transform_timeout'] == 0.2
+    assert slam['transform_publish_period'] == 0.02
+    assert slam['minimum_time_interval'] == 0.5
+
+
 def test_exploration_bt_hardcodes_safe_planner_and_smoothing():
     path = NAV / 'behavior_trees/nav_to_pose_exploration.xml'
     root = ET.parse(path).getroot()
