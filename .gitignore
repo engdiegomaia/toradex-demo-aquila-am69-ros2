@@ -34,3 +34,15 @@ frames.pdf
 # CycloneDDS configs rendered at deploy time by scripts/module.sh.
 # They carry real IPs; the templates next to them are what is committed.
 docker/cyclonedds/*.rendered.xml
+
+# Saída de ensaio em rascunho. A convenção deste projeto é que a evidência que
+# sustenta uma decisão vive em docs/results/, versionada, com nome estável e um
+# .md ao lado explicando o que mede. `artifacts/` é o caderno de rascunho de
+# onde ela é copiada: corridas descartadas, sondas de fumaça, repetições.
+#
+# Anotado depois de 28/08/2026, quando 23 CSVs de rascunho ficaram pendurados no
+# `git status` durante uma sessão inteira e a pergunta "isto já foi commitado?"
+# teve de ser respondida arquivo por arquivo. Se uma corrida daqui decidir
+# alguma coisa, copie-a para docs/results/ com o .md; se não decidir, ela não
+# precisava de git.
+artifacts/
