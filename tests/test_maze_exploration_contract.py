@@ -76,6 +76,21 @@ def test_global_costmap_inflation_still_clears_the_robot_radius():
         assert (radius - costmap['robot_radius']) > costmap['resolution'], name
 
 
+def test_starting_is_a_cockpit_state_and_never_a_ros_one():
+    """
+    `starting` cobre a janela entre o clique e o primeiro status do Aquila.
+
+    Ele existe SO no cockpit. Se aparecer no vocabulario do `maze_explorer`, o
+    no passa a publicar um estado que a maquina de estados dele nao trata, e o
+    `assert self._state in STATES` do `_publish_status` deixa de proteger.
+    A outra metade deste contrato esta em hmi/test/exploration.test.js.
+    """
+    explorer = (NAV / 'demo_navigation/maze_explorer.py').read_text()
+    store = (ROOT / 'hmi/js/panels/exploration.js').read_text()
+    assert "'starting'" in store
+    assert "'starting'" not in explorer
+
+
 def test_slam_tf_is_restamped_for_distributed_hil_clock():
     params = yaml.safe_load((NAV / 'config/slam_params.yaml').read_text())
     slam = params['slam_toolbox']['ros__parameters']
@@ -155,7 +170,13 @@ def test_cockpit_owns_start_cancel_and_ground_truth_display():
     assert '/demo/exploration/cancel' in panel
     # Duas portas para a meta manual -- o clique no canvas e o envio -- e as
     # duas tem de estar fechadas enquanto a busca corre.
-    assert panel.count('if (explorationActive()) return') == 2
+    #
+    # `explorationBusy()` e nao `explorationActive()`: a segunda so conhece o
+    # estado publicado pelo Aquila, e entre o clique em "iniciar busca" e o
+    # primeiro status ha uma janela em que o explorador ja aceitou a busca e o
+    # cockpit ainda nao sabe. Fechar as portas so com `isActive()` deixa essa
+    # janela aberta para uma meta manual por cima da busca.
+    assert panel.count('if (explorationBusy()) return') == 3
     assert '/demo/maze/escaped' in config
     assert 'SAÍDA CONFIRMADA' in store
     # O rotulo de sucesso so pode sair do ground truth, nunca do estado do

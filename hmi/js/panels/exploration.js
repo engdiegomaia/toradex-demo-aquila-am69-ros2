@@ -19,9 +19,18 @@
  * isso este store não tem "esquecer": ele é uma função do último status visto.
  */
 
-/** Estados em que o explorador está no comando do robô. */
+/**
+ * Estados em que o explorador está no comando do robô.
+ *
+ * `starting` é do COCKPIT, não do `maze_explorer`: cobre a janela entre o
+ * clique em "iniciar busca" e o primeiro status vindo do Aquila. Sem ele essa
+ * janela conta como "não há busca", e um clique no mapa vira meta manual por
+ * cima de uma busca que o Aquila já aceitou. É a mesma família de defeito que
+ * o resto deste arquivo persegue: o cockpit acreditando numa coisa enquanto o
+ * módulo faz outra.
+ */
 export const BUSY_STATES = Object.freeze([
-  'waiting_map', 'selecting', 'navigating', 'homing_exit',
+  'starting', 'waiting_map', 'selecting', 'navigating', 'homing_exit',
 ]);
 
 /** Estados em que a busca terminou, e o HUD ainda deve dizer como. */
@@ -34,21 +43,26 @@ export const TERMINAL_STATES = Object.freeze([
  *
  * Um payload inválido NÃO pode virar `null` silencioso: o painel voltaria a
  * aceitar cliques manuais no meio de uma busca que continua correndo no Aquila.
- * Vira um estado de falha visível.
+ *
+ * O `invalid: true` existe porque `state: 'failed'` sozinho não basta. `failed`
+ * é TERMINAL, e terminal LIBERA a meta manual -- que é exatamente o que não se
+ * pode fazer quando a única coisa que se sabe é que o canal ficou ilegível. Um
+ * JSON quebrado não é notícia sobre o robô; é notícia sobre o enlace. Quem
+ * decide o que fazer com isso é o store, em `apply`.
  */
 export function parseExplorationStatus(message) {
   const data = message?.data;
   if (typeof data !== 'string') {
-    return { state: 'failed', message: 'estado de busca ausente' };
+    return { state: 'failed', message: 'estado de busca ausente', invalid: true };
   }
   try {
     const parsed = JSON.parse(data);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { state: 'failed', message: 'estado de busca inválido' };
+      return { state: 'failed', message: 'estado de busca inválido', invalid: true };
     }
     return parsed;
   } catch {
-    return { state: 'failed', message: 'estado de busca inválido' };
+    return { state: 'failed', message: 'estado de busca inválido', invalid: true };
   }
 }
 
@@ -64,7 +78,7 @@ export function isExplorationActive(exploration) {
  * diz que o explorador chegou perto do marcador. Confundir os dois faria o
  * cockpit declarar sucesso sem o robô ter atravessado a abertura.
  */
-export function explorationHudParts(exploration, mazeEscaped) {
+export function explorationHudParts(exploration, mazeEscaped, linkError) {
   const parts = [];
   if (exploration) {
     if (Number.isFinite(exploration.elapsed_s)) {
@@ -76,6 +90,10 @@ export function explorationHudParts(exploration, mazeEscaped) {
     if (exploration.marker_visible) parts.push('saída detectada');
     if (exploration.message) parts.push(exploration.message);
   }
+  // Erro de comunicação é uma linha PRÓPRIA, ao lado do último estado válido, e
+  // não um estado que substitui aquele. O operador precisa ver as duas coisas:
+  // o que o robô estava fazendo, e que o cockpit parou de saber.
+  if (linkError) parts.push(linkError);
   if (mazeEscaped) parts.push('SAÍDA CONFIRMADA');
   return parts;
 }
@@ -84,11 +102,74 @@ export function explorationHudParts(exploration, mazeEscaped) {
 export function createExplorationStore() {
   let exploration = null;
   let mazeEscaped = false;
+  let linkError = null;
+  let pending = false;
 
   return {
-    /** Aplica uma mensagem de `/demo/exploration/status`. */
+    /**
+     * Aplica uma mensagem de `/demo/exploration/status`.
+     *
+     * Payload ilegível NÃO derruba um estado ocupado. `navigating` seguido de
+     * JSON quebrado continua bloqueado; `selecting` seguido de desconexão
+     * também. O último estado válido é preservado e a falha de comunicação vira
+     * um campo separado -- porque converter para `failed` liberaria a meta
+     * manual em cima de uma busca que continua correndo no Aquila.
+     *
+     * A exceção é não haver estado válido nenhum ainda: aí o `failed` do parse
+     * é a melhor informação disponível, e é melhor que uma tela muda.
+     */
     apply(message) {
-      exploration = parseExplorationStatus(message);
+      const parsed = parseExplorationStatus(message);
+      if (parsed.invalid) {
+        linkError = parsed.message;
+        if (exploration === null) exploration = parsed;
+        return;
+      }
+      linkError = null;
+      pending = false;
+      exploration = parsed;
+    },
+    /**
+     * Marca um comando de busca em voo, antes de qualquer resposta.
+     *
+     * `starting` cobre a janela entre o clique e o primeiro status do Aquila.
+     * `pending` cobre a promessa do serviço, e é o que impede o duplo clique de
+     * virar duas chamadas.
+     */
+    beginStart() {
+      pending = true;
+      linkError = null;
+      exploration = { state: 'starting', message: 'iniciando busca' };
+    },
+    /** Um cancelamento em voo: não muda o estado, só trava a porta. */
+    beginCancel() {
+      pending = true;
+    },
+    /**
+     * O serviço recusou o start, ou a chamada explodiu.
+     *
+     * Desfaz o `starting` -- que é um estado que só o cockpit inventou -- para
+     * que o painel não fique travado num bloqueio sem busca do outro lado. Se
+     * um status real já tiver chegado nesse meio tempo, ele manda: a recusa
+     * vira só mensagem, e o bloqueio continua com quem tem autoridade.
+     */
+    refuseStart(text) {
+      pending = false;
+      const message = text ?? 'comando de busca recusado';
+      exploration = exploration?.state === 'starting'
+        ? { state: 'failed', message }
+        : { ...(exploration ?? {}), message };
+    },
+    /** O serviço respondeu (bem ou mal); a promessa não trava mais nada. */
+    endCommand() {
+      pending = false;
+    },
+    /** Há comando em voo ou busca correndo? Se sim, nada de meta manual. */
+    isBusy() {
+      return pending || isExplorationActive(exploration);
+    },
+    linkError() {
+      return linkError;
     },
     /** Aplica um objeto já pronto, como a resposta recusada de um serviço. */
     merge(patch) {
@@ -108,7 +189,7 @@ export function createExplorationStore() {
       return `busca: ${exploration?.state ?? 'idle'}`;
     },
     hudParts() {
-      return explorationHudParts(exploration, mazeEscaped);
+      return explorationHudParts(exploration, mazeEscaped, linkError);
     },
     escaped() {
       return mazeEscaped;

@@ -333,7 +333,7 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   function sendGoal(world) {
-    if (explorationActive()) return;
+    if (explorationBusy()) return;
     const pose = robotPose();
     if (pose) {
       const distance = Math.hypot(world.x - pose.x, world.y - pose.y);
@@ -411,7 +411,7 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   canvas.addEventListener('click', (event) => {
-    if (explorationActive()) return;
+    if (explorationBusy()) return;
     const rect = canvas.getBoundingClientRect();
     sendGoal(viewNow().toWorld(event.clientX - rect.left, event.clientY - rect.top));
   });
@@ -422,27 +422,51 @@ export function createNavPanel({ root, client, tracker }) {
     return exploration.isActive();
   }
 
+  /**
+   * Inclui o comando em voo, e nao so o estado publicado pelo Aquila.
+   *
+   * Entre o clique em "iniciar busca" e o primeiro status ha uma janela em que
+   * o explorador ja aceitou a busca e o cockpit ainda nao sabe. Fechar as
+   * portas da meta manual apenas com `isActive()` deixa essa janela aberta.
+   */
+  function explorationBusy() {
+    return exploration.isBusy();
+  }
+
   async function explorationCommand(service, button) {
     if (button) button.dataset.busy = 'true';
+    const starting = service === EXPLORATION_START_SERVICE;
     try {
       const result = await client.callService(service, {});
       if (result?.success === false) {
-        exploration.merge({
-          message: result.message ?? 'comando de busca recusado',
-        });
+        const text = result.message ?? 'comando de busca recusado';
+        // Recusa do start tem de desfazer o `starting` local, ou o painel fica
+        // travado num estado que so o cockpit inventou.
+        if (starting) exploration.refuseStart(text);
+        else exploration.merge({ message: text });
       }
     } catch (error) {
-      exploration.merge({ state: 'failed', message: error.message });
+      if (starting) exploration.refuseStart(error.message);
+      else exploration.merge({ state: 'failed', message: error.message });
     } finally {
+      exploration.endCommand();
       if (button) button.dataset.busy = 'false';
     }
   }
 
   explorationStartButton?.addEventListener('click', () => {
+    // Duplo clique tem de virar UMA chamada. A guarda vem antes de qualquer
+    // efeito colateral, incluindo o cancelamento da meta manual.
+    if (explorationBusy()) return;
     cancelActive();
+    exploration.beginStart();
+    // Pinta o bloqueio JA, sem esperar o proximo quadro: entre o clique e o
+    // primeiro status do Aquila o mapa tem de parecer travado, nao so estar.
+    updateHud();
     explorationCommand(EXPLORATION_START_SERVICE, explorationStartButton);
   });
   explorationCancelButton?.addEventListener('click', () => {
+    exploration.beginCancel();
     explorationCommand(EXPLORATION_CANCEL_SERVICE, explorationCancelButton);
   });
 
@@ -712,7 +736,7 @@ export function createNavPanel({ root, client, tracker }) {
 
     const active = state.goalState === 'sent' || state.goalState === 'running';
     if (cancelButton) cancelButton.hidden = !active;
-    const exploring = explorationActive();
+    const exploring = explorationBusy();
     if (explorationStartButton) explorationStartButton.hidden = exploring;
     if (explorationCancelButton) explorationCancelButton.hidden = !exploring;
     canvas.classList.toggle('canvas--disabled', exploring);
