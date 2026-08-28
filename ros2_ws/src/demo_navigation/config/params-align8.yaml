@@ -718,14 +718,35 @@ global_costmap:
       robot_base_frame: base
       # Same value as the local costmap — see the note there.
       robot_radius: 0.38
-      resolution: 0.05
-      # Mesmo contrato do baseline: janela mestre de 20 m centrada no robo,
-      # com a memoria do slam_toolbox projetada pela static_layer. Deixar false
+      # 10 cm, e NAO os 5 cm do costmap local. Ver o bloco da janela abaixo: as
+      # duas coisas mudaram juntas e uma sem a outra e o caso ruim.
+      resolution: 0.10
+      # Mesmo contrato do baseline: janela mestre rolante centrada no robo, com
+      # a memoria do slam_toolbox projetada pela static_layer. Deixar false
       # encolhe o mestre ate o primeiro retangulo do SLAM (78x32 celulas no HIL)
       # e faz footprint/planner acessar my=32/33 fora da borda.
+      #
+      # A JANELA E DE 40 m E A RESOLUCAO E DE 10 cm -- MUDARAM JUNTAS, 28/08/2026
+      #
+      #   antes   20 / 0.05 = 400 celulas por eixo, cobrindo +/- 10 m do robo
+      #   depois  40 / 0.10 = 400 celulas por eixo, cobrindo +/- 20 m do robo
+      #
+      # A grade mestre continua com ~160 mil celulas, entao o custo de inflacao
+      # e publicacao nao muda. Subir a janela SEM baixar a resolucao daria
+      # 640 mil celulas, 4x o custo. Nao faca so metade.
+      #
+      # POR QUE 20 m NAO BASTAVA: o `quadruped_maze11.sdf` mede ~11,7 x 14,2 m,
+      # DIAGONAL ~18,4 m. Com o robo num canto, o canto oposto ficava fora da
+      # grade mestre -- para o planner e para o painel do cockpit, que desenha
+      # `/global_costmap/costmap`. Nao era o mapa sendo esquecido; era a janela
+      # cortando.
+      #
+      # Detalhes completos, incluindo o caminho de reversao se a static_layer
+      # nao reprojetar entre 5 cm e 10 cm, no bloco equivalente de
+      # `nav2_params_go2.yaml`. Os dois arquivos tem de mudar juntos.
       rolling_window: true
-      width: 20
-      height: 20
+      width: 40
+      height: 40
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "perception_layer", "inflation_layer"]
 
