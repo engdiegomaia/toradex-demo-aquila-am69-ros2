@@ -156,6 +156,23 @@ def generate_launch_description() -> LaunchDescription:
                     'unitree_guide_controller before it is configured.',
     )
 
+    # Decimacao do joint_state_broadcaster, pelo mesmo mecanismo e pelo mesmo
+    # motivo de gait_params: o pacote que declara o controlador e vendorizado.
+    # O arquivo explica a medicao que motivou os 50 Hz; o resumo e que o
+    # broadcaster herdava os 1000 Hz do controller_manager e enchia /tf a 1090
+    # Hz para onze assinantes, dos quais os de navegacao estao do outro lado da
+    # Ethernet. Vazio desliga a decimacao e volta ao comportamento herdado.
+    jsb_params_arg = DeclareLaunchArgument(
+        'jsb_params',
+        default_value=PathJoinSubstitution([
+            FindPackageShare('demo_simulation'), 'config',
+            'joint_state_broadcaster.yaml',
+        ]),
+        description='Param file com a taxa do joint_state_broadcaster. Afeta '
+                    'SO o broadcaster: o laco de controle, a marcha e a fisica '
+                    'seguem em 1000/200/1000 Hz.',
+    )
+
     # Vazio = pega de scenarios.py pelo mundo. Um default numerico aqui e
     # indistinguivel de uma escolha do operador, e foi assim que o robo passou a
     # nascer olhando para a parede quando o cenario virou o labirinto: yaw 0 e
@@ -296,11 +313,18 @@ def generate_launch_description() -> LaunchDescription:
     # inside the gz sim process, which happens when the model is spawned.
     # Chained on spawn exit rather than on a timer: the timer would be
     # measuring container uptime, which is the F1 lesson (wait_for_clock).
+    #
+    # `--param-file` aqui e o que decima o broadcaster para 50 Hz. Mesma razao
+    # de ser do `--param-file` do gait controller mais abaixo: o parametro
+    # `update_rate` mora no no do controlador dentro do processo do gz, e o
+    # spawner e quem o aplica antes do load_controller. Setar depois seria
+    # aceito e nunca lido.
     joint_state_broadcaster = Node(
         package='controller_manager',
         executable='spawner',
         arguments=['joint_state_broadcaster',
-                   '--controller-manager', '/controller_manager'],
+                   '--controller-manager', '/controller_manager',
+                   '--param-file', LaunchConfiguration('jsb_params')],
         output='screen',
     )
 
@@ -400,6 +424,7 @@ def generate_launch_description() -> LaunchDescription:
         world_arg,
         robot_name_arg,
         gait_params_arg,
+        jsb_params_arg,
         x_arg,
         y_arg,
         yaw_arg,
