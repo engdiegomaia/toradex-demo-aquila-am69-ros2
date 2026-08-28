@@ -18,6 +18,64 @@ def test_exploration_planner_never_crosses_unknown():
         assert 'ExplorationGrid' in planner['planner_plugins']
 
 
+GLOBAL_COSTMAP_CELLS_PER_AXIS = 400
+
+
+def _costmap(name, which):
+    params = yaml.safe_load((NAV / 'config' / name).read_text())
+    return params[which][which]['ros__parameters']
+
+
+def test_global_costmap_window_covers_the_whole_maze_diagonal():
+    # O `quadruped_maze11.sdf` mede ~11,7 x 14,2 m, diagonal ~18,4 m. Uma janela
+    # rolante de 20 m so alcanca +/- 10 m do robo, entao com o robo num canto o
+    # canto oposto nao existia na grade mestre -- nem para o planner, nem para o
+    # painel do cockpit. 40 m cobre a diagonal de qualquer ponto do labirinto.
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        costmap = _costmap(name, 'global_costmap')
+        assert costmap['rolling_window'] is True, name
+        assert costmap['width'] == 40, name
+        assert costmap['height'] == 40, name
+        assert costmap['resolution'] == 0.10, name
+
+
+def test_widening_the_global_costmap_did_not_enlarge_the_master_grid():
+    # A janela dobrou E a resolucao dobrou, de proposito e na mesma rodada:
+    #   antes  20 / 0.05 = 400    depois  40 / 0.10 = 400
+    # Este teste existe para reprovar a metade da mudanca. Aumentar `width` sem
+    # baixar `resolution` da 800 celulas por eixo -- 4x a grade -- no mesmo
+    # modulo arm64 que ja divide CPU com o SLAM e o explorador.
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        costmap = _costmap(name, 'global_costmap')
+        cells = costmap['width'] / costmap['resolution']
+        assert cells == GLOBAL_COSTMAP_CELLS_PER_AXIS, name
+        assert costmap['height'] / costmap['resolution'] == \
+            GLOBAL_COSTMAP_CELLS_PER_AXIS, name
+
+
+def test_local_costmap_keeps_five_centimetre_cells():
+    # Quem decide desvio proximo e o costmap local. Os 10 cm do global sao para
+    # alcance, e nao podem vazar para ca.
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        costmap = _costmap(name, 'local_costmap')
+        assert costmap['resolution'] == 0.05, name
+        assert costmap['width'] == 6, name
+        assert costmap['height'] == 6, name
+
+
+def test_global_costmap_inflation_still_clears_the_robot_radius():
+    # `inflation_radius` NAO faz parte desta rodada A/B; esta aqui porque 10 cm
+    # por celula so e seguro enquanto a inflacao seguir maior que o raio do
+    # robo, e com folga de mais de uma celula. 0.85 e o valor do costmap GLOBAL
+    # (o 0.55 e o do local) -- a 10 cm dao 8,5 celulas para um robo de 0,38 m.
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        costmap = _costmap(name, 'global_costmap')
+        radius = costmap['inflation_layer']['inflation_radius']
+        assert radius == 0.85, name
+        assert costmap['robot_radius'] == 0.38, name
+        assert (radius - costmap['robot_radius']) > costmap['resolution'], name
+
+
 def test_slam_tf_is_restamped_for_distributed_hil_clock():
     params = yaml.safe_load((NAV / 'config/slam_params.yaml').read_text())
     slam = params['slam_toolbox']['ros__parameters']

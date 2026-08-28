@@ -26,6 +26,13 @@ INSCRIBED = 253
 LETHAL = 254
 UNKNOWN = 255
 
+# Extensao SONDADA, em metros.  Sao estes numeros que definem a medicao; o passo
+# sai da resolucao do costmap em tempo de execucao.  0,80 m para cada lado cobre
+# o corredor de 1,20 m do maze11 com margem, e 4,00 m a frente cobre o alcance
+# em que o L1 marca obstaculo.
+TRANSVERSE_HALF_SPAN_M = 0.80
+FORWARD_SPAN_M = 4.00
+
 
 class Probe(Node):
     """Uma leitura do costmap local, mais a pose do robo por TF."""
@@ -113,10 +120,16 @@ def main():
     # Perfil TRANSVERSAL ao rumo: e nele que a largura util aparece.  Perfil ao
     # longo do rumo nao mostra a parede lateral.
     nx, ny = -math.sin(yaw), math.cos(yaw)
-    print('\nperfil transversal (esquerda -> direita), passo 0.05 m:')
+    # O passo vem do costmap, NAO de um 0.05 cravado.  O costmap global passou a
+    # 10 cm em 28/08/2026 (janela de 40 m com a mesma grade de 400 celulas por
+    # eixo); um passo fixo de 5 cm amostraria cada celula duas vezes e as linhas
+    # de "faixa" abaixo reportariam METADE da distancia real.  O que e constante
+    # nesta medicao sao os limites em METROS, nao a contagem de celulas.
+    print(f'\nperfil transversal (esquerda -> direita), passo {res:.3f} m:')
+    steps = max(1, int(round(TRANSVERSE_HALF_SPAN_M / res)))
     row, free, collide = [], 0, 0
-    for i in range(-16, 17):
-        d = i * 0.05
+    for i in range(-steps, steps + 1):
+        d = i * res
         c = cost_at(rx + nx * d, ry + ny * d)
         row.append(f'{d:+.2f}:{c}')
         if c == 0:
@@ -125,9 +138,9 @@ def main():
             collide += 1
     for i in range(0, len(row), 6):
         print('  ' + '  '.join(row[i:i + 6]))
-    print(f'\nfaixa de custo ZERO      : {free * 0.05:.2f} m')
-    print(f'faixa >= 253 (COLISAO)   : {collide * 0.05:.2f} m'
-          f' de 1.60 m sondados')
+    print(f'\nfaixa de custo ZERO      : {free * res:.2f} m')
+    print(f'faixa >= 253 (COLISAO)   : {collide * res:.2f} m'
+          f' de {2.0 * TRANSVERSE_HALF_SPAN_M:.2f} m sondados')
 
     # Fracao do costmap que o critico chama de colisao: e o que decide se a
     # media ponderada das 1000 amostras tem trajetoria boa para pesar.
@@ -145,13 +158,13 @@ def main():
     # O achado que abriu esta medicao foi uma celula inscrita a 0,55 m em +y
     # do mundo, embora a geometria offline indique pista livre por 3,47 m.
     # Imprimir apenas o perfil transversal ao rumo nao reproduz esse achado.
-    print('\nperfil em +y do frame do costmap, passo 0.05 m:')
+    print(f'\nperfil em +y do frame do costmap, passo {res:.3f} m:')
     last = object()
     runs = []
     first_collision = None
     first_lethal = None
-    for i in range(81):
-        d = i * 0.05
+    for i in range(int(round(FORWARD_SPAN_M / res)) + 1):
+        d = i * res
         c = cost_at(rx, ry + d)
         if c != last:
             runs.append((d, c))

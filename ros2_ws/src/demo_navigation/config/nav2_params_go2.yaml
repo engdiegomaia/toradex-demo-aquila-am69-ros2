@@ -718,19 +718,52 @@ global_costmap:
       robot_base_frame: base
       # Same value as the local costmap — see the note there.
       robot_radius: 0.38
-      resolution: 0.05
+      # 10 cm, e NAO os 5 cm do costmap local. Ver o bloco da janela abaixo: as
+      # duas coisas mudaram juntas e uma sem a outra e o caso ruim.
+      resolution: 0.10
       # O slam_toolbox acumula tanto ocupado quanto livre. A static_layer
-      # projeta essa memoria dentro da janela de 20 m, que continua rolante.
+      # projeta essa memoria dentro da janela, que continua rolante.
       #
       # NAO use false com o mapa vivo: o StaticLayer redimensiona o costmap
       # mestre para o retangulo minimo publicado pelo SLAM. Medido no HIL em
       # 27/08/2026, o primeiro mapa tinha 78x32 celulas e deixava o footprint na
       # borda; o planner tentou my=32/33 e repetiu `worldToMap failed`. Rolante
-      # conserva os 20x20 m centrados no robo enquanto sobrepoe toda a parte do
-      # pose-graph que cai dentro dessa janela.
+      # conserva a janela centrada no robo enquanto sobrepoe toda a parte do
+      # pose-graph que cai dentro dela.
+      #
+      # A JANELA E DE 40 m E A RESOLUCAO E DE 10 cm -- MUDARAM JUNTAS, 28/08/2026
+      #
+      #   antes   20 / 0.05 = 400 celulas por eixo, cobrindo +/- 10 m do robo
+      #   depois  40 / 0.10 = 400 celulas por eixo, cobrindo +/- 20 m do robo
+      #
+      # A grade mestre continua com ~160 mil celulas, entao inflacao, raytrace e
+      # publicacao custam o mesmo que antes. Subir a janela SEM baixar a
+      # resolucao daria 800x800 = 640 mil celulas, 4x o custo, no mesmo modulo
+      # que ja perdeu CPU para o SLAM e para o explorador. Nao faca so metade.
+      #
+      # POR QUE 20 m NAO BASTAVA: as poses do `quadruped_maze11.sdf` dao um
+      # labirinto de x -11,67..0,00 por y -2,60..11,65, ou seja ~11,7 x 14,2 m,
+      # DIAGONAL ~18,4 m. Com o robo num canto, o canto oposto fica a ~18 m e
+      # simplesmente NAO EXISTE na grade mestre -- nem para o painel do cockpit,
+      # que desenha `/global_costmap/costmap` (hmi/js/panels/nav-panel.js), nem
+      # para o planner. Nao era o mapa sendo esquecido; era a janela cortando.
+      # +/- 20 m cobre a diagonal inteira de qualquer ponto do labirinto.
+      #
+      # 10 cm no GLOBAL nao afrouxa a colisao: quem decide desvio proximo e o
+      # costmap local, que fica em 5 cm de proposito. O `inflation_radius` DESTE
+      # costmap e 0.85 (o 0.55 e o do local), o que a 10 cm por celula ainda da
+      # 8,5 celulas de inflacao -- folgado para `robot_radius` 0.38.
+      #
+      # SE A static_layer NAO REPROJETAR ENTRE 5 cm e 10 cm: o mapa do SLAM sai
+      # em 0.05 (slam_params.yaml) e aqui o mestre esta em 0.10. No caminho
+      # ROLANTE o StaticLayer mantem grade propria e transforma celula a celula
+      # para o mestre, entao resolucoes diferentes devem passar -- mas isso NAO
+      # foi verificado em hardware. Se as paredes nao aparecerem, reverta APENAS
+      # estas tres linhas (20 / 20 / 0.05). Nao troque para
+      # `rolling_window: false` junto: isso e o defeito de 27/08 de volta.
       rolling_window: true
-      width: 20
-      height: 20
+      width: 40
+      height: 40
       track_unknown_space: true
       plugins: ["static_layer", "obstacle_layer", "perception_layer", "inflation_layer"]
 
