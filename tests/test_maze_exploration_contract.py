@@ -98,18 +98,23 @@ def test_slam_tf_is_restamped_for_distributed_hil_clock():
     assert slam['transform_timeout'] == 0.2
 
 
-def test_slam_publishes_the_grid_at_the_upstream_default_period():
-    # 5.0 e o default do upstream
+def test_slam_rasterises_the_grid_every_second():
+    # 1.0 e um DESVIO deliberado do default 5.0 do upstream
     # (`/opt/ros/jazzy/share/slam_toolbox/config/mapper_params_online_async.yaml`).
-    # Ficou em 1.0 ate 28/08/2026, pagando 5x a rasterizacao do pose-graph no
-    # AM69 sem que nada exigisse essa taxa.
+    #
+    # 5.0 foi tentado em 28/08/2026 e revertido no mesmo dia. O argumento era
+    # economia de CPU no AM69; a medicao deu 31,4% -> 30,3% no
+    # `async_slam_toolbox_node`, dentro do ruido
+    # (docs/results/ml35-f5-tf-cpu-baseline.md secao 4). Sem economia de um lado
+    # da balanca, sobra so o custo do outro: a `static_layer` do costmap global
+    # ficando ate 5 s atras da parede que o SLAM ja conhece.
     #
     # As outras quatro chaves estao aqui como TRAVA de A/B, nao por gosto: a
     # rodada que mede o efeito de `map_update_interval` so significa alguma
     # coisa se elas nao tiverem se mexido junto.
     params = yaml.safe_load((NAV / 'config/slam_params.yaml').read_text())
     slam = params['slam_toolbox']['ros__parameters']
-    assert slam['map_update_interval'] == 5.0
+    assert slam['map_update_interval'] == 1.0
     assert slam['restamp_tf'] is True
     assert slam['transform_timeout'] == 0.2
     assert slam['transform_publish_period'] == 0.02
