@@ -890,7 +890,7 @@ planner_server:
     # ample for a 0.5 m/s robot. Raise this only if you also make planning
     # cheaper (Smac Planner, coarser costmap resolution).
     expected_planner_frequency: 1.0
-    planner_plugins: ["GridBased"]
+    planner_plugins: ["GridBased", "ExplorationGrid"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
       # Goal snapping radius when the exact goal cell is unreachable.
@@ -908,6 +908,11 @@ planner_server:
       # Lets the planner traverse unknown cells it can still reach. It does not
       # help when the goal AND its whole neighbourhood are unknown.
       allow_unknown: true
+    ExplorationGrid:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.25
+      use_astar: false
+      allow_unknown: false
 
 # =========================== route_server ============================
 #

@@ -256,6 +256,20 @@ def generate_launch_description() -> LaunchDescription:
         FindPackageShare('demo_navigation'),
         'behavior_trees', 'nav_to_pose_smoothed.xml',
     ])
+    exploration_bt = PathJoinSubstitution([
+        FindPackageShare('demo_navigation'),
+        'behavior_trees', 'nav_to_pose_exploration.xml',
+    ])
+    maze_explorer = Node(
+        package='demo_navigation',
+        executable='maze_explorer',
+        name='maze_explorer',
+        output='screen',
+        parameters=[{
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            'exploration_bt_xml': exploration_bt,
+        }],
+    )
     # RewrittenYaml JA e uma substituicao que resolve para o caminho do arquivo
     # reescrito, entao vai direto em launch_arguments. Envolver em ParameterFile
     # aqui nao funciona: launch_arguments aceita string ou substituicao, e
@@ -417,6 +431,7 @@ def generate_launch_description() -> LaunchDescription:
             target_action=wait_for_tf,
             on_exit=_gate([
                 cloud_to_scan, slam, nav2_container, navigation, nav_control,
+                maze_explorer,
             ],
                           'wait_for_tf'),
         )),

@@ -52,9 +52,18 @@ def generate_launch_description() -> LaunchDescription:
         }],
     )
 
+    maze_exit_detector_node = Node(
+        package='demo_perception',
+        executable='maze_exit_detector',
+        name='maze_exit_detector',
+        output='screen',
+        parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+    )
+
     return LaunchDescription([
         use_sim_time_arg,
         assumed_range_arg,
         detection_stub_node,
         detections_to_cloud_node,
+        maze_exit_detector_node,
     ])
