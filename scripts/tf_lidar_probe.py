@@ -83,6 +83,12 @@ FIELDS = (
 # resumo, para que mudar um critério seja uma linha só.
 CLOUD_RATE_HZ_RANGE = (9.0, 10.0)
 ODOM_RATE_HZ_RANGE = (49.0, 50.0)
+# As faixas acima sao nominais. A taxa medida oscila em torno do nominal por
+# jitter de publicacao, e 10,004 Hz nao e uma reprovacao de uma faixa que termina
+# em 10 -- foi o que o primeiro ensaio na bancada marcou como XX. A tolerancia e
+# relativa para servir as duas faixas, que estao a uma ordem de grandeza de
+# distancia uma da outra.
+RATE_TOLERANCE = 0.02
 CLOUD_AGE_MEDIAN_MAX_MS = 150.0
 TRANSFORM_AVAILABLE_MIN_PCT = 99.5
 
@@ -213,11 +219,24 @@ def summarise(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     except ValueError:
         pass
 
-    try:
-        summary['odom_rate_hz'] = rate_hz(
-            [float(row['odom_stamp_s']) for row in rows])
-    except ValueError:
-        pass
+    # A taxa da odometria SAI DOS INTERVALOS, nao da coluna de carimbos.
+    #
+    # Ha uma linha por NUVEM (~10 Hz) e a coluna `odom_stamp_s` guarda o ultimo
+    # carimbo de odometria visto naquele instante. Derivar a taxa dela limita o
+    # resultado a taxa da nuvem por construcao: medido contra a bancada em
+    # 28/08/2026, dava 10,00 Hz para uma odometria que corre a ~50 Hz. O erro nao
+    # era do robo, era da sonda -- e um numero plausivel e errado e pior que um
+    # numero ausente.
+    #
+    # `odom_interval_ms` e escrito no callback da odometria, entre carimbos
+    # DISTINTOS consecutivos, e nao sofre desse teto. A mediana dele e robusta a
+    # uma perda isolada de mensagem, que a media nao seria.
+    odom_intervals = [float(row['odom_interval_ms']) for row in rows
+                      if row['odom_interval_ms'] != '']
+    if odom_intervals:
+        median_ms = percentile(odom_intervals, 50.0)
+        if median_ms > 0.0:
+            summary['odom_rate_hz'] = 1000.0 / median_ms
 
     sim_span = float(rows[-1]['sim_s']) - float(rows[0]['sim_s'])
     wall_span = float(rows[-1]['wall_s']) - float(rows[0]['wall_s'])
@@ -226,10 +245,14 @@ def summarise(rows: Sequence[dict[str, Any]]) -> dict[str, Any]:
     return summary
 
 
-def _verdict(value: float | None, low: float, high: float) -> str:
+def _verdict(value: float | None, low: float, high: float,
+             tolerance: float = 0.0) -> str:
+    """Render a pass/fail marker for a value against a nominal band."""
     if value is None:
         return '  ?'
-    return ' ok' if low <= value <= high else ' XX'
+    margin_low = low * (1.0 - tolerance)
+    margin_high = high * (1.0 + tolerance) if math.isfinite(high) else high
+    return ' ok' if margin_low <= value <= margin_high else ' XX'
 
 
 def format_summary(summary: dict[str, Any]) -> str:
@@ -245,10 +268,10 @@ def format_summary(summary: dict[str, Any]) -> str:
     lines = [
         f'sonda temporal: {summary["samples"]} amostras',
         f'  taxa da nuvem          {number("cloud_rate_hz", 2)} Hz'
-        f'{_verdict(summary["cloud_rate_hz"], *CLOUD_RATE_HZ_RANGE)}'
+        f'{_verdict(summary["cloud_rate_hz"], *CLOUD_RATE_HZ_RANGE, RATE_TOLERANCE)}'
         f'   (esperado {CLOUD_RATE_HZ_RANGE[0]:.0f}-{CLOUD_RATE_HZ_RANGE[1]:.0f})',
         f'  taxa da odometria      {number("odom_rate_hz", 2)} Hz'
-        f'{_verdict(summary["odom_rate_hz"], *ODOM_RATE_HZ_RANGE)}'
+        f'{_verdict(summary["odom_rate_hz"], *ODOM_RATE_HZ_RANGE, RATE_TOLERANCE)}'
         f'   (esperado {ODOM_RATE_HZ_RANGE[0]:.0f}-{ODOM_RATE_HZ_RANGE[1]:.0f})',
         f'  idade mediana          {number("cloud_age_median_ms")} ms'
         f'{_verdict(summary["cloud_age_median_ms"], -math.inf, CLOUD_AGE_MEDIAN_MAX_MS)}'
