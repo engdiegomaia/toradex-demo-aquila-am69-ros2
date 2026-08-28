@@ -27,6 +27,7 @@ setup(
         'console_scripts': [
             'detection_stub = demo_perception.detection_stub:main',
             'detections_to_cloud = demo_perception.detections_to_cloud:main',
+            'maze_exit_detector = demo_perception.maze_exit_detector:main',
         ],
     },
 )

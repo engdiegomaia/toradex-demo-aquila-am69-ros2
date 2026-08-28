@@ -1,0 +1,330 @@
+from pathlib import Path
+import xml.etree.ElementTree as ET
+
+import yaml
+
+
+ROOT = Path(__file__).parents[1]
+NAV = ROOT / 'ros2_ws/src/demo_navigation'
+SIM = ROOT / 'ros2_ws/src/demo_simulation'
+
+
+def test_exploration_planner_never_crosses_unknown():
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        params = yaml.safe_load((NAV / 'config' / name).read_text())
+        planner = params['planner_server']['ros__parameters']
+        assert planner['GridBased']['allow_unknown'] is True
+        assert planner['ExplorationGrid']['allow_unknown'] is False
+        assert 'ExplorationGrid' in planner['planner_plugins']
+
+
+GLOBAL_COSTMAP_CELLS_PER_AXIS = 400
+
+
+def _costmap(name, which):
+    params = yaml.safe_load((NAV / 'config' / name).read_text())
+    return params[which][which]['ros__parameters']
+
+
+def test_global_costmap_window_covers_the_whole_maze_diagonal():
+    # O `quadruped_maze11.sdf` mede ~11,7 x 14,2 m, diagonal ~18,4 m. Uma janela
+    # rolante de 20 m so alcanca +/- 10 m do robo, entao com o robo num canto o
+    # canto oposto nao existia na grade mestre -- nem para o planner, nem para o
+    # painel do cockpit. 40 m cobre a diagonal de qualquer ponto do labirinto.
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        costmap = _costmap(name, 'global_costmap')
+        assert costmap['rolling_window'] is True, name
+        assert costmap['width'] == 40, name
+        assert costmap['height'] == 40, name
+        assert costmap['resolution'] == 0.10, name
+
+
+def test_widening_the_global_costmap_did_not_enlarge_the_master_grid():
+    # A janela dobrou E a resolucao dobrou, de proposito e na mesma rodada:
+    #   antes  20 / 0.05 = 400    depois  40 / 0.10 = 400
+    # Este teste existe para reprovar a metade da mudanca. Aumentar `width` sem
+    # baixar `resolution` da 800 celulas por eixo -- 4x a grade -- no mesmo
+    # modulo arm64 que ja divide CPU com o SLAM e o explorador.
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        costmap = _costmap(name, 'global_costmap')
+        cells = costmap['width'] / costmap['resolution']
+        assert cells == GLOBAL_COSTMAP_CELLS_PER_AXIS, name
+        assert costmap['height'] / costmap['resolution'] == \
+            GLOBAL_COSTMAP_CELLS_PER_AXIS, name
+
+
+def test_local_costmap_keeps_five_centimetre_cells():
+    # Quem decide desvio proximo e o costmap local. Os 10 cm do global sao para
+    # alcance, e nao podem vazar para ca.
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        costmap = _costmap(name, 'local_costmap')
+        assert costmap['resolution'] == 0.05, name
+        assert costmap['width'] == 6, name
+        assert costmap['height'] == 6, name
+
+
+def test_global_costmap_inflation_still_clears_the_robot_radius():
+    # `inflation_radius` NAO faz parte desta rodada A/B; esta aqui porque 10 cm
+    # por celula so e seguro enquanto a inflacao seguir maior que o raio do
+    # robo, e com folga de mais de uma celula. 0.85 e o valor do costmap GLOBAL
+    # (o 0.55 e o do local) -- a 10 cm dao 8,5 celulas para um robo de 0,38 m.
+    for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
+        costmap = _costmap(name, 'global_costmap')
+        radius = costmap['inflation_layer']['inflation_radius']
+        assert radius == 0.85, name
+        assert costmap['robot_radius'] == 0.38, name
+        assert (radius - costmap['robot_radius']) > costmap['resolution'], name
+
+
+def test_starting_is_a_cockpit_state_and_never_a_ros_one():
+    """
+    `starting` cobre a janela entre o clique e o primeiro status do Aquila.
+
+    Ele existe SO no cockpit. Se aparecer no vocabulario do `maze_explorer`, o
+    no passa a publicar um estado que a maquina de estados dele nao trata, e o
+    `assert self._state in STATES` do `_publish_status` deixa de proteger.
+    A outra metade deste contrato esta em hmi/test/exploration.test.js.
+    """
+    explorer = (NAV / 'demo_navigation/maze_explorer.py').read_text()
+    store = (ROOT / 'hmi/js/panels/exploration.js').read_text()
+    assert "'starting'" in store
+    assert "'starting'" not in explorer
+
+
+def test_slam_tf_is_restamped_for_distributed_hil_clock():
+    params = yaml.safe_load((NAV / 'config/slam_params.yaml').read_text())
+    slam = params['slam_toolbox']['ros__parameters']
+    assert slam['restamp_tf'] is True
+    assert slam['transform_timeout'] == 0.2
+
+
+def test_slam_rasterises_the_grid_every_second():
+    # 1.0 e um DESVIO deliberado do default 5.0 do upstream
+    # (`/opt/ros/jazzy/share/slam_toolbox/config/mapper_params_online_async.yaml`).
+    #
+    # 5.0 foi tentado em 28/08/2026 e revertido no mesmo dia. O argumento era
+    # economia de CPU no AM69; a medicao deu 31,4% -> 30,3% no
+    # `async_slam_toolbox_node`, dentro do ruido
+    # (docs/results/ml35-f5-tf-cpu-baseline.md secao 4). Sem economia de um lado
+    # da balanca, sobra so o custo do outro: a `static_layer` do costmap global
+    # ficando ate 5 s atras da parede que o SLAM ja conhece.
+    #
+    # As outras quatro chaves estao aqui como TRAVA de A/B, nao por gosto: a
+    # rodada que mede o efeito de `map_update_interval` so significa alguma
+    # coisa se elas nao tiverem se mexido junto.
+    params = yaml.safe_load((NAV / 'config/slam_params.yaml').read_text())
+    slam = params['slam_toolbox']['ros__parameters']
+    assert slam['map_update_interval'] == 1.0
+    assert slam['restamp_tf'] is True
+    assert slam['transform_timeout'] == 0.2
+    assert slam['transform_publish_period'] == 0.02
+    assert slam['minimum_time_interval'] == 0.5
+
+
+def test_exploration_bt_hardcodes_safe_planner_and_smoothing():
+    path = NAV / 'behavior_trees/nav_to_pose_exploration.xml'
+    root = ET.parse(path).getroot()
+    compute = root.find('.//ComputePathToPose')
+    assert compute is not None
+    assert compute.attrib['planner_id'] == 'ExplorationGrid'
+    smooth = root.find('.//SmoothPath')
+    assert smooth is not None
+    assert smooth.attrib['unsmoothed_path'] != smooth.attrib['smoothed_path']
+
+
+def test_explorer_has_no_runtime_knowledge_of_maze_geometry():
+    source = (NAV / 'demo_navigation/maze_explorer.py').read_text()
+    for forbidden in ('maze_route', 'maze11', 'STL', '-4.90', '-0.90'):
+        assert forbidden not in source
+
+
+def test_exit_marker_is_visual_only_and_outside_opening():
+    world = ET.parse(SIM / 'worlds/quadruped_maze11.sdf').getroot()
+    marker = world.find(".//model[@name='maze_exit_marker']")
+    assert marker is not None
+    assert marker.find('.//collision') is None
+    pose = [float(value) for value in marker.findtext('pose').split()]
+    assert pose[:2] == [-4.90, -2.60]
+
+
+def test_public_exploration_interfaces_are_stable():
+    source = (NAV / 'demo_navigation/maze_explorer.py').read_text()
+    for name in (
+        '/demo/exploration/start', '/demo/exploration/cancel',
+        '/demo/exploration/status', '/demo/perception/maze_exit/pose',
+    ):
+        assert name in source
+
+
+def test_short_goal_gate_is_connected_and_bounded():
+    source = (ROOT / 'scripts/nav_trial.py').read_text()
+    assert 'MAZE11_SHORT_GOALS' in source
+    assert "args.goals == 'maze11-short'" in source
+
+
+def test_cockpit_owns_start_cancel_and_ground_truth_display():
+    html = (ROOT / 'hmi/index.html').read_text()
+    panel = (ROOT / 'hmi/js/panels/nav-panel.js').read_text()
+    # A decisao de busca mora num modulo sem DOM para poder ser testada pelo
+    # `node --test` sem dublar um contexto 2D. O contrato vale sobre os dois.
+    store = (ROOT / 'hmi/js/panels/exploration.js').read_text()
+    config = (ROOT / 'hmi/js/config.js').read_text()
+    assert 'data-role="exploration-start"' in html
+    assert 'data-role="exploration-cancel"' in html
+    assert '/demo/exploration/start' in panel
+    assert '/demo/exploration/cancel' in panel
+    # Duas portas para a meta manual -- o clique no canvas e o envio -- e as
+    # duas tem de estar fechadas enquanto a busca corre.
+    #
+    # `explorationBusy()` e nao `explorationActive()`: a segunda so conhece o
+    # estado publicado pelo Aquila, e entre o clique em "iniciar busca" e o
+    # primeiro status ha uma janela em que o explorador ja aceitou a busca e o
+    # cockpit ainda nao sabe. Fechar as portas so com `isActive()` deixa essa
+    # janela aberta para uma meta manual por cima da busca.
+    assert panel.count('if (explorationBusy()) return') == 3
+    assert '/demo/maze/escaped' in config
+    assert 'SAÍDA CONFIRMADA' in store
+    # O rotulo de sucesso so pode sair do ground truth, nunca do estado do
+    # explorador: 'completed' diz que ele chegou perto do marcador, nao que o
+    # robo atravessou a abertura.
+    assert 'mazeEscaped' in store
+
+
+def test_gate_persists_outcome_and_error_code_per_goal():
+    """O veredito do portao nao pode viver so no stdout de quem rodou."""
+    source = (ROOT / 'scripts/nav_trial.py').read_text()
+    # Desfecho, codigo de erro do Nav2 e trocas de rota, por meta.
+    for field in ('outcome', 'error_code', 'error_msg', 'plan_switches'):
+        assert f"'{field}'" in source
+    # A meta em voo no fim do ensaio tem de ser arquivada: sem esta chamada um
+    # portao de 3 metas termina relatando 2.
+    assert source.count('self.close_goal(') >= 2
+    assert 'goals_csv_path' in source
+
+
+def test_telemetry_rows_carry_the_goal_they_belong_to():
+    """Sem o carimbo, as tres metas do portao viram uma serie so."""
+    source = (ROOT / 'scripts/nav_trial.py').read_text()
+    assert "'goal_index'" in source
+
+
+# --- fiacao de launch e dependencias ---------------------------------------
+#
+# Estruturais, com `ast`: casar string crua passa com o launch quebrado. E o que
+# eles pegam so aparece DEPOIS, no container arm64 -- um no que ninguem inicia,
+# ou um import que o package.xml nao declara e que o rosdep do build nao instala.
+
+def _node_launches(path):
+    """Devolve {executable: {kwargs crus do Node(...)}} de um launch file."""
+    import ast
+    tree = ast.parse((ROOT / path).read_text(encoding='utf-8'))
+    found = {}
+    for call in (n for n in ast.walk(tree) if isinstance(n, ast.Call)):
+        if not isinstance(call.func, ast.Name) or call.func.id != 'Node':
+            continue
+        kwargs = {k.arg: k.value for k in call.keywords if k.arg}
+        executable = kwargs.get('executable')
+        if isinstance(executable, ast.Constant):
+            found[executable.value] = ast.dump(call)
+    return found
+
+
+NAV_LAUNCH = 'ros2_ws/src/demo_bringup/launch/nav_quadruped.launch.py'
+PERCEPTION_LAUNCH = 'ros2_ws/src/demo_perception/launch/perception.launch.py'
+SIM_LAUNCH = 'ros2_ws/src/demo_simulation/launch/quadruped.launch.py'
+
+
+def test_explorer_is_started_by_the_quadruped_navigation_launch():
+    """Um no que ninguem inicia e um no que nao existe."""
+    nodes = _node_launches(NAV_LAUNCH)
+    assert 'maze_explorer' in nodes
+    # Sem o caminho da arvore de exploracao ele cairia na arvore padrao, que usa
+    # o GridBased com allow_unknown -- e o caminho passaria pelo desconhecido.
+    assert 'exploration_bt_xml' in nodes['maze_explorer']
+
+
+def test_detector_runs_where_the_camera_is_consumed():
+    """A percepcao roda no modulo; o detector tem de subir com ela."""
+    assert 'maze_exit_detector' in _node_launches(PERCEPTION_LAUNCH)
+
+
+def test_ground_truth_validator_never_leaves_the_simulation():
+    """
+    O validador le odometria ground truth: ele NAO pode rodar do lado do robo.
+
+    Se subisse junto com a navegacao, o explorador teria acesso indireto a
+    verdade que ele deveria descobrir sozinho, e a aceitacao nao mediria nada.
+    """
+    assert 'maze_escape_validator' in _node_launches(SIM_LAUNCH)
+    assert 'maze_escape_validator' not in _node_launches(NAV_LAUNCH)
+    assert 'maze_escape_validator' not in _node_launches(PERCEPTION_LAUNCH)
+
+
+def test_explorer_and_detector_never_run_on_the_simulation_side():
+    """Regra 1 ao contrario: o que decide navegacao mora no modulo."""
+    sim_nodes = _node_launches(SIM_LAUNCH)
+    assert 'maze_explorer' not in sim_nodes
+    assert 'maze_exit_detector' not in sim_nodes
+
+
+def test_every_new_node_has_a_console_script():
+    """Sem entry point o launch encontra o pacote e nao encontra o executavel."""
+    for package, executable in (
+        ('demo_navigation', 'maze_explorer'),
+        ('demo_perception', 'maze_exit_detector'),
+        ('demo_simulation', 'maze_escape_validator'),
+    ):
+        setup = (ROOT / f'ros2_ws/src/{package}/setup.py').read_text()
+        assert executable in setup, f'{package}: {executable}'
+
+
+def test_package_manifests_declare_what_the_new_modules_import():
+    """
+    Import nao declarado no package.xml quebra no container, nao no host.
+
+    No host o overlay do ROS ja tem tudo; a imagem arm64 instala exatamente o
+    que o manifesto pede. Este e o teste que separa "funciona aqui" de
+    "funciona no Aquila".
+    """
+    import re
+    expected = {
+        'demo_navigation': ('std_msgs', 'geometry_msgs', 'nav_msgs',
+                            'tf2_ros', 'nav2_msgs', 'action_msgs',
+                            'std_srvs'),
+        'demo_perception': ('geometry_msgs', 'sensor_msgs', 'vision_msgs'),
+        'demo_simulation': ('std_msgs', 'nav_msgs'),
+    }
+    for package, dependencies in expected.items():
+        manifest = (ROOT / f'ros2_ws/src/{package}/package.xml').read_text()
+        declared = set(re.findall(r'<(?:exec_)?depend>([^<]+)</', manifest))
+        missing = [name for name in dependencies if name not in declared]
+        assert not missing, f'{package} nao declara {missing}'
+
+
+def test_the_exploration_tree_is_installed_with_the_package():
+    """A arvore e lida em runtime pelo bt_navigator dentro do container."""
+    setup = (ROOT / 'ros2_ws/src/demo_navigation/setup.py').read_text()
+    assert 'behavior_trees' in setup
+
+
+def test_perception_keeps_the_marker_out_of_the_costmap_pipeline():
+    """
+    O painel e uma pista visual; vira-lo obstaculo tapa a propria saida.
+
+    `detections_to_cloud` assina o topico do contrato do projeto. O detector da
+    saida publica noutro, e essa separacao e o que impede o marcador de aparecer
+    como obstaculo exatamente em frente a abertura.
+    """
+    detector = (ROOT / 'ros2_ws/src/demo_perception/demo_perception'
+                / 'maze_exit_detector.py').read_text()
+    assert "'/demo/perception/maze_exit/detections'" in detector
+    assert "'/demo/perception/detections'" not in detector
+
+
+def test_neither_perception_nor_frontier_knows_the_maze():
+    """O isolamento vale para toda a cadeia, nao so para o executivo."""
+    for path in ('ros2_ws/src/demo_perception/demo_perception/maze_exit_detector.py',
+                 'ros2_ws/src/demo_navigation/demo_navigation/frontier.py'):
+        source = (ROOT / path).read_text()
+        for forbidden in ('maze_route', 'maze11', '-4.90', '-0.90', 'waypoint'):
+            assert forbidden not in source, f'{path}: {forbidden}'

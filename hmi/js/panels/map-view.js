@@ -22,7 +22,27 @@
  *
  * @param {{originX:number, originY:number, widthM:number, heightM:number}} extent
  */
-export function createView(extent, width, height, { padding = 8 } = {}) {
+export const DEFAULT_MAP_ZOOM = 0.5;
+export const MIN_MAP_ZOOM = 0.125;
+export const MAX_MAP_ZOOM = 4;
+export const MAP_ZOOM_STEP = 1.25;
+
+export function clampMapZoom(value) {
+  if (!Number.isFinite(value)) return DEFAULT_MAP_ZOOM;
+  return Math.min(MAX_MAP_ZOOM, Math.max(MIN_MAP_ZOOM, value));
+}
+
+export function stepMapZoom(value, direction) {
+  const factor = direction === 'in' ? MAP_ZOOM_STEP : 1 / MAP_ZOOM_STEP;
+  return clampMapZoom(value * factor);
+}
+
+export function createView(
+  extent,
+  width,
+  height,
+  { padding = 8, zoom = 1, center = null } = {},
+) {
   const usableW = Math.max(1, width - padding * 2);
   const usableH = Math.max(1, height - padding * 2);
   const spanX = extent.widthM > 0 ? extent.widthM : 1;
@@ -30,12 +50,19 @@ export function createView(extent, width, height, { padding = 8 } = {}) {
 
   // One scale for both axes: a costmap drawn with different x and y scales is
   // subtly wrong in a way that only shows up when the robot turns.
-  const scale = Math.min(usableW / spanX, usableH / spanY);
+  const scale = Math.min(usableW / spanX, usableH / spanY)
+    * clampMapZoom(zoom);
 
   const drawnW = spanX * scale;
   const drawnH = spanY * scale;
-  const offsetX = padding + (usableW - drawnW) / 2;
-  const offsetY = padding + (usableH - drawnH) / 2;
+  const focus = center ?? {
+    x: extent.originX + spanX / 2,
+    y: extent.originY + spanY / 2,
+  };
+  // Keep `focus` at the exact canvas centre. The raster is allowed to extend
+  // beyond or occupy only part of the canvas: it is world data, not the camera.
+  const offsetX = width / 2 - (focus.x - extent.originX) * scale;
+  const offsetY = height / 2 - drawnH + (focus.y - extent.originY) * scale;
 
   return Object.freeze({
     scale,

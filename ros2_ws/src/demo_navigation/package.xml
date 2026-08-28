@@ -32,6 +32,10 @@
   <depend>nav2_msgs</depend>
   <depend>action_msgs</depend>
   <depend>std_srvs</depend>
+  <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav_msgs</depend>
+  <depend>tf2_ros</depend>
   <!--
     nav2_bringup is deliberately NOT a dependency. Its launch files are
     vendored under launch/nav2_vendored/ instead, because the apt package
@@ -63,6 +67,7 @@
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>nav2_waypoint_follower</exec_depend>
   <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>pointcloud_to_laserscan</exec_depend>
   <exec_depend>rclcpp_components</exec_depend>
   <exec_depend>ros2launch</exec_depend>
   <exec_depend>slam_toolbox</exec_depend>

@@ -42,6 +42,8 @@ export const TOPICS = Object.freeze({
   cmdVelSi: '/demo/cmd_vel_si',
   detections: '/demo/perception/detections',
   navStatus: '/demo/navigation/status',
+  explorationStatus: '/demo/exploration/status',
+  mazeEscaped: '/demo/maze/escaped',
   rosout: '/rosout',
   targetOpsLog: '/demo/target/ops_log',
   targetStatus: '/demo/target/status',

@@ -85,10 +85,10 @@
 # O L1 mede obstaculo a 4,43 m; uma janela de 3 m so revela o obstaculo a 1,5 m
 # e joga fora o alcance que o sensor ja entrega.
 #
-# 9. costmap global: rolante, sem static_layer
+# 9. costmap global: rolante, com static_layer do mapa vivo
 #
-# O caminho do quadrupede e desvio reativo, sem mapa e sem amcl. A static_layer
-# esperando um /map que ninguem publica e uma falha SILENCIOSA.
+# O slam_toolbox e o unico autor de map -> odom e preserva livre/ocupado; a
+# janela mestre continua rolante para nao encolher ate o primeiro mapa parcial.
 #
 # 10. inflation_radius: 0.35 -> 0.55
 #
@@ -383,10 +383,24 @@ controller_server:
       # but not so wide that most samples are immediately rejected as invalid.
       vx_std: 0.06
       vy_std: 0.0
-      # 0.08, subido de 0.05 junto com wz_max abaixo. Rotacao so e alternativa
+      # 0.15, subido de 0.08 (que ja vinha de 0.05). Rotacao so e alternativa
       # real a re se o amostrador de fato a explorar: com wz_std 0.05 contra um
       # wz_max de 0.20, a nuvem de amostras quase nao alcanca o teto novo.
-      wz_std: 0.08
+      #
+      # O 0.08 foi na direcao certa e NAO BASTOU. Medido no HIL em 27/08/2026
+      # (`docs/results/ml35-f5-slam-exploration.md`), rota de 19 metas, 240 s:
+      #
+      #   cmd_wz medio assinado  +0.01344 rad/s  (6.7% do wz_max de 0.20)
+      #   giro integrado do comando        +184.7 graus
+      #   giro REAL do robo                  -2.4 graus  (yaw 90.0 -> 87.6)
+      #
+      # O MPPI manda girar na direcao certa e a planta nao gira: 0.0134 rad/s
+      # dividido por WZ_PER_STICK (0.5) chega ao supervisor de marcha como 0.027
+      # unidades de manche, 5.4% do STICK_CLAMP. Com o rumo travado a ~88 graus
+      # de erro, `vx` FICA em zero -- os critics de alinhamento nao premiam
+      # avancar perpendicular ao plano, e vx_min: 0.0 proibe re. O robo andou
+      # 0.06 m em 240 s e cumpriu 0 de 7 metas.
+      wz_std: 0.15
       # HARD CEILING: upstream's DiffDrive plugin clamps to 0.5 m/s and
       # 2.0 rad/s. Raising these makes MPPI plan trajectories the simulator
       # silently refuses to execute, which looks like a tracking bug.
@@ -427,7 +441,26 @@ controller_server:
       ax_max: 0.5
       ax_min: -0.5
       az_max: 0.8
-      iteration_count: 1
+      # 2, subido de 1. Com uma unica iteracao por ciclo a sequencia de
+      # controle parte do resultado anterior (~zero) e so pode se deslocar uma
+      # fracao de um desvio-padrao por ciclo -- e um `wz_std` maior sozinho nao
+      # resolve isso, porque o problema e quantas vezes a media e reavaliada,
+      # nao a largura da nuvem. As duas alavancas sobem juntas de proposito.
+      #
+      # CUSTO PREVISTO QUE NAO SE MATERIALIZOU. A previsao era que dobrar a
+      # iteracao dobraria o custo do otimizador, com gatilho de reverter para 1
+      # abaixo de ~5 Hz. Medido nos logs do `controller_server`
+      # (`docs/results/ml35-f5-slam-giro.md` §4):
+      #
+      #                      iteration_count: 1   iteration_count: 2
+      #   taxa mediana              7.58 Hz              8.13 Hz
+      #   taxa minima               4.65 Hz              4.00 Hz
+      #
+      # A MEDIANA SUBIU. O laco ja nao fechava os 10 Hz nominais antes da
+      # mudanca, entao a perda de taxa no AM69 nao vem do otimizador e este
+      # parametro NAO e o culpado. Nao reverta para 1 com base em taxa baixa
+      # sem antes achar a causa real -- que continua em aberto.
+      iteration_count: 2
       prune_distance: 1.7
       transform_tolerance: 0.2
       temperature: 0.3
@@ -685,29 +718,59 @@ global_costmap:
       robot_base_frame: base
       # Same value as the local costmap — see the note there.
       robot_radius: 0.38
-      resolution: 0.05
-      # ROLANTE E SEM CAMADA ESTATICA — esta e a diferenca de fundo em relacao ao
-      # arquivo do TB4, que navega sobre mapa salvo.
+      # 10 cm, e NAO os 5 cm do costmap local. Ver o bloco da janela abaixo: as
+      # duas coisas mudaram juntas e uma sem a outra e o caso ruim.
+      resolution: 0.10
+      # O slam_toolbox acumula tanto ocupado quanto livre. A static_layer
+      # projeta essa memoria dentro da janela, que continua rolante.
       #
-      # O caminho do quadrupede e desvio REATIVO: nao ha mapa, nao ha SLAM, nao
-      # ha amcl. A aresta map -> odom e a identidade publicada por
-      # demo_bringup/odom_tf. Sem rolling_window o costmap global fica ancorado
-      # na origem com tamanho fixo e o robo sai dele; e a static_layer procura um
-      # /map que ninguem publica, ficando em espera para sempre sem imprimir erro.
+      # NAO use false com o mapa vivo: o StaticLayer redimensiona o costmap
+      # mestre para o retangulo minimo publicado pelo SLAM. Medido no HIL em
+      # 27/08/2026, o primeiro mapa tinha 78x32 celulas e deixava o footprint na
+      # borda; o planner tentou my=32/33 e repetiu `worldToMap failed`. Rolante
+      # conserva a janela centrada no robo enquanto sobrepoe toda a parte do
+      # pose-graph que cai dentro dela.
       #
-      # Para navegar sobre mapa salvo: reponha "static_layer" nos plugins, ponha
-      # rolling_window: false, suba o amcl e ponha publish_map_identity:=false no
-      # odom_tf. O bloco static_layer: abaixo segue definido e fica inerte
-      # enquanto nao estiver na lista.
+      # A JANELA E DE 40 m E A RESOLUCAO E DE 10 cm -- MUDARAM JUNTAS, 28/08/2026
+      #
+      #   antes   20 / 0.05 = 400 celulas por eixo, cobrindo +/- 10 m do robo
+      #   depois  40 / 0.10 = 400 celulas por eixo, cobrindo +/- 20 m do robo
+      #
+      # A grade mestre continua com ~160 mil celulas, entao inflacao, raytrace e
+      # publicacao custam o mesmo que antes. Subir a janela SEM baixar a
+      # resolucao daria 800x800 = 640 mil celulas, 4x o custo, no mesmo modulo
+      # que ja perdeu CPU para o SLAM e para o explorador. Nao faca so metade.
+      #
+      # POR QUE 20 m NAO BASTAVA: as poses do `quadruped_maze11.sdf` dao um
+      # labirinto de x -11,67..0,00 por y -2,60..11,65, ou seja ~11,7 x 14,2 m,
+      # DIAGONAL ~18,4 m. Com o robo num canto, o canto oposto fica a ~18 m e
+      # simplesmente NAO EXISTE na grade mestre -- nem para o painel do cockpit,
+      # que desenha `/global_costmap/costmap` (hmi/js/panels/nav-panel.js), nem
+      # para o planner. Nao era o mapa sendo esquecido; era a janela cortando.
+      # +/- 20 m cobre a diagonal inteira de qualquer ponto do labirinto.
+      #
+      # 10 cm no GLOBAL nao afrouxa a colisao: quem decide desvio proximo e o
+      # costmap local, que fica em 5 cm de proposito. O `inflation_radius` DESTE
+      # costmap e 0.85 (o 0.55 e o do local), o que a 10 cm por celula ainda da
+      # 8,5 celulas de inflacao -- folgado para `robot_radius` 0.38.
+      #
+      # SE A static_layer NAO REPROJETAR ENTRE 5 cm e 10 cm: o mapa do SLAM sai
+      # em 0.05 (slam_params.yaml) e aqui o mestre esta em 0.10. No caminho
+      # ROLANTE o StaticLayer mantem grade propria e transforma celula a celula
+      # para o mestre, entao resolucoes diferentes devem passar -- mas isso NAO
+      # foi verificado em hardware. Se as paredes nao aparecerem, reverta APENAS
+      # estas tres linhas (20 / 20 / 0.05). Nao troque para
+      # `rolling_window: false` junto: isso e o defeito de 27/08 de volta.
       rolling_window: true
-      width: 20
-      height: 20
+      width: 40
+      height: 40
       track_unknown_space: true
-      plugins: ["obstacle_layer", "perception_layer", "inflation_layer"]
+      plugins: ["static_layer", "obstacle_layer", "perception_layer", "inflation_layer"]
 
       static_layer:
         plugin: "nav2_costmap_2d::StaticLayer"
         map_subscribe_transient_local: true
+        subscribe_to_updates: true
 
       obstacle_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
@@ -718,6 +781,55 @@ global_costmap:
           data_type: "PointCloud2"
           min_obstacle_height: 0.12
           max_obstacle_height: 1.0
+          # ====== NAO PONHA `false` AQUI. TENTADO, MEDIDO, REPROVADO. ======
+          #
+          # A ideia era dar MEMORIA ao mapa global: parede vista uma vez nunca
+          # mais sai, e o robo para de redescobrir o labirinto a cada segundo.
+          #
+          # O DEFEITO QUE ELA ATACAVA e real, medido no HIL em 27/08/2026 lendo
+          # /plan a cada 5 s numa meta presa (0,0) -> (0,8):
+          #
+          #   t+ 5s   458 pts, 11.49 m, rumo inicial 173 deg   <- rota VERDADEIRA
+          #   t+10s   458 pts, 11.50 m, rumo inicial 177 deg
+          #   t+15s   291 pts,  8.59 m, rumo inicial  89 deg   <- ATRAVESSA parede
+          #   t+25s   274 pts,  8.66 m, rumo inicial  35 deg
+          #   t+30s   271 pts,  8.81 m, rumo inicial  18 deg
+          #
+          # Os 11,5 m batem com a geodesica real do maze11 medida offline
+          # (12,23 m, `scripts/maze_geodesic.py`). Os 8,6 m sao a reta por dentro
+          # de parede nao observada, que so existe porque `allow_unknown: true`
+          # torna o desconhecido barato.
+          #
+          # O plano alterna entre as duas a 1 Hz. O MPPI recebe um caminho que
+          # inverte 90-180 graus a cada segundo -- e gira sem transladar, que e o
+          # sintoma que as secoes 7 a 10 de
+          # `docs/ml35/proximos-passos-navegacao.md` perseguiram como se fosse
+          # defeito de critic.
+          #
+          # POR QUE `false` NAO CONSERTA, medido no mesmo dia, no mesmo HIL:
+          #
+          #   deslocamento liquido   0,19 m -> 1,04 m   (melhorou)
+          #   razao de trabalho vx     0,0% -> 3,9%     (melhorou)
+          #   metas cumpridas             0 -> 0        (nao mudou)
+          #   plano ainda alterna    11,66 m <-> 8,77 m (NAO mudou)
+          #
+          # E lendo `/global_costmap/costmap_raw` na reta ate a meta, com `false`
+          # ligado: **150 de 161 celulas em 255 (DESCONHECIDO)**, tudo alem de
+          # 0,75 m.
+          #
+          # A razao esta na semantica do parametro, e ela e contra-intuitiva:
+          # `clearing` NAO e "esquecer obstaculo", e o raytrace -- e o raytrace e
+          # o UNICO mecanismo que transforma desconhecido em LIVRE nesta camada.
+          # Desligando-o, nada nunca vira livre e o mapa global fica
+          # permanentemente desconhecido fora das celulas marcadas. Como o NavFn
+          # roda com `allow_unknown: true`, isso deixa o atalho pelo desconhecido
+          # MAIS atraente, nao menos. A correcao piora a causa que ataca.
+          #
+          # O QUE DE FATO RESOLVE precisa persistir as DUAS coisas -- ocupado e
+          # livre -- e a camada de obstaculo nao sabe fazer isso. E mapa de SLAM
+          # (`slam_toolbox`) alimentando a `static_layer` acima, com o
+          # `allow_unknown: true` mantido para que meta distante continue
+          # planejavel. Ver docs/results/ml35-f5-memoria-costmap.md.
           clearing: true
           marking: true
           # Dentro do alcance real de 10 m do L1 — ver a nota no costmap local.
@@ -816,7 +928,7 @@ planner_server:
     # ample for a 0.5 m/s robot. Raise this only if you also make planning
     # cheaper (Smac Planner, coarser costmap resolution).
     expected_planner_frequency: 1.0
-    planner_plugins: ["GridBased"]
+    planner_plugins: ["GridBased", "ExplorationGrid"]
     GridBased:
       plugin: "nav2_navfn_planner::NavfnPlanner"
       # Goal snapping radius when the exact goal cell is unreachable.
@@ -834,6 +946,14 @@ planner_server:
       # Lets the planner traverse unknown cells it can still reach. It does not
       # help when the goal AND its whole neighbourhood are unknown.
       allow_unknown: true
+    # Frontier goals are always placed in observed free space.  This second
+    # planner prevents a valid candidate from taking a shortcut through cells
+    # the live SLAM map has not observed yet.
+    ExplorationGrid:
+      plugin: "nav2_navfn_planner::NavfnPlanner"
+      tolerance: 0.25
+      use_astar: false
+      allow_unknown: false
 
 # =========================== route_server ============================
 #

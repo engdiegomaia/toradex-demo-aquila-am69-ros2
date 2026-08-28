@@ -146,6 +146,21 @@
           <h2 class="panel__title" id="nav-title">Navegação</h2>
           <p class="panel__source">/global_costmap/costmap · /plan</p>
           <button
+            class="switch__btn"
+            type="button"
+            data-role="exploration-start"
+          >
+            iniciar busca
+          </button>
+          <button
+            class="switch__btn switch__btn--alert"
+            type="button"
+            data-role="exploration-cancel"
+            hidden
+          >
+            cancelar busca
+          </button>
+          <button
             class="switch__btn switch__btn--alert"
             type="button"
             data-role="nav-cancel"
@@ -189,6 +204,22 @@
             data-role="nav-canvas"
             aria-label="Mapa de navegação. Clique para enviar uma meta."
           ></canvas>
+          <div class="map-zoom" role="group" aria-label="Zoom do mapa de navegação">
+            <button
+              class="map-zoom__btn"
+              type="button"
+              data-role="nav-zoom-out"
+              title="afastar mapa"
+              aria-label="afastar mapa"
+            >&#8722;</button>
+            <button
+              class="map-zoom__btn"
+              type="button"
+              data-role="nav-zoom-in"
+              title="aproximar mapa"
+              aria-label="aproximar mapa"
+            >+</button>
+          </div>
           <p class="hud" data-role="nav-hud" data-state="idle" aria-live="polite">
             clique no mapa para mandar uma meta
           </p>

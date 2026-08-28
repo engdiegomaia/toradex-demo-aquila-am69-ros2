@@ -11,10 +11,17 @@
  *   footprint       /global_costmap/published_footprint  map frame
  *   goal            (local, from the last click)
  *
- * There is NO /map on the quadruped path: nav_quadruped.launch.py runs Nav2
- * without map_server and without AMCL, on a ROLLING global costmap. So the
- * base raster here is the costmap, not a static map — and that is also why the
- * view follows the robot for free: the costmap window does.
+ * The quadruped now feeds the live slam_toolbox map into the global costmap.
+ * The base raster here remains that costmap (rather than subscribing to /map a
+ * second time), because it is the exact combination of static, obstacle,
+ * perception and inflation layers the planner uses.
+ *
+ * The costmap window IS rolling — `rolling_window: true`, restored on
+ * 27/08/2026 because `false` let the StaticLayer shrink the master grid to the
+ * first SLAM rectangle and the planner walked off the edge with
+ * `worldToMap failed`. So the raster already follows the robot. The camera
+ * still centres on map->base EXPLICITLY anyway, because zoom needs a focus
+ * point that does not move when the raster's bounds do.
  *
  * O painel tem DOIS controles destrutivos e eles não são a mesma coisa:
  *
@@ -39,14 +46,17 @@
  * camera panel, and that is where they are.
  */
 
+import { createExplorationStore } from './exploration.js';
 import { readMapPalette } from './palette.js';
 import { TOPICS } from '../config.js';
 import { applyTransform } from '../ros/tf-tree.js';
 import {
   buildCostLut,
+  DEFAULT_MAP_ZOOM,
   createView,
   defaultExtent,
   extentOfGrid,
+  stepMapZoom,
 } from './map-view.js';
 
 const NAVIGATE_ACTION = '/navigate_to_pose';
@@ -70,6 +80,8 @@ const NAVIGATE_TYPE = 'nav2_msgs/action/NavigateToPose';
  * demo_navigation/nav_control_relay.py tem a medição.
  */
 export const NAV_RESET_SERVICE = '/demo/nav/reset';
+export const EXPLORATION_START_SERVICE = '/demo/exploration/start';
+export const EXPLORATION_CANCEL_SERVICE = '/demo/exploration/cancel';
 
 /** Segundos que o botão de reiniciar fica armado esperando a confirmação. */
 export const RESET_ARM_MS = 4000;
@@ -88,6 +100,10 @@ export function createNavPanel({ root, client, tracker }) {
   const hud = root.querySelector('[data-role="nav-hud"]');
   const cancelButton = root.querySelector('[data-role="nav-cancel"]');
   const resetButton = root.querySelector('[data-role="nav-reset"]');
+  const zoomInButton = root.querySelector('[data-role="nav-zoom-in"]');
+  const zoomOutButton = root.querySelector('[data-role="nav-zoom-out"]');
+  const explorationStartButton = root.querySelector('[data-role="exploration-start"]');
+  const explorationCancelButton = root.querySelector('[data-role="exploration-cancel"]');
   const context = canvas.getContext('2d');
 
   const lut = buildCostLut();
@@ -109,7 +125,13 @@ export function createNavPanel({ root, client, tracker }) {
     feedback: null,
     handle: null,
     tf: null,
+    zoom: DEFAULT_MAP_ZOOM,
   };
+
+  // O zoom fica em `state`, o estado de busca fica AQUI. Separados de
+  // proposito: nenhum caminho da exploracao deve conseguir tocar no
+  // enquadramento que o operador escolheu.
+  const exploration = createExplorationStore();
 
   const unsubscribes = [];
   let cssWidth = 0;
@@ -131,12 +153,15 @@ export function createNavPanel({ root, client, tracker }) {
   observer.observe(canvas);
   resize();
 
-  const viewNow = () =>
-    createView(
-      state.gridInfo ? extentOfGrid(state.gridInfo) : defaultExtent(),
-      cssWidth,
-      cssHeight,
-    );
+  const viewNow = () => {
+    const extent = state.gridInfo ? extentOfGrid(state.gridInfo) : defaultExtent();
+    const pose = robotPose();
+    const center = pose ? { x: pose.x, y: pose.y } : null;
+    return createView(extent, cssWidth, cssHeight, {
+      zoom: state.zoom,
+      center,
+    });
+  };
 
   // --- subscriptions ------------------------------------------------------
 
@@ -152,6 +177,22 @@ export function createNavPanel({ root, client, tracker }) {
       // Without this the panel alone would spend ~230 KiB/s on localhost and
       // would not survive the bench Ethernet link at all.
       { compression: 'png' },
+    ),
+  );
+
+  unsubscribes.push(
+    client.subscribe(
+      TOPICS.explorationStatus,
+      'std_msgs/msg/String',
+      (message) => exploration.apply(message),
+    ),
+  );
+
+  unsubscribes.push(
+    client.subscribe(
+      TOPICS.mazeEscaped,
+      'std_msgs/msg/Bool',
+      (message) => exploration.setEscaped(message?.data),
     ),
   );
 
@@ -292,6 +333,7 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   function sendGoal(world) {
+    if (explorationBusy()) return;
     const pose = robotPose();
     if (pose) {
       const distance = Math.hypot(world.x - pose.x, world.y - pose.y);
@@ -369,11 +411,77 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   canvas.addEventListener('click', (event) => {
+    if (explorationBusy()) return;
     const rect = canvas.getBoundingClientRect();
     sendGoal(viewNow().toWorld(event.clientX - rect.left, event.clientY - rect.top));
   });
 
   cancelButton?.addEventListener('click', cancelActive);
+
+  function explorationActive() {
+    return exploration.isActive();
+  }
+
+  /**
+   * Inclui o comando em voo, e nao so o estado publicado pelo Aquila.
+   *
+   * Entre o clique em "iniciar busca" e o primeiro status ha uma janela em que
+   * o explorador ja aceitou a busca e o cockpit ainda nao sabe. Fechar as
+   * portas da meta manual apenas com `isActive()` deixa essa janela aberta.
+   */
+  function explorationBusy() {
+    return exploration.isBusy();
+  }
+
+  async function explorationCommand(service, button) {
+    if (button) button.dataset.busy = 'true';
+    const starting = service === EXPLORATION_START_SERVICE;
+    try {
+      const result = await client.callService(service, {});
+      if (result?.success === false) {
+        const text = result.message ?? 'comando de busca recusado';
+        // Recusa do start tem de desfazer o `starting` local, ou o painel fica
+        // travado num estado que so o cockpit inventou.
+        if (starting) exploration.refuseStart(text);
+        else exploration.merge({ message: text });
+      }
+    } catch (error) {
+      if (starting) exploration.refuseStart(error.message);
+      else exploration.merge({ state: 'failed', message: error.message });
+    } finally {
+      exploration.endCommand();
+      if (button) button.dataset.busy = 'false';
+    }
+  }
+
+  explorationStartButton?.addEventListener('click', () => {
+    // Duplo clique tem de virar UMA chamada. A guarda vem antes de qualquer
+    // efeito colateral, incluindo o cancelamento da meta manual.
+    if (explorationBusy()) return;
+    cancelActive();
+    exploration.beginStart();
+    // Pinta o bloqueio JA, sem esperar o proximo quadro: entre o clique e o
+    // primeiro status do Aquila o mapa tem de parecer travado, nao so estar.
+    updateHud();
+    explorationCommand(EXPLORATION_START_SERVICE, explorationStartButton);
+  });
+  explorationCancelButton?.addEventListener('click', () => {
+    exploration.beginCancel();
+    explorationCommand(EXPLORATION_CANCEL_SERVICE, explorationCancelButton);
+  });
+
+  function changeZoom(direction) {
+    state.zoom = stepMapZoom(state.zoom, direction);
+  }
+
+  zoomInButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    changeZoom('in');
+  });
+  zoomOutButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    changeZoom('out');
+  });
 
   // --- reiniciar a navegação ----------------------------------------------
   //
@@ -603,7 +711,10 @@ export function createNavPanel({ root, client, tracker }) {
   };
 
   function updateHud() {
-    const parts = [GOAL_LABELS[state.goalState] ?? state.goalState];
+    const parts = exploration.ownsHud()
+      ? [exploration.label()]
+      : [GOAL_LABELS[state.goalState] ?? state.goalState];
+    parts.push(...exploration.hudParts());
     const remaining = state.feedback?.distance_remaining;
     if (Number.isFinite(remaining)) parts.push(`${remaining.toFixed(2)} m restantes`);
     const recoveries = state.feedback?.number_of_recoveries;
@@ -625,6 +736,10 @@ export function createNavPanel({ root, client, tracker }) {
 
     const active = state.goalState === 'sent' || state.goalState === 'running';
     if (cancelButton) cancelButton.hidden = !active;
+    const exploring = explorationBusy();
+    if (explorationStartButton) explorationStartButton.hidden = exploring;
+    if (explorationCancelButton) explorationCancelButton.hidden = !exploring;
+    canvas.classList.toggle('canvas--disabled', exploring);
   }
 
   return {

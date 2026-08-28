@@ -5,6 +5,182 @@ Formato: mais recente primeiro.
 
 ---
 
+## 2026-08-28 (tarde) — a causa era `/tf` a 1090 Hz; portão de TF APROVADO, velocidade ainda não
+
+Três sintomas relatados — navegação pior, CPU maior, mapa se perdendo com o robô
+andando — tinham duas causas distintas, e as duas foram medidas.
+
+**A janela do costmap global.** Era um `rolling_window` de 20 x 20 m (±10 m)
+enquanto a diagonal do maze11 é ~18,4 m, e o cockpit desenha
+`/global_costmap/costmap`. Corrigido para 40 m a 0,10 m de resolução, mantendo
+400 células por eixo: mesma grade mestre, cobertura dobrada. Confirmado em
+runtime — origem (−19,90, −19,90), 128 células letais, 795 inscritas. O risco em
+aberto de a `static_layer` não reprojetar entre os 5 cm do SLAM e os 10 cm da
+mestre **não se materializou**.
+
+**`/tf` a 1090 Hz.** O `controller_manager` roda a 1000 Hz porque a física roda a
+1000 Hz, e um controlador sem `update_rate` próprio herda essa taxa. O
+`joint_state_broadcaster` publicava `/joint_states` a 1 kHz, o
+`robot_state_publisher` convertia cada amostra num `TFMessage`, e onze
+assinantes deserializavam o resultado — atravessando a Ethernet, porque o
+`robot_state_publisher` roda no HOST e a navegação roda no Aquila. Nav2 não
+consome nada disso: as arestas que ela usa são juntas FIXAS e já saem uma vez em
+`/tf_static`. Os 1090 Hz eram as doze juntas das PERNAS.
+
+A/B pareado, uma variável, mesmo protocolo nos dois braços:
+
+```
+                         1000 Hz      50 Hz
+  /joint_states          986,1        45,1 Hz
+  /tf                   1054,5       144,6 Hz    -86,3%
+  odom <- lidar          94,75%      99,94%      PORTAO APROVADO
+  carga do modulo         26,90       18,52      -31%
+  nav2_container            298%        240%
+  maze_explorer            67,6%       76,0%     REPROVA
+```
+
+A atribuição da aresta ficou fechada: `odom <- base` e `odom <- lidar` deram
+exatamente o mesmo número nos dois braços, e o amostrador de 200 Hz mostra por
+quê — no braço A o `odom_tf` perdia até cinco ciclos de carimbo de uma vez
+(máximo de 120 ms num publicador de 20 ms). Não era rajada de entrega; era o nó
+não sendo escalonado a tempo.
+
+**Uma hipótese foi refutada e está registrada como refutada.** A afirmação de
+que os ~68% de um `maze_explorer` OCIOSO eram o `TransformListener` dele está
+errada: com o fluxo 86% menor ele subiu para 76,0%.
+
+**`map_update_interval` foi a 5.0 e voltou a 1.0 no mesmo dia.** O argumento era
+economia de CPU; a medição deu 31,4% → 30,3% no `async_slam_toolbox`, dentro do
+ruído, e o custo da volta é simétrico (1 pp). Sem economia de um lado da
+balança, sobra só o custo do outro: com 5.0 a `static_layer` fica até 5 s atrás
+da parede que o SLAM já conhece.
+
+**Portão de metas: 5 de 6 critérios passam.** 3 corridas de 180 s, primeiras
+três metas cumpridas nas três, zero quedas, e zero ocorrências de `worldToMap`,
+`invalid source` e extrapolação de TF na varredura de log. A velocidade média
+reprova a 0,0391 m/s contra 0,05 — e **não é regressão**: a linha de base do
+maze11 é 0,0399 m/s. O que melhorou foi a razão de trabalho em vx, de 6,2% para
+15,6–22,3%, sem virar velocidade média. É a distância entre o limite de MÁQUINA,
+atacado aqui, e o limite de DECISÃO DE TRAJETO, que continua de pé.
+
+Também entraram: bloqueio de meta manual no cockpit durante `starting` e durante
+falha de status do enlace; cache de fronteiras no `maze_explorer` com métricas
+instrumentadas; e uma sonda temporal (`scripts/tf_lidar_probe.py`) que mede os
+três pares de TF na mesma corrida e acompanha a regularidade de `odom -> base` a
+200 Hz.
+
+Evidência: `docs/results/ml35-f5-tf-cpu-baseline.md`,
+`ml35-f5-ab-joint-states.md`, `ml35-f5-portao-tres-metas.md`, com os CSVs ao
+lado. F5 **não** fecha: falta o smoke de exploração e as três partidas frias.
+
+---
+
+## 2026-08-28 — saída autônoma do labirinto implementada; portão de estabilidade REPROVADO
+
+O robô passa a ter tudo o que precisa para sair do labirinto sozinho — partir
+sem mapa, escolher fronteiras, reconhecer o marcador visual da saída e
+atravessar a abertura — e **nada disso foi aceito ainda**: o portão de
+estabilidade que precede a exploração continua reprovado.
+
+**Implementado e instalado:**
+
+- `demo_navigation/frontier.py`: extração de fronteiras sem ROS — agrupamento
+  8-conexo, clearance de 0,45 m, meta recuada para dentro do espaço livre,
+  pontuação por ganho de informação menos comprimento real do caminho;
+- `demo_navigation/maze_explorer.py`: executivo com `start`/`cancel`/`status`,
+  oito estados publicados em JSON transient-local, blacklist por raio de
+  0,75 m, prazo de 90 s por fronteira e 600 s total, e aproximação do marcador
+  em passos de 0,5 m;
+- `ExplorationGrid` (NavFn com `allow_unknown: false`) ao lado do `GridBased`
+  manual, mais `behavior_trees/nav_to_pose_exploration.xml` fixando esse
+  planner: a meta de fronteira nunca é alcançada cortando o desconhecido;
+- `demo_perception/maze_exit_detector.py`: painel magenta por limiar de cor,
+  confirmação em 3 de 5 quadros, distância pelos intrínsecos e pela largura
+  física de 0,8 m; publica em tópicos próprios e **nunca** no tópico que
+  `detections_to_cloud` assina — o marcador não pode virar obstáculo em frente
+  à própria abertura;
+- `demo_simulation/maze_escape_validator.py`: oráculo de aceitação, só na
+  simulação, que exige o cruzamento da abertura **e** o footprint inteiro fora
+  antes de publicar `/demo/maze/escaped`. O explorador não assina esse tópico;
+- cockpit: iniciar/cancelar busca, estado e tempo no HUD, clique manual
+  bloqueado durante a busca, e "SAÍDA CONFIRMADA" saindo do ground truth e de
+  mais nada. O reset do Nav2 cancela o explorador antes de ciclar a pilha.
+
+**Evidência por meta, que faltava.** O desfecho de cada ação do `nav_trial.py`
+morria no stdout, e a meta em voo no fim do ensaio nunca era registrada — um
+portão de 3 metas relatava 2. Agora há um CSV irmão `<csv>-metas.csv` com alvo,
+desfecho, `status`, `error_code`/`error_msg` e trocas de rota daquela meta.
+
+**Testes:** contrato 150, `demo_navigation` 25, `demo_perception` 33, cockpit
+169. A decisão de busca do cockpit saiu de `nav-panel.js` para
+`hmi/js/panels/exploration.js`, sem mudança de comportamento, porque o painel só
+existe depois de um `canvas.getContext('2d')` e o bundle não tem jsdom.
+
+**O que NÃO foi feito, e por quê.** Nenhuma corrida de aceitação, no host ou no
+Aquila. O portão de estabilidade — três metas curtas, 3/3 `SUCCEEDED`, ≥ 0,05
+m/s — segue **reprovado**: a última corrida mediu 0,0185 m/s em 37 s.
+`restamp_tf: true` (parâmetro real do `slam_toolbox` do Jazzy, verificado)
+destravou o comando, que estava em zero, e não fechou o portão.
+
+Detalhes, riscos abertos e o protocolo de reprodução:
+`docs/results/ml35-f5-busca-autonoma.md`, marcado `PENDING EXECUTION`.
+
+---
+
+## 2026-08-27 — mapa vivo do Go2 implementado; rebuild headless pendente
+
+O próximo mecanismo do F5 saiu do papel: o Go2 passa a manter um mapa de
+ocupação vivo com `slam_toolbox`, em vez de depender apenas do
+`obstacle_layer`, que apaga junto espaço ocupado e livre durante o raytrace. É
+essa perda que fazia o NavFn alternar a rota real de 11,5 m com um atalho de
+8,6 m através de parede desconhecida, deixando o MPPI girar sem avançar.
+
+**Implementado e sincronizado para o Aquila:**
+
+- `pointcloud_to_laserscan` achata os 16 anéis de `/demo/scan_cloud` em
+  `/demo/scan_slam`; o `/demo/scan` antigo continua inadequado (zero obstáculos
+  úteis no cenário medido);
+- `slam_toolbox` usa `base`, assume sozinho `map→odom` e recebe transições de
+  lifecycle configure→activate encadeadas;
+- `odom_tf` continua dono de `odom→base`, mas deixa de publicar a identidade
+  `map→odom`, evitando dois autores na mesma aresta;
+- o costmap global deixa de ser rolante e ativa `static_layer` antes das camadas
+  vivas, com atualizações incrementais de `/map`;
+- `clearing: true` permanece nas camadas de obstáculo: persistência pertence ao
+  SLAM, que guarda **livre e ocupado**, não a uma marca de obstáculo congelada;
+- `scripts/costmap_probe.py` agora mede local/global, perfil em `+y` e as células
+  inscritas/letais mais próximas.
+
+**Rede recuperada antes da implementação:** Aquila `192.0.2.5/24` em
+`ethernet0`, host `192.0.2.6`, rota simétrica e RTT ~0,22 ms. O perfil
+NetworkManager `network0` havia ficado ativo sem endereço/rota; voltou a ser
+manual. A rota default via `192.0.2.2` também foi necessária para apt/DNS no
+build nativo.
+
+**Validação feita:** 123 testes de topo + 21 estruturais focados passaram; o HIL
+anterior à troca de imagem passou UDP, contrato de tópicos, heartbeat e
+`bt_navigator: active`. O primeiro rebuild arm64 compilou os 10 pacotes, mas o
+guardrail da regra 1 o reprovou corretamente: o `.deb` de `slam_toolbox` mistura
+o runtime headless e `libSlamToolboxPlugin.so`, arrastando RViz/OGRE. O
+Dockerfile foi corrigido para extrair apenas o runtime e excluir o plugin
+gráfico; essa correção está sincronizada, mas o **segundo build ainda não foi
+executado/confirmado**.
+
+**Limite explícito:** esta entrega persiste o mapa durante a execução e através
+de resets de meta/costmap, porque o processo SLAM permanece vivo e a
+`static_layer` repovoa o mestre. Persistência em disco através de restart do
+container/reboot ainda não existe. Depois de provar o mapa vivo, a próxima
+frente é serializar o pose-graph em volume persistente e testar a retomada; não
+confundir `map_saver` (PGM/YAML) com pose-graph retomável em modo mapping.
+
+**Retomada exata:** `scripts/module.sh build`; exigir
+`ok: demo-aquila-nav sem stack de renderizacao`; depois `module.sh up/verify`,
+validar `/demo/scan_slam`, lifecycle `active` de `/slam_toolbox`, `/map` com
+ocupado e livre, e repetir a meta com parede observando se `/plan` deixa de
+alternar. Só depois medir campanha e implementar persistência em disco.
+
+---
+
 ## 2026-08-26 (noite) — o reset teleportava o robô mas não o mantinha de pé
 
 Sequência à entrada de 2026-08-26 (tarde): o teleporte sozinho resolvia o robô

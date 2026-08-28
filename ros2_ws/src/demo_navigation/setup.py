@@ -46,6 +46,7 @@ setup(
             # do cockpit. Mora aqui, e nao em demo_bringup, porque roda no mesmo
             # container que o Nav2 e e a pilha dele que reinicia.
             'nav_control_relay = demo_navigation.nav_control_relay:main',
+            'maze_explorer = demo_navigation.maze_explorer:main',
         ],
     },
 )

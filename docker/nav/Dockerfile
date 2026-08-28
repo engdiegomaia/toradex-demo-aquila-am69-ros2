@@ -16,6 +16,29 @@
 #     -f docker/nav/Dockerfile -t ${REGISTRY}/demo-aquila-nav:${TAG} --push .
 ARG REGISTRY=local
 ARG TAG=dev
+
+# Ubuntu empacota o runtime do slam_toolbox e seu plugin RViz no mesmo .deb.
+# Instalar o pacote normalmente arrasta rviz_common, rviz_rendering, OGRE e Qt
+# para o AM69, embora async_slam_toolbox_node nao ligue nenhuma dessas libs.
+# Extraimos o .deb e removemos apenas o plugin grafico; as dependencias CPU do
+# runtime sao declaradas explicitamente no estagio final abaixo.
+FROM ${REGISTRY}/demo-aquila-base:${TAG} AS slam-toolbox-runtime
+
+ARG ROS_DISTRO=jazzy
+USER root
+RUN apt-get update \
+    && cd /tmp \
+    && apt-get download ros-${ROS_DISTRO}-slam-toolbox \
+    && mkdir -p /slam-runtime \
+    && dpkg-deb -x ros-${ROS_DISTRO}-slam-toolbox_*.deb /slam-runtime \
+    && rm -f \
+        /slam-runtime/opt/ros/${ROS_DISTRO}/lib/libSlamToolboxPlugin.so \
+        /slam-runtime/opt/ros/${ROS_DISTRO}/share/rviz_plugins.xml \
+        /slam-runtime/opt/ros/${ROS_DISTRO}/share/slam_toolbox/rviz_plugins.xml \
+        /slam-runtime/opt/ros/${ROS_DISTRO}/share/slam_toolbox/config/slam_toolbox_default.rviz \
+        /slam-runtime/opt/ros/${ROS_DISTRO}/share/ament_index/resource_index/rviz_common__pluginlib__plugin/slam_toolbox \
+    && rm -rf /var/lib/apt/lists/* /tmp/ros-${ROS_DISTRO}-slam-toolbox_*.deb
+
 FROM ${REGISTRY}/demo-aquila-base:${TAG}
 
 ARG ROS_DISTRO=jazzy
@@ -59,6 +82,14 @@ USER root
 # When nav2_params.yaml gains a plugin from a package not listed here, this list
 # must grow with it. That coupling is the cost of not installing the metapackage.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+        libboost-serialization1.83.0 \
+        libboost-thread1.83.0 \
+        libceres4t64 \
+        libconsole-bridge1.0 \
+        libgoogle-glog0v6t64 \
+        liborocos-kdl1.5 \
+        libtbb12 \
+        libtinyxml2-10 \
         ros-${ROS_DISTRO}-nav2-amcl \
         ros-${ROS_DISTRO}-nav2-behavior-tree \
         ros-${ROS_DISTRO}-nav2-behaviors \
@@ -76,8 +107,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-nav2-velocity-smoother \
         ros-${ROS_DISTRO}-nav2-waypoint-follower \
         ros-${ROS_DISTRO}-opennav-docking \
+        ros-${ROS_DISTRO}-bondcpp \
+        ros-${ROS_DISTRO}-interactive-markers \
+        ros-${ROS_DISTRO}-message-filters \
+        ros-${ROS_DISTRO}-pointcloud-to-laserscan \
         ros-${ROS_DISTRO}-rclcpp-components \
+        ros-${ROS_DISTRO}-tf2-sensor-msgs \
     && rm -rf /var/lib/apt/lists/*
+
+COPY --from=slam-toolbox-runtime /slam-runtime/ /
+
+# Falha no build, nao na bancada: o executavel copiado deve resolver todas as
+# libs e o payload headless nao pode reintroduzir o plugin RViz removido acima.
+RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
+    && ! ldd /opt/ros/${ROS_DISTRO}/lib/slam_toolbox/async_slam_toolbox_node \
+        | grep -q 'not found' \
+    && test ! -e /opt/ros/${ROS_DISTRO}/lib/libSlamToolboxPlugin.so
 
 # Rebuild the overlay so demo_navigation and demo_bringup resolve against the
 # Nav2 packages the base image skipped.

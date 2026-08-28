@@ -176,5 +176,22 @@
         </visual>
       </link>
     </model>
+
+    <!-- Observable exit cue.  Navigation receives no coordinates: perception
+         must find this unique magenta panel through the robot RGB camera. -->
+    <model name="maze_exit_marker">
+      <static>true</static>
+      <pose>-4.90 -2.60 0.60 0 0 0</pose>
+      <link name="link">
+        <visual name="panel">
+          <geometry><box><size>0.80 0.03 0.80</size></box></geometry>
+          <material>
+            <ambient>1.0 0.0 1.0 1.0</ambient>
+            <diffuse>1.0 0.0 1.0 1.0</diffuse>
+            <emissive>0.35 0.0 0.35 1.0</emissive>
+          </material>
+        </visual>
+      </link>
+    </model>
   </world>
 </sdf>

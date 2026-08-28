@@ -1,5 +1,5 @@
 """
-Nav2 para o quadrupede: desvio reativo, sem mapa e sem AMCL.
+Nav2 para o quadrupede com mapa vivo persistido por slam_toolbox.
 
 Roda na estacao x86 (amd64) em learn e no Aquila AM69 (arm64) em HIL. O Nav2 nao
 tem dependencia grafica; Gazebo e RViz continuam exclusivamente no host. A
@@ -47,7 +47,11 @@ da origem; `patrol_commander` ja faz isso.
 """
 
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
+from launch.actions import (
+    DeclareLaunchArgument,
+    GroupAction,
+    IncludeLaunchDescription,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch.actions import LogInfo, RegisterEventHandler, Shutdown
@@ -89,7 +93,7 @@ def generate_launch_description() -> LaunchDescription:
     # crencas. Ver o cabecalho de odom_tf.py.
     map_identity_arg = DeclareLaunchArgument(
         'publish_map_identity',
-        default_value='true',
+        default_value='false',
         description=(
             'Publicar map -> odom como identidade. Ponha false se subir AMCL '
             'ou SLAM, ou havera dois publicadores nessa aresta.'
@@ -187,6 +191,59 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{'use_sim_time': False}],
     )
 
+    # O lidar do Go2 tem 16 aneis. O LaserScan de um anel publicado pelo bridge
+    # nao ve os obstaculos do maze; o SLAM precisa da nuvem completa achatada.
+    # Transformar para `base` tambem torna os cortes de altura relativos ao
+    # robo, descartando o piso sem depender da pose no mundo.
+    cloud_to_scan = Node(
+        package='pointcloud_to_laserscan',
+        executable='pointcloud_to_laserscan_node',
+        name='pointcloud_to_laserscan',
+        output='screen',
+        remappings=[
+            ('cloud_in', '/demo/scan_cloud'),
+            ('scan', '/demo/scan_slam'),
+        ],
+        parameters=[{
+            'target_frame': 'base',
+            'transform_tolerance': 0.10,
+            'min_height': 0.12,
+            'max_height': 1.00,
+            'angle_min': -3.141592653589793,
+            'angle_max': 3.141592653589793,
+            'angle_increment': 0.008726646259972,
+            'scan_time': 0.10,
+            'range_min': 0.10,
+            'range_max': 9.00,
+            'use_inf': True,
+            'inf_epsilon': 1.0,
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+        }],
+    )
+
+    # Nao deixe este include herdar `params_file` do launch pai. Neste arquivo,
+    # esse argumento e o YAML do Nav2 (`nav2_params_go2.yaml`), enquanto o
+    # slam_toolbox exige seu proprio namespace e seus frames em
+    # `slam_params.yaml`. LaunchConfiguration tem escopo compartilhado entre
+    # includes; sem a passagem explicita abaixo o SLAM recebe silenciosamente o
+    # arquivo do Nav2 e volta ao default `base_footprint`.
+    slam_params = PathJoinSubstitution([
+        FindPackageShare('demo_navigation'), 'config', 'slam_params.yaml',
+    ])
+    slam = GroupAction(
+        scoped=True,
+        actions=[IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([
+                FindPackageShare('demo_navigation'), 'launch', 'slam.launch.py',
+            ])),
+            launch_arguments={
+                'params_file': slam_params,
+                'use_sim_time': LaunchConfiguration('use_sim_time'),
+                'scan_topic': '/demo/scan_slam',
+            }.items(),
+        )],
+    )
+
     # O caminho da arvore de comportamento tem de ser ABSOLUTO, e nao pode ficar
     # cravado no YAML: quem sabe o prefixo de instalacao e o FindPackageShare.
     #
@@ -199,6 +256,20 @@ def generate_launch_description() -> LaunchDescription:
         FindPackageShare('demo_navigation'),
         'behavior_trees', 'nav_to_pose_smoothed.xml',
     ])
+    exploration_bt = PathJoinSubstitution([
+        FindPackageShare('demo_navigation'),
+        'behavior_trees', 'nav_to_pose_exploration.xml',
+    ])
+    maze_explorer = Node(
+        package='demo_navigation',
+        executable='maze_explorer',
+        name='maze_explorer',
+        output='screen',
+        parameters=[{
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            'exploration_bt_xml': exploration_bt,
+        }],
+    )
     # RewrittenYaml JA e uma substituicao que resolve para o caminho do arquivo
     # reescrito, entao vai direto em launch_arguments. Envolver em ParameterFile
     # aqui nao funciona: launch_arguments aceita string ou substituicao, e
@@ -358,7 +429,10 @@ def generate_launch_description() -> LaunchDescription:
         )),
         RegisterEventHandler(event_handler=OnProcessExit(
             target_action=wait_for_tf,
-            on_exit=_gate([nav2_container, navigation, nav_control],
+            on_exit=_gate([
+                cloud_to_scan, slam, nav2_container, navigation, nav_control,
+                maze_explorer,
+            ],
                           'wait_for_tf'),
         )),
     ])
