@@ -43,6 +43,11 @@ def _row(**overrides):
         'odom_interval_ms': 20.0,
         'transform_available': 1,
         'transform_latency_ms': 0.0,
+        'tf_base_lidar': 1,
+        'tf_odom_base': 1,
+        'tf_odom_lidar': 1,
+        'odom_tf_stamp_s': 0.0,
+        'odom_tf_age_ms': 0.0,
         'cloud_points': 10240,
     }
     row.update(overrides)
@@ -343,5 +348,117 @@ def test_csv_columns_match_the_documented_contract() -> None:
     assert FIELDS == (
         'wall_s', 'sim_s', 'cloud_stamp_s', 'cloud_age_ms', 'odom_stamp_s',
         'odom_age_ms', 'cloud_interval_ms', 'odom_interval_ms',
-        'transform_available', 'transform_latency_ms', 'cloud_points',
+        'transform_available', 'transform_latency_ms',
+        'tf_base_lidar', 'tf_odom_base', 'tf_odom_lidar',
+        'odom_tf_stamp_s', 'odom_tf_age_ms',
+        'cloud_points',
     )
+
+
+# --------------------------------------------------------------------------
+# os três pares na mesma corrida
+# --------------------------------------------------------------------------
+
+def test_each_pair_is_reduced_independently() -> None:
+    # O caso que interessa: a estática passa sempre, a dinâmica falha às vezes,
+    # e a composta não pode passar mais do que a pior das duas.
+    rows = [
+        _row(tf_base_lidar=1, tf_odom_base=1, tf_odom_lidar=1),
+        _row(tf_base_lidar=1, tf_odom_base=0, tf_odom_lidar=0),
+        _row(tf_base_lidar=1, tf_odom_base=1, tf_odom_lidar=0),
+        _row(tf_base_lidar=1, tf_odom_base=1, tf_odom_lidar=1),
+    ]
+    summary = summarise(rows)
+    assert summary['tf_base_lidar_pct'] == pytest.approx(100.0)
+    assert summary['tf_odom_base_pct'] == pytest.approx(75.0)
+    assert summary['tf_odom_lidar_pct'] == pytest.approx(50.0)
+
+
+def test_a_csv_written_before_the_three_pairs_reports_them_as_unmeasured(
+) -> None:
+    # Os CSVs de 28/08 não têm essas colunas. Reduzi-las a 0% transformaria
+    # "não medido" em "reprovou 100% das vezes", que é uma regressão inventada
+    # -- e seria lida como tal na comparação A/B.
+    legacy = [{key: value for key, value in _row().items()
+               if not key.startswith(('tf_', 'odom_tf_'))}]
+    summary = summarise(legacy)
+    assert summary['tf_base_lidar_pct'] is None
+    assert summary['tf_odom_base_pct'] is None
+    assert summary['tf_odom_lidar_pct'] is None
+    assert summary['odom_tf_age_median_ms'] is None
+    # E o que a corrida antiga MEDIU continua sendo lido.
+    assert summary['transform_available_pct'] == pytest.approx(100.0)
+
+
+def test_the_dynamic_edge_age_is_positive_when_the_edge_is_behind() -> None:
+    rows = [_row(odom_tf_age_ms=60.0), _row(odom_tf_age_ms=160.0)]
+    summary = summarise(rows)
+    assert summary['odom_tf_age_median_ms'] == pytest.approx(110.0)
+    assert summary['odom_tf_age_p99_ms'] == pytest.approx(159.0)
+
+
+# --------------------------------------------------------------------------
+# regularidade de odom -> base
+# --------------------------------------------------------------------------
+
+def _samples(pairs):
+    return [(float(wall), float(stamp)) for wall, stamp in pairs]
+
+
+def test_a_regular_publisher_shows_matching_stamp_and_arrival_series() -> None:
+    samples = _samples([(i * 0.020, 100.0 + i * 0.020) for i in range(51)])
+    summary = summarise([_row()], samples)
+    assert summary['odom_tf_samples'] == 51
+    assert summary['odom_tf_rate_hz'] == pytest.approx(50.0)
+    assert summary['odom_tf_stamp_interval_median_ms'] == pytest.approx(20.0)
+    assert summary['odom_tf_arrival_interval_median_ms'] == pytest.approx(20.0)
+    assert summary['odom_tf_arrival_interval_max_ms'] == pytest.approx(20.0)
+
+
+def test_a_bursting_publisher_shows_a_tight_stamp_and_a_ragged_arrival(
+) -> None:
+    # Esta é a assinatura que o A/B do TF precisa distinguir: o `odom_tf`
+    # carimba a cada 20 ms e ENTREGA em rajadas de cinco. A série de carimbos
+    # continua perfeita; só a de chegada acusa. Um resumo que colapsasse as duas
+    # num número só declararia o publicador saudável.
+    pairs = []
+    for burst in range(10):
+        arrival = burst * 0.100
+        for index in range(5):
+            pairs.append((arrival, 100.0 + (burst * 5 + index) * 0.020))
+    summary = summarise([_row()], _samples(pairs))
+
+    assert summary['odom_tf_stamp_interval_median_ms'] == pytest.approx(20.0)
+    assert summary['odom_tf_stamp_interval_max_ms'] == pytest.approx(20.0)
+    assert summary['odom_tf_arrival_interval_median_ms'] == pytest.approx(0.0)
+    assert summary['odom_tf_arrival_interval_max_ms'] == pytest.approx(100.0)
+
+
+def test_a_run_that_saw_one_stamp_reports_no_intervals_rather_than_zero(
+) -> None:
+    summary = summarise([_row()], _samples([(0.0, 100.0)]))
+    assert summary['odom_tf_samples'] == 1
+    assert summary['odom_tf_rate_hz'] is None
+    assert summary['odom_tf_stamp_interval_median_ms'] is None
+
+
+def test_the_sampler_series_is_absent_by_default_and_says_so() -> None:
+    summary = summarise([_row()])
+    assert summary['odom_tf_samples'] == 0
+    assert summary['odom_tf_arrival_interval_p99_ms'] is None
+
+
+def test_an_empty_run_still_carries_the_sampler_keys() -> None:
+    # `summarise([])` volta cedo; as chaves novas têm de existir mesmo assim,
+    # ou `format_summary` explode justamente na corrida que falhou.
+    summary = summarise([])
+    for key in ('tf_odom_base_pct', 'odom_tf_samples',
+                'odom_tf_arrival_interval_max_ms'):
+        assert key in summary
+
+
+def test_the_summary_renders_every_new_line_without_a_sampler() -> None:
+    text = format_summary(summarise([_row()]))
+    assert 'odom <- base' in text
+    assert 'intervalo por chegada' in text
+    assert 'n/d' in text
