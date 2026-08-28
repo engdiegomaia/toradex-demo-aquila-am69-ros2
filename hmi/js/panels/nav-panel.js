@@ -46,6 +46,7 @@
  * camera panel, and that is where they are.
  */
 
+import { createExplorationStore } from './exploration.js';
 import { readMapPalette } from './palette.js';
 import { TOPICS } from '../config.js';
 import { applyTransform } from '../ros/tf-tree.js';
@@ -79,6 +80,8 @@ const NAVIGATE_TYPE = 'nav2_msgs/action/NavigateToPose';
  * demo_navigation/nav_control_relay.py tem a medição.
  */
 export const NAV_RESET_SERVICE = '/demo/nav/reset';
+export const EXPLORATION_START_SERVICE = '/demo/exploration/start';
+export const EXPLORATION_CANCEL_SERVICE = '/demo/exploration/cancel';
 
 /** Segundos que o botão de reiniciar fica armado esperando a confirmação. */
 export const RESET_ARM_MS = 4000;
@@ -99,6 +102,8 @@ export function createNavPanel({ root, client, tracker }) {
   const resetButton = root.querySelector('[data-role="nav-reset"]');
   const zoomInButton = root.querySelector('[data-role="nav-zoom-in"]');
   const zoomOutButton = root.querySelector('[data-role="nav-zoom-out"]');
+  const explorationStartButton = root.querySelector('[data-role="exploration-start"]');
+  const explorationCancelButton = root.querySelector('[data-role="exploration-cancel"]');
   const context = canvas.getContext('2d');
 
   const lut = buildCostLut();
@@ -122,6 +127,11 @@ export function createNavPanel({ root, client, tracker }) {
     tf: null,
     zoom: DEFAULT_MAP_ZOOM,
   };
+
+  // O zoom fica em `state`, o estado de busca fica AQUI. Separados de
+  // proposito: nenhum caminho da exploracao deve conseguir tocar no
+  // enquadramento que o operador escolheu.
+  const exploration = createExplorationStore();
 
   const unsubscribes = [];
   let cssWidth = 0;
@@ -167,6 +177,22 @@ export function createNavPanel({ root, client, tracker }) {
       // Without this the panel alone would spend ~230 KiB/s on localhost and
       // would not survive the bench Ethernet link at all.
       { compression: 'png' },
+    ),
+  );
+
+  unsubscribes.push(
+    client.subscribe(
+      TOPICS.explorationStatus,
+      'std_msgs/msg/String',
+      (message) => exploration.apply(message),
+    ),
+  );
+
+  unsubscribes.push(
+    client.subscribe(
+      TOPICS.mazeEscaped,
+      'std_msgs/msg/Bool',
+      (message) => exploration.setEscaped(message?.data),
     ),
   );
 
@@ -307,6 +333,7 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   function sendGoal(world) {
+    if (explorationActive()) return;
     const pose = robotPose();
     if (pose) {
       const distance = Math.hypot(world.x - pose.x, world.y - pose.y);
@@ -384,11 +411,40 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   canvas.addEventListener('click', (event) => {
+    if (explorationActive()) return;
     const rect = canvas.getBoundingClientRect();
     sendGoal(viewNow().toWorld(event.clientX - rect.left, event.clientY - rect.top));
   });
 
   cancelButton?.addEventListener('click', cancelActive);
+
+  function explorationActive() {
+    return exploration.isActive();
+  }
+
+  async function explorationCommand(service, button) {
+    if (button) button.dataset.busy = 'true';
+    try {
+      const result = await client.callService(service, {});
+      if (result?.success === false) {
+        exploration.merge({
+          message: result.message ?? 'comando de busca recusado',
+        });
+      }
+    } catch (error) {
+      exploration.merge({ state: 'failed', message: error.message });
+    } finally {
+      if (button) button.dataset.busy = 'false';
+    }
+  }
+
+  explorationStartButton?.addEventListener('click', () => {
+    cancelActive();
+    explorationCommand(EXPLORATION_START_SERVICE, explorationStartButton);
+  });
+  explorationCancelButton?.addEventListener('click', () => {
+    explorationCommand(EXPLORATION_CANCEL_SERVICE, explorationCancelButton);
+  });
 
   function changeZoom(direction) {
     state.zoom = stepMapZoom(state.zoom, direction);
@@ -631,7 +687,10 @@ export function createNavPanel({ root, client, tracker }) {
   };
 
   function updateHud() {
-    const parts = [GOAL_LABELS[state.goalState] ?? state.goalState];
+    const parts = exploration.ownsHud()
+      ? [exploration.label()]
+      : [GOAL_LABELS[state.goalState] ?? state.goalState];
+    parts.push(...exploration.hudParts());
     const remaining = state.feedback?.distance_remaining;
     if (Number.isFinite(remaining)) parts.push(`${remaining.toFixed(2)} m restantes`);
     const recoveries = state.feedback?.number_of_recoveries;
@@ -653,6 +712,10 @@ export function createNavPanel({ root, client, tracker }) {
 
     const active = state.goalState === 'sent' || state.goalState === 'running';
     if (cancelButton) cancelButton.hidden = !active;
+    const exploring = explorationActive();
+    if (explorationStartButton) explorationStartButton.hidden = exploring;
+    if (explorationCancelButton) explorationCancelButton.hidden = !exploring;
+    canvas.classList.toggle('canvas--disabled', exploring);
   }
 
   return {

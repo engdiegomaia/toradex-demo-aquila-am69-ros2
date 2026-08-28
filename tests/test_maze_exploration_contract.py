@@ -69,14 +69,23 @@ def test_short_goal_gate_is_connected_and_bounded():
 def test_cockpit_owns_start_cancel_and_ground_truth_display():
     html = (ROOT / 'hmi/index.html').read_text()
     panel = (ROOT / 'hmi/js/panels/nav-panel.js').read_text()
+    # A decisao de busca mora num modulo sem DOM para poder ser testada pelo
+    # `node --test` sem dublar um contexto 2D. O contrato vale sobre os dois.
+    store = (ROOT / 'hmi/js/panels/exploration.js').read_text()
     config = (ROOT / 'hmi/js/config.js').read_text()
     assert 'data-role="exploration-start"' in html
     assert 'data-role="exploration-cancel"' in html
     assert '/demo/exploration/start' in panel
     assert '/demo/exploration/cancel' in panel
-    assert "if (explorationActive()) return" in panel
+    # Duas portas para a meta manual -- o clique no canvas e o envio -- e as
+    # duas tem de estar fechadas enquanto a busca corre.
+    assert panel.count('if (explorationActive()) return') == 2
     assert '/demo/maze/escaped' in config
-    assert 'SAÍDA CONFIRMADA' in panel
+    assert 'SAÍDA CONFIRMADA' in store
+    # O rotulo de sucesso so pode sair do ground truth, nunca do estado do
+    # explorador: 'completed' diz que ele chegou perto do marcador, nao que o
+    # robo atravessou a abertura.
+    assert 'mazeEscaped' in store
 
 
 def test_gate_persists_outcome_and_error_code_per_goal():

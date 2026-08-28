@@ -430,6 +430,10 @@
   display: none;
 }
 
+.canvas--disabled {
+  cursor: not-allowed;
+}
+
 /* --- log panel ------------------------------------------------------------ */
 
 .telemetry {
