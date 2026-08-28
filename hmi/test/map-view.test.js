@@ -11,9 +11,14 @@ import assert from 'node:assert/strict';
 
 import {
   buildCostLut,
+  DEFAULT_MAP_ZOOM,
+  MAX_MAP_ZOOM,
+  MIN_MAP_ZOOM,
+  clampMapZoom,
   createView,
   defaultExtent,
   extentOfGrid,
+  stepMapZoom,
 } from '../js/panels/map-view.js';
 
 const EXTENT = { originX: -5, originY: -5, widthM: 10, heightM: 10 };
@@ -59,6 +64,34 @@ test('the drawn map is centred in the leftover space', () => {
   near(rect.width, rect.height, 'raster quadrado para extensão quadrada');
   near(rect.x, (400 - rect.width) / 2, 'sobra horizontal dividida');
   near(rect.y, (200 - rect.height) / 2, 'sobra vertical dividida');
+});
+
+test('the navigation default zoom draws the map at half the fitted scale', () => {
+  const fitted = createView(EXTENT, 300, 200);
+  const overview = createView(EXTENT, 300, 200, { zoom: DEFAULT_MAP_ZOOM });
+  near(overview.scale, fitted.scale * 0.5, 'zoom inicial');
+  near(overview.rasterRect().width, fitted.rasterRect().width * 0.5, 'largura');
+});
+
+test('a custom focus remains at the exact canvas centre at every zoom', () => {
+  const robot = { x: -4.2, y: 3.1 };
+  for (const zoom of [MIN_MAP_ZOOM, DEFAULT_MAP_ZOOM, 1, MAX_MAP_ZOOM]) {
+    const view = createView(EXTENT, 320, 180, { center: robot, zoom });
+    const screen = view.toScreen(robot.x, robot.y);
+    near(screen.x, 160, `centro x em ${zoom}`);
+    near(screen.y, 90, `centro y em ${zoom}`);
+    const back = view.toWorld(screen.x, screen.y);
+    near(back.x, robot.x, `round-trip x em ${zoom}`);
+    near(back.y, robot.y, `round-trip y em ${zoom}`);
+  }
+});
+
+test('zoom buttons use a 1.25 factor and clamp both ends', () => {
+  near(stepMapZoom(DEFAULT_MAP_ZOOM, 'in'), 0.625, 'zoom in');
+  near(stepMapZoom(DEFAULT_MAP_ZOOM, 'out'), 0.4, 'zoom out');
+  assert.equal(stepMapZoom(MAX_MAP_ZOOM, 'in'), MAX_MAP_ZOOM);
+  assert.equal(stepMapZoom(MIN_MAP_ZOOM, 'out'), MIN_MAP_ZOOM);
+  assert.equal(clampMapZoom(Number.NaN), DEFAULT_MAP_ZOOM);
 });
 
 test('the raster rect and toScreen agree on the corners', () => {

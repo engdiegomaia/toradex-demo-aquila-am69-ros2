@@ -704,6 +704,23 @@ def test_nav_reset_needs_two_clicks_and_the_browser_speaks_std_srvs():
     )
 
 
+def test_nav_map_has_bounded_zoom_controls_that_do_not_send_goals():
+    html = INDEX_HTML.read_text(encoding='utf-8')
+    source = NAV_PANEL_JS.read_text(encoding='utf-8')
+    view = (BUNDLE / 'js' / 'panels' / 'map-view.js').read_text(encoding='utf-8')
+
+    assert 'data-role="nav-zoom-in"' in html
+    assert 'data-role="nav-zoom-out"' in html
+    assert 'DEFAULT_MAP_ZOOM = 0.5' in view
+    assert 'MIN_MAP_ZOOM = 0.125' in view and 'MAX_MAP_ZOOM = 4' in view
+    assert "stepMapZoom(state.zoom, direction)" in source
+    # Defensive even though the controls are canvas siblings today: moving the
+    # overlay during a layout refactor must not turn zoom into a navigation goal.
+    zoom_handlers = source[source.index("zoomInButton?.addEventListener"):
+                           source.index('// --- reiniciar a navegação')]
+    assert zoom_handlers.count('event.stopPropagation()') == 2
+
+
 def test_toradex_logo_doubled_and_the_bar_grew_with_it():
     """
     A marca da Toradex é 2x a original, e a faixa reserva altura para ela.

@@ -11,10 +11,17 @@
  *   footprint       /global_costmap/published_footprint  map frame
  *   goal            (local, from the last click)
  *
- * There is NO /map on the quadruped path: nav_quadruped.launch.py runs Nav2
- * without map_server and without AMCL, on a ROLLING global costmap. So the
- * base raster here is the costmap, not a static map — and that is also why the
- * view follows the robot for free: the costmap window does.
+ * The quadruped now feeds the live slam_toolbox map into the global costmap.
+ * The base raster here remains that costmap (rather than subscribing to /map a
+ * second time), because it is the exact combination of static, obstacle,
+ * perception and inflation layers the planner uses.
+ *
+ * The costmap window IS rolling — `rolling_window: true`, restored on
+ * 27/08/2026 because `false` let the StaticLayer shrink the master grid to the
+ * first SLAM rectangle and the planner walked off the edge with
+ * `worldToMap failed`. So the raster already follows the robot. The camera
+ * still centres on map->base EXPLICITLY anyway, because zoom needs a focus
+ * point that does not move when the raster's bounds do.
  *
  * O painel tem DOIS controles destrutivos e eles não são a mesma coisa:
  *
@@ -44,9 +51,11 @@ import { TOPICS } from '../config.js';
 import { applyTransform } from '../ros/tf-tree.js';
 import {
   buildCostLut,
+  DEFAULT_MAP_ZOOM,
   createView,
   defaultExtent,
   extentOfGrid,
+  stepMapZoom,
 } from './map-view.js';
 
 const NAVIGATE_ACTION = '/navigate_to_pose';
@@ -88,6 +97,8 @@ export function createNavPanel({ root, client, tracker }) {
   const hud = root.querySelector('[data-role="nav-hud"]');
   const cancelButton = root.querySelector('[data-role="nav-cancel"]');
   const resetButton = root.querySelector('[data-role="nav-reset"]');
+  const zoomInButton = root.querySelector('[data-role="nav-zoom-in"]');
+  const zoomOutButton = root.querySelector('[data-role="nav-zoom-out"]');
   const context = canvas.getContext('2d');
 
   const lut = buildCostLut();
@@ -109,6 +120,7 @@ export function createNavPanel({ root, client, tracker }) {
     feedback: null,
     handle: null,
     tf: null,
+    zoom: DEFAULT_MAP_ZOOM,
   };
 
   const unsubscribes = [];
@@ -131,12 +143,15 @@ export function createNavPanel({ root, client, tracker }) {
   observer.observe(canvas);
   resize();
 
-  const viewNow = () =>
-    createView(
-      state.gridInfo ? extentOfGrid(state.gridInfo) : defaultExtent(),
-      cssWidth,
-      cssHeight,
-    );
+  const viewNow = () => {
+    const extent = state.gridInfo ? extentOfGrid(state.gridInfo) : defaultExtent();
+    const pose = robotPose();
+    const center = pose ? { x: pose.x, y: pose.y } : null;
+    return createView(extent, cssWidth, cssHeight, {
+      zoom: state.zoom,
+      center,
+    });
+  };
 
   // --- subscriptions ------------------------------------------------------
 
@@ -374,6 +389,19 @@ export function createNavPanel({ root, client, tracker }) {
   });
 
   cancelButton?.addEventListener('click', cancelActive);
+
+  function changeZoom(direction) {
+    state.zoom = stepMapZoom(state.zoom, direction);
+  }
+
+  zoomInButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    changeZoom('in');
+  });
+  zoomOutButton?.addEventListener('click', (event) => {
+    event.stopPropagation();
+    changeZoom('out');
+  });
 
   // --- reiniciar a navegação ----------------------------------------------
   //
