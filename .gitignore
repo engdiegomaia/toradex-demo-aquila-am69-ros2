@@ -47,3 +47,4 @@ docker/cyclonedds/*.rendered.xml
 # alguma coisa, copie-a para docs/results/ com o .md; se não decidir, ela não
 # precisava de git.
 artifacts/
+CLAUDE.md
