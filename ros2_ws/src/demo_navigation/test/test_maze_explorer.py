@@ -332,16 +332,23 @@ def test_the_goal_timeout_leaves_room_for_more_than_one_goal(node) -> None:
         f'{goal} s por meta nao cabe tres vezes em {total} s de orcamento')
 
 
-def test_the_goal_timeout_clears_the_slowest_traversal_measured(node) -> None:
+def test_the_goal_timeout_stays_at_the_value_that_was_measured_best(
+        node) -> None:
     """
-    O teto tem de folgar sobre a travessia mais lenta que ja deu certo.
+    Trava um experimento REPROVADO para que ninguem o repita.
 
-    Rodada 2, 29/08: a meta bem-sucedida mais lenta levou 65 s, e TODAS as que
-    falharam pararam exatamente em 90,0 s -- o teto, nao um travamento.
+    A rodada 2 expirou tres metas distantes em exatamente 90,0 s, o que le como
+    "o teto e curto demais". A rodada 3 subiu para 180 s e piorou tudo: 4,26 m
+    contra 21,93 m, 3746 celulas contra 8915, razao de trabalho 8,6% contra
+    41,7%, e nenhuma deteccao do marcador -- porque travou 180 s numa meta a
+    0,4 m do robo. O teto corta travamento, nao travessia lenta.
+
+    Evidencia: docs/results/ml35-f5-exploration-r3.md.
     """
-    slowest_success_s = 65.0
-    assert float(node.get_parameter('goal_timeout_s').value) \
-        >= slowest_success_s * 2.0
+    assert float(node.get_parameter('goal_timeout_s').value) == 90.0, (
+        '180 s foi medido e REPROVADO na rodada 3 -- ler '
+        'docs/results/ml35-f5-exploration-r3.md antes de tentar de novo. O que '
+        'falta corrigir e a permanencia da blacklist, nao o teto.')
 
 
 def test_a_barren_selection_fails_the_run_instead_of_idling(node) -> None:
