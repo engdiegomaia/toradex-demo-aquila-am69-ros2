@@ -13,6 +13,7 @@ import math
 from types import SimpleNamespace
 
 from action_msgs.msg import GoalStatus
+from demo_navigation import maze_explorer as maze_explorer_module
 from demo_navigation.frontier import Frontier
 from demo_navigation.maze_explorer import MazeExplorer, STATES
 from geometry_msgs.msg import PoseStamped
@@ -446,6 +447,117 @@ def test_a_new_run_clears_every_suppression_list(node) -> None:
     assert node._blacklist == []
     assert node._refused == []
     assert node._timed_out == []
+
+
+def _run_selection(node, monkeypatch, frontiers, robot=(0.0, 0.0, 0.0)):
+    """
+    Roda `_begin_selection` sobre um conjunto fixo, sem TF, grid nem Nav2.
+
+    O que esta sob teste e a filtragem, nao a extracao nem o despacho, entao os
+    tres colaboradores externos saem do caminho.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    node._map_seq += 1
+    monkeypatch.setattr(node, '_grid', lambda: object())
+    monkeypatch.setattr(node, '_robot_pose', lambda: robot)
+    monkeypatch.setattr(node, '_validate_next', lambda: None)
+    monkeypatch.setattr(maze_explorer_module, 'extract_frontiers',
+                        lambda grid: list(frontiers))
+    node._begin_selection()
+
+
+def test_a_frontier_inside_the_goal_tolerance_is_never_dispatched(
+        node, monkeypatch) -> None:
+    """
+    O modo de falha da rodada 4, atacado na causa.
+
+    `xy_goal_tolerance` do Nav2 e 0,25 m. Uma fronteira a 0,20 m do robo faz o
+    Nav2 devolver sucesso sem que nada se mova; a selecao volta ao mesmo ponto
+    e o ciclo se repete. Na rodada 4 isso rodou 565 vezes em 580 s com o robo
+    dentro de uma caixa de 11 mm x 25 mm.
+
+    Evidencia: docs/results/ml35-f5-exploration-r4.md.
+    """
+    near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
+    far = Frontier(x=2.0, y=0.0, cells=90, information_gain_m=4.5)
+    _run_selection(node, monkeypatch, [near, far])
+
+    assert near not in node._candidates
+    assert node._near_skipped == 1
+
+
+def test_the_next_frontier_out_is_selected_instead(node, monkeypatch) -> None:
+    """Descartar a de perto tem de deixar a exploracao seguir, nao parar."""
+    near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
+    far = Frontier(x=2.0, y=0.0, cells=90, information_gain_m=4.5)
+    _run_selection(node, monkeypatch, [near, far])
+
+    assert node._candidates == [far]
+    assert node._frontier_count == 1
+
+
+def test_a_frontier_exactly_at_the_limit_stays_eligible(
+        node, monkeypatch) -> None:
+    """O limite e inclusivo; senao o corte vira uma faixa morta ambigua."""
+    limit = float(node.get_parameter('min_frontier_distance_m').value)
+    edge = Frontier(x=limit, y=0.0, cells=20, information_gain_m=1.0)
+    _run_selection(node, monkeypatch, [edge])
+
+    assert node._candidates == [edge]
+    assert node._near_skipped == 0
+
+
+def test_skipping_a_near_frontier_never_suppresses_it(
+        node, monkeypatch) -> None:
+    """
+    O corte e relativo a pose ATUAL, nunca uma anotacao permanente.
+
+    Bastou uma lista permanente demais para matar a rodada 1. Andar alguns
+    centimetros tem de devolver a fronteira a disputa sozinho.
+    """
+    near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
+    _run_selection(node, monkeypatch, [near])
+
+    assert node._blacklist == []
+    assert node._refused == []
+    assert node._timed_out == []
+
+    _run_selection(node, monkeypatch, [near], robot=(-1.0, 0.0, 0.0))
+    assert node._candidates == [near]
+
+
+def test_a_selection_with_only_near_frontiers_counts_as_no_progress(
+        node, monkeypatch) -> None:
+    """
+    Ficar sem candidatos por proximidade e ausencia de progresso.
+
+    Se o ciclo nao contasse, o robo cercado so por fronteiras dentro da
+    tolerancia ficaria em `selecting` calado ate o prazo total.
+    """
+    near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
+    _run_selection(node, monkeypatch, [near])
+
+    assert node._candidates == []
+    assert node._barren_cycles == 1
+
+
+def test_status_reports_how_many_near_frontiers_were_skipped(
+        node, monkeypatch) -> None:
+    """Sem a metrica no status, o descarte e invisivel na analise da corrida."""
+    near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
+    far = Frontier(x=2.0, y=0.0, cells=90, information_gain_m=4.5)
+    _run_selection(node, monkeypatch, [near, far])
+    node._publish_status()
+
+    assert node.published[-1]['near_frontiers_skipped'] == 1
+
+
+def test_r4a_leaves_the_r4_timeout_policy_alone(node) -> None:
+    """Uma variavel por rodada: a permanencia do timeout nao se mexe aqui."""
+    frontier = _timed_out_frontier(node)
+    assert node._blacklist == []
+    assert (frontier.x, frontier.y) in node._timed_out
 
 
 def test_a_barren_selection_fails_the_run_instead_of_idling(node) -> None:
