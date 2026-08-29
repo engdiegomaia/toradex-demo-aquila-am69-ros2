@@ -10,7 +10,9 @@ fronteira que volta para sempre, e o marcador velho tratado como fresco.
 
 import json
 import math
+from types import SimpleNamespace
 
+from action_msgs.msg import GoalStatus
 from demo_navigation.frontier import Frontier
 from demo_navigation.maze_explorer import MazeExplorer, STATES
 from geometry_msgs.msg import PoseStamped
@@ -169,6 +171,122 @@ def _is_blacklisted(node, frontier) -> bool:
     radius = float(node.get_parameter('blacklist_radius_m').value)
     return any(math.hypot(frontier.x - x, frontier.y - y) <= radius
                for x, y in node._blacklist)
+
+
+class _Wrapped:
+    """O que `get_result_async()` entrega: status mais o resultado da acao."""
+
+    def __init__(self, status: int) -> None:
+        self.status = status
+        self.result = None
+
+
+class _Future:
+    """Future ja resolvido, do jeito que o rclpy chama o callback."""
+
+    def __init__(self, value) -> None:
+        self._value = value
+
+    def result(self):
+        return self._value
+
+
+def test_a_frontier_the_planner_refuses_is_retired(node) -> None:
+    """
+    O modo de falha que consumiu 77% do orcamento na fumaca de 28/08.
+
+    `_blacklist_current` so dispara quando o Nav2 RECUSA a meta ou quando a meta
+    despachada expira. Uma fronteira cujo `ComputePathToPose` REPROVA nunca
+    passava por ali: `_best` ficava `None`, a mensagem virava "planner rejeitou
+    todas as fronteiras", e o mesmo candidato morto era oferecido de novo no
+    ciclo seguinte -- 459 vezes seguidas, com o mapa congelado.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    frontier = Frontier(x=-3.06, y=0.28, cells=70, information_gain_m=0.9)
+    node._candidates = [frontier]
+    node._candidate_index = 1
+    node._best = None
+
+    node._on_path_result(_Future(_Wrapped(GoalStatus.STATUS_ABORTED)),
+                         node._epoch, frontier)
+
+    assert _is_blacklisted(node, frontier) is True, (
+        'fronteira reprovada pelo planejador continua sendo oferecida')
+
+
+def test_retiring_a_refused_frontier_does_not_retire_the_epoch(node) -> None:
+    """
+    A blacklist normal troca de epoca; esta NAO pode.
+
+    `_blacklist_current` incrementa `_epoch` de proposito, para invalidar o
+    callback da meta que estava em voo. Aqui nao ha meta em voo: ha uma rodada
+    de validacao em andamento, e trocar a epoca no meio dela faz
+    `_on_path_result` dos candidatos seguintes retornar cedo. A validacao
+    pararia na metade e o ciclo morreria em silencio.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    frontier = Frontier(x=1.0, y=1.0, cells=10, information_gain_m=0.5)
+    node._candidates = [frontier]
+    node._candidate_index = 1
+    epoch = node._epoch
+
+    node._on_path_result(_Future(_Wrapped(GoalStatus.STATUS_ABORTED)),
+                         node._epoch, frontier)
+
+    assert node._epoch == epoch
+
+
+def test_a_frontier_the_planner_accepts_is_not_retired(node) -> None:
+    """A guarda nao pode aposentar o caminho feliz junto."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    frontier = Frontier(x=2.0, y=2.0, cells=10, information_gain_m=0.5)
+    node._candidates = [frontier]
+    node._candidate_index = 1
+
+    path = SimpleNamespace(path=SimpleNamespace(poses=[]))
+    wrapped = _Wrapped(GoalStatus.STATUS_SUCCEEDED)
+    wrapped.result = path
+    node._on_path_result(_Future(wrapped), node._epoch, frontier)
+
+    assert node._blacklist == []
+
+
+def test_a_barren_selection_fails_the_run_instead_of_idling(node) -> None:
+    """
+    Aposentar fronteiras sem condicao terminal troca um livelock por outro.
+
+    Com a correcao acima, a blacklist pode acabar engolindo todas as fronteiras.
+    O codigo antigo escrevia "nenhuma fronteira segura alcancavel" e continuava
+    em `selecting` para sempre -- silencioso, e indistinguivel de estar
+    trabalhando. O robo parado nao produz mapa novo, entao a situacao nunca se
+    resolve sozinha: e falha, e tem de ser declarada.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    limit = int(node.get_parameter('barren_selections_limit').value)
+
+    for _ in range(limit):
+        assert node._state == 'selecting'
+        node._note_barren_selection()
+
+    assert node._state == 'failed'
+    assert 'fronteira' in node._message
+
+
+def test_dispatching_a_goal_clears_the_barren_streak(node) -> None:
+    """A contagem e de ciclos CONSECUTIVOS; uma meta despachada zera."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    node._note_barren_selection()
+    node._note_barren_selection()
+    assert node._barren_cycles == 2
+    node._barren_cycles = 0  # o que `_send_navigation` faz ao despachar
+    node._note_barren_selection()
+    assert node._barren_cycles == 1
+    assert node._state == 'selecting'
 
 
 def test_homing_returns_to_exploration_after_three_failures(node) -> None:
