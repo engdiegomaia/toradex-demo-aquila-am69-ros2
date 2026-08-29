@@ -11,6 +11,19 @@ their own list and are cleared whenever a goal is reached, because arriving is w
 changes the map that caused the refusal. The hard blacklist — Nav2 refusing a goal, or
 a goal timing out — stays permanent.
 
+> ### ⚠️ Section 6 of this report is SUPERSEDED by round 3
+>
+> This report reads round 2's three expiries — all at exactly 90.0 s — as
+> "the ceiling, not a stall", and recommends raising `goal_timeout_s`. **Round 3
+> measured that and refuted it:** at 180 s a goal **0.4 m from the robot** consumed
+> the full 180 s, and every metric got worse. The ceiling cuts stalls, not slow
+> traversals, and the value is back at 90 s with a test locking it there.
+>
+> Everything else here stands — the measurements, the autonomous detection, the
+> homing analysis. Only the §6 recommendation is withdrawn. The variable actually
+> indicated is the **permanence** of the timeout suppression, addressed in round 4.
+> See `ml35-f5-exploration-r3.md` and `ml35-f5-exploration-r4.md`.
+
 Raw samples: `ml35-f5-exploration-r2.csv` (1319 rows at 2 Hz).
 Per-goal records: `ml35-f5-exploration-r2-goals.csv`.
 
@@ -121,7 +134,10 @@ cycles the total extraction cost across the whole run is under 2 s.
 - Homing was entered but never completed. `completed` and
   `marcador alcancado; aguardando confirmacao de cruzamento` are still unexercised.
 
-## 6. Round 3, single variable
+## 6. Round 3, single variable — WITHDRAWN, see the notice at the top
+
+*Kept verbatim as the record of what was concluded on the evidence available at the
+time. Round 3 ran this experiment and rejected it; do not act on this section.*
 
 **`goal_timeout_s` 90 s → 180 s.** It is what ended the run, the evidence is
 unambiguous (every failure at exactly the ceiling, slowest success at 65 s), and 180 s

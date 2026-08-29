@@ -106,10 +106,18 @@ class MazeExplorer(Node):
         self._selection_cycle = 0
         self._current: Frontier | None = None
         self._blacklist: list[tuple[float, float]] = []
-        # DUAS listas, porque as duas falhas nao significam a mesma coisa.
+        # TRES listas, porque as tres falhas nao significam a mesma coisa.
         #
-        # `_blacklist` e dura: o Nav2 recusou a meta, ou a meta expirou. Isso
-        # e falha de EXECUCAO daquela fronteira, e mapa novo nao a desmente.
+        # `_blacklist` e dura: o Nav2 recusou a meta, ou devolveu falha
+        # explicita para ela. Isso e falha de EXECUCAO daquela fronteira, e
+        # mapa novo nao a desmente.
+        #
+        # `_timed_out` e provisoria: a meta estourou `goal_timeout_s`. Isso
+        # marca a TENTATIVA, nao a fronteira -- a rodada 3 de 29/08 gastou
+        # 180 s numa meta a 0,4 m do robo, entao o teto corta travamento, e
+        # travamento fala da pose, do costmap e do plano daquele instante. Na
+        # rodada 2 tres expiracoes viraram tres pontos permanentes que
+        # engoliram os quatro clusters restantes aos 570 s.
         #
         # `_refused` e provisoria: o planejador nao achou caminho AGORA.
         # `ExplorationGrid` roda com `allow_unknown: false`, entao toda
@@ -121,6 +129,7 @@ class MazeExplorer(Node):
         # permitido. Reduzir o raio nao ajudaria: o ponto anotado E o
         # centroide do cluster.
         self._refused: list[tuple[float, float]] = []
+        self._timed_out: list[tuple[float, float]] = []
         self._barren_cycles = 0
         self._started_s = 0.0
         self._goal_started_s = 0.0
@@ -147,6 +156,7 @@ class MazeExplorer(Node):
         self._started_s = self._now_s()
         self._blacklist.clear()
         self._refused.clear()
+        self._timed_out.clear()
         self._barren_cycles = 0
         self._homing_failures = 0
         self._release_goal()
@@ -225,7 +235,7 @@ class MazeExplorer(Node):
         elif self._state == 'navigating':
             if now - self._goal_started_s >= float(
                     self.get_parameter('goal_timeout_s').value):
-                self._blacklist_current('meta de fronteira expirou')
+                self._timeout_current('meta de fronteira expirou')
         elif self._state == 'homing_exit' and not self._pending \
                 and self._goal_handle is None:
             if not marker_fresh:
@@ -264,7 +274,8 @@ class MazeExplorer(Node):
         # A epoca entra na chave para que iniciar ou cancelar a busca force uma
         # extracao, mesmo que o mapa e a blacklist estejam iguais.
         key = (self._epoch, self._map_seq,
-               len(self._blacklist) + len(self._refused))
+               len(self._blacklist) + len(self._refused)
+               + len(self._timed_out))
         if key == self._selection_key:
             # Nada mudou desde o ciclo anterior, entao nao ha o que reextrair --
             # mas tambem nao houve progresso, e ficar aqui e indistinguivel de
@@ -280,7 +291,8 @@ class MazeExplorer(Node):
         self._frontier_clusters = len(frontiers)
         self._frontier_cells = sum(item.cells for item in frontiers)
 
-        suppressed = list(self._blacklist) + list(self._refused)
+        suppressed = (list(self._blacklist) + list(self._refused)
+                      + list(self._timed_out))
         frontiers = [item for item in frontiers if not any(
             math.hypot(item.x - x, item.y - y) <= float(
                 self.get_parameter('blacklist_radius_m').value)
@@ -402,9 +414,12 @@ class MazeExplorer(Node):
                 self._blacklist_current(f'fronteira terminou com status {status}')
             else:
                 self._release_goal()
-                # Chegar mudou o mapa, entao toda reprovacao do planejador
-                # anterior a esta chegada esta desatualizada. As duras ficam.
+                # Chegar mudou pose, costmap e mapa, que sao exatamente os
+                # tres motivos pelos quais o planejador reprovou e pelos quais
+                # a meta travou. As duas supressoes provisorias caem juntas; a
+                # blacklist dura fica.
                 self._refused.clear()
+                self._timed_out.clear()
                 self._state = 'selecting'
                 self._message = 'fronteira alcancada; atualizando mapa'
         elif status == GoalStatus.STATUS_SUCCEEDED:
@@ -449,6 +464,15 @@ class MazeExplorer(Node):
         if self._barren_cycles >= int(
                 self.get_parameter('barren_selections_limit').value):
             self._fail('nenhuma fronteira segura alcancavel')
+
+    def _timeout_current(self, message: str) -> None:
+        """Meta estourou o teto: suprime a fronteira, mas nao para sempre."""
+        if self._current is not None:
+            self._timed_out.append((self._current.x, self._current.y))
+        self._epoch += 1
+        self._cancel_goal()
+        self._state = 'selecting'
+        self._message = message
 
     def _blacklist_current(self, message: str) -> None:
         if self._current is not None:
@@ -510,6 +534,7 @@ class MazeExplorer(Node):
             'goal': goal,
             'blacklisted': len(self._blacklist),
             'refused': len(self._refused),
+            'timed_out': len(self._timed_out),
             # Custo da busca, para o operador e para o gate de CPU. Estes cinco
             # campos sao aditivos: o cockpit ignora o que nao conhece.
             'frontier_extract_ms': self._frontier_extract_ms,
