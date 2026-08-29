@@ -16,7 +16,8 @@ setup(
         (os.path.join('share', package_name, 'launch'), glob('launch/*.launch.py')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
         (os.path.join('share', package_name, 'urdf'), glob('urdf/*.xacro')),
-        (os.path.join('share', package_name, 'worlds'), glob('worlds/*.sdf')),
+        (os.path.join('share', package_name, 'worlds'),
+            glob('worlds/*.sdf') + glob('worlds/*.png')),
         # Modelos spawnaveis (ros_gz_sim create -file). Hoje so as cameras
         # de cena do cockpit; ver launch/scene_cameras.launch.py.
         (os.path.join('share', package_name, 'models'), glob('models/*.sdf')),

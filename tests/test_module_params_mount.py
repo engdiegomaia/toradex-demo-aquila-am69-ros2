@@ -153,3 +153,36 @@ def test_raytrace_clearing_stays_on_in_both_costmaps() -> None:
             'o raytrace, que e o que estabelece espaco livre. Ver '
             'docs/results/ml35-f5-memoria-costmap.md antes de tentar de novo.')
         assert cloud['marking'] is True
+
+
+PERCEPTION_CONTAINER_PKG = '/ws/src/demo_perception/demo_perception'
+PERCEPTION_HOST_PKG = './ros2_ws/src/demo_perception/demo_perception'
+PERCEPTION_PKG_DIR = ROOT / 'ros2_ws/src/demo_perception/demo_perception'
+
+
+def test_detector_source_is_mounted_from_the_synced_tree() -> None:
+    """O detector virou o arquivo que muda por rodada, e ele e arm64.
+
+    R6 mediu a pose da saida publicada em 0,478 da distancia real (12 amostras,
+    R5+R6). Corrigir isso e iterar sobre `maze_exit_detector.py`, que vive na
+    imagem de percepcao -- cujo rebuild roda sob QEMU. Mesma montagem, mesmo
+    argumento de nao-divergencia da montagem do explorador acima.
+    """
+    mounts = [v for v in _common_volumes() if PERCEPTION_CONTAINER_PKG in v]
+    assert len(mounts) == 1, (
+        f'esperava exatamente uma montagem sobre {PERCEPTION_CONTAINER_PKG}, '
+        f'achei {mounts}')
+    source, target, *flags = mounts[0].split(':')
+    assert source == PERCEPTION_HOST_PKG
+    assert target == PERCEPTION_CONTAINER_PKG
+    assert 'ro' in flags
+
+
+def test_detector_mount_does_not_hide_a_module_that_only_exists_in_the_image(
+) -> None:
+    """A montagem cobre o pacote inteiro; faltar um modulo derruba o no."""
+    present = {p.name for p in PERCEPTION_PKG_DIR.glob('*.py')}
+    for required in ('__init__.py', 'maze_exit_detector.py'):
+        assert required in present, (
+            f'{required} sumiu de {PERCEPTION_PKG_DIR}; a montagem o esconderia '
+            'da imagem e o no de percepcao nao subiria')

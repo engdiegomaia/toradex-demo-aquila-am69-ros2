@@ -178,7 +178,11 @@
     </model>
 
     <!-- Observable exit cue.  Navigation receives no coordinates: perception
-         must find this unique magenta panel through the robot RGB camera. -->
+         must find this unique magenta panel through the robot RGB camera.
+         The tag decal is a fallback-agnostic add-on: `maze_exit_detector.py`
+         still supports the plain-magenta backend (`detector_backend:=magenta`)
+         if the fiducial ever needs to be disabled, so the panel itself is
+         unchanged and the tag is a second, thinner visual in front of it. -->
     <model name="maze_exit_marker">
       <static>true</static>
       <pose>-4.90 -2.60 0.60 0 0 0</pose>
@@ -189,6 +193,25 @@
             <ambient>1.0 0.0 1.0 1.0</ambient>
             <diffuse>1.0 0.0 1.0 1.0</diffuse>
             <emissive>0.35 0.0 0.35 1.0</emissive>
+          </material>
+        </visual>
+        <!-- Printed AprilTag (DICT_APRILTAG_36h11, id 0, 0.64 m core) facing
+             the maze interior (+y), which is the side the robot approaches
+             from before crossing the opening at y=-0.90; see
+             maze_escape_validator.py's BOUNDARY_Y/OPENING_X. Generated
+             deterministically by scripts/generate_maze_exit_marker.py;
+             regenerate with that script, never hand-edit the PNG. -->
+        <visual name="tag">
+          <pose>0 0.016 0 0 0 0</pose>
+          <geometry><box><size>0.64 0.001 0.64</size></box></geometry>
+          <material>
+            <ambient>1 1 1 1</ambient>
+            <diffuse>1 1 1 1</diffuse>
+            <pbr>
+              <metal>
+                <albedo_map>maze_exit_tag.png</albedo_map>
+              </metal>
+            </pbr>
           </material>
         </visual>
       </link>
