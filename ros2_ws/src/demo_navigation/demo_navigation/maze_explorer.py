@@ -63,6 +63,19 @@ class MazeExplorer(Node):
         # que o mapa ainda nao atualizou depois de uma chegada, e curto o
         # bastante para nao gastar o orcamento parado.
         self.declare_parameter('barren_selections_limit', 10)
+        # Distancia minima entre o robo e uma fronteira para ela ser candidata.
+        #
+        # O `xy_goal_tolerance` do Nav2 e 0,25 m (`nav2_params_go2.yaml`). Uma
+        # fronteira mais perto que isso faz o Nav2 devolver sucesso SEM que
+        # nada se mova: a selecao volta ao mesmo ponto, o mapa nao muda, e o
+        # ciclo se repete. Rodada 4 de 29/08: 565 vezes em 580 s, robo dentro
+        # de uma caixa de 11 mm x 25 mm, mapa congelado em 2669 celulas.
+        #
+        # 0,35 m da folga sobre a tolerancia sem esconder fronteira util. O
+        # corte e relativo a pose ATUAL e recalculado a cada ciclo -- nao e
+        # anotacao, nao entra em nenhuma das tres listas de supressao, e andar
+        # alguns centimetros devolve a fronteira a disputa sozinho.
+        self.declare_parameter('min_frontier_distance_m', 0.35)
 
         transient = QoSProfile(
             depth=1,
@@ -104,6 +117,7 @@ class MazeExplorer(Node):
         self._frontier_clusters = 0
         self._path_requests = 0
         self._selection_cycle = 0
+        self._near_skipped = 0
         self._current: Frontier | None = None
         self._blacklist: list[tuple[float, float]] = []
         # TRES listas, porque as tres falhas nao significam a mesma coisa.
@@ -297,6 +311,15 @@ class MazeExplorer(Node):
             math.hypot(item.x - x, item.y - y) <= float(
                 self.get_parameter('blacklist_radius_m').value)
             for x, y in suppressed)]
+        # Depois da supressao e ANTES da ordenacao: a ordenacao e por
+        # proximidade, entao sem este corte a fronteira degenerada seria sempre
+        # a primeira candidata.
+        near_limit = float(
+            self.get_parameter('min_frontier_distance_m').value)
+        reachable = [item for item in frontiers if math.hypot(
+            item.x - robot[0], item.y - robot[1]) >= near_limit]
+        self._near_skipped = len(frontiers) - len(reachable)
+        frontiers = reachable
         frontiers.sort(key=lambda item: math.hypot(
             item.x - robot[0], item.y - robot[1]))
         self._frontier_count = len(frontiers)
@@ -304,7 +327,10 @@ class MazeExplorer(Node):
         self._candidate_index = 0
         self._best = None
         if not self._candidates:
-            self._message = 'nenhuma fronteira segura alcancavel'
+            self._message = ('todas as fronteiras estao dentro da '
+                             'tolerancia de chegada') \
+                if self._near_skipped else \
+                'nenhuma fronteira segura alcancavel'
             self._note_barren_selection()
             return
         self._validate_next()
@@ -543,6 +569,7 @@ class MazeExplorer(Node):
             'candidates_checked': self._candidate_index,
             'path_requests': self._path_requests,
             'selection_cycle': self._selection_cycle,
+            'near_frontiers_skipped': self._near_skipped,
             'barren_cycles': self._barren_cycles,
             'marker_visible': (
                 self._exit_pose_map is not None
