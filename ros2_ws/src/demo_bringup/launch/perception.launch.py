@@ -53,6 +53,15 @@ def generate_launch_description() -> LaunchDescription:
         description='How long to wait for /clock before giving up.',
     )
 
+    detector_backend_arg = DeclareLaunchArgument(
+        'detector_backend',
+        default_value='fiducial',
+        description=(
+            'Maze-exit pose source: fiducial (AprilTag, default) or magenta '
+            '(the panel-colour fallback). Never both at once.'
+        ),
+    )
+
     wait_for_clock = Node(
         package='demo_bringup',
         executable='wait_for_clock',
@@ -122,6 +131,7 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={
             'use_sim_time': LaunchConfiguration('use_sim_time'),
             'assumed_range_m': LaunchConfiguration('assumed_range_m'),
+            'detector_backend': LaunchConfiguration('detector_backend'),
         }.items(),
     )
 
@@ -137,6 +147,7 @@ def generate_launch_description() -> LaunchDescription:
         use_sim_time_arg,
         assumed_range_arg,
         clock_timeout_arg,
+        detector_backend_arg,
         wait_for_clock,
         camera_decompressor,
         perception_group,
