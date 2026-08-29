@@ -1,8 +1,8 @@
 # Cockpit web — approved plan and decision registration
 
 ** Date:** 24/08/2026**State:** Approved plan. **F1 completed on
-24/ZZXQ005QXZZ/ZZX0006QXZZ** — evidence on `docs/results/cockpit-web-f1.md`. Next phase:
-F3b. ** Replaces:** the "Next recommended methodology" section of ZZXQ008QXZZ, which
+24/08/2026** — evidence in `docs/results/cockpit-web-f1.md`. Next phase:
+F3b. **Replaces:** the "Next recommended methodology" section of `docs/results/cockpit-standalone-parcial.md`, which
 recommended Qt/`rviz_common` and was discarded — see Decision 3.
 
 Whoever resumes this work reads ** this file** and then goes straight to the section
@@ -39,17 +39,17 @@ There are two stable axes, both avoiding WM:
 | * *A — data** | each panel renders from topics ROS 2 | nothing; the app draws |
 | **B — pixels** | each app on an X server**own**, transmitted | a framebuffer |
 
-* ==References== On the B axis the GNOME would never see the windows (Gazebo would be
+**Chosen: axis A.** On the B axis GNOME would never see the windows (Gazebo would be
 the only client of its Xvfb, the absolute owner of that X tree), which is mature
 technique — but was discarded in Decision 4.
 
-### Decision 2 — Cockpit web (`rosbridge` + `web_video_server` + HTML/CSS/ZZX005QXZZ)
+### Decision 2 — Cockpit web (`rosbridge` + `web_video_server` + HTML/CSS/JS)
 
 Four options evaluated:
 
 | Option | Image Layout | Gazebo/Real Viz | Reuse in kiosk AM69 | Choose |
 | --- | --- | --- | --- | --- |
-| **1. Cockpit web** | exact (CSS grid) | no (axis A) | **Total** | ==References== |
+| **1. Cockpit web** | exact (CSS grid) | no (axis A) | **Total** | ✅ **adopted** |
 | 2. Lichtblick/Foxglove | approximate, unmarked | no | no | discarded |
 | 3. Qt/C++ + `rviz_common` | exact | RViz yes, Gazebo no | no | discarded |
 | 4. Continue with Xlib | — | — | — | rejected |
@@ -75,15 +75,15 @@ support the disposal of 2 option — it fell by layout and by not serving the ki
 
 `cockpit-standalone-parcial.md` recommended incorporating `rviz_common::RenderPanel` +
 `VisualizationManager`. Discarded: is mandatory C++, solves only one of the five panels,
-and does not serve the target arm64 (RViz2 is OGRE ZZX0004QXZZ and cannot run on
-ZZXQ005QXZZ — ZZXQ006QXZZ rule of CLAUDE.md). That document remains valid as historical
+and does not serve the target arm64 (RViz2 is OGRE 2 and cannot run on
+the AM69 — rule 1 of CLAUDE.md). That document remains valid as historical
 record of the failure; his final recommendation, no.
 
 ### Decision 4 — Go straight to data fallback without the B-axis spike
 
 The plan provided for a phase **F2**: spike of 90 min with Gazebo in X display isolated
 + acceleration by `/dev/dri` + noVNC in `<iframe>`, with
-`glxinfo` reporting interactive hardware renderer and ≥15 ZZX0002QXZZ.
+`glxinfo` reporting a hardware renderer and ≥15 interactive FPS.
 
 * *The operator decided to skip F2 and go straight to the F3b** (way by data).
 
@@ -91,21 +91,21 @@ Cost explicitly accepted with this decision:
 
 - the camera-free orbit of Gazebo is lost;
 - The display tree** of RViz is lost (on/off runtime layers);
-- win-to-meta click on map, CPU/ZZX0001QXZZ free on host (Gazebo passa a
+- click-to-goal on the map is gained, CPU/GPU freed on the host (Gazebo moves to
   `gui:=false`), and a single transport path for all panels.
 
-Consequence: **F2 and F3a no longer exist.** The remaining stages are ZZX0001QXZZ → F3b
-→ ZZX0002QXZZ → ZZX0003QXZZ → F6, kept the original names to marry this record.
+Consequence: **F2 and F3a no longer exist.** The remaining stages are F1 → F3b
+→ F4 → F5 → F6, keeping the original names to match this record.
 
 ### Decision 5 — No build npm step; rosbridge client itself
 
 `.ai/AGENTS.md` §5.7 asks for "minimum and stable dependence set". The bundle will be
-HTML/CSS/JS in ZZXQ005QXZZ pure modules, served by ZZXQ00006QXZZ (multi-arch), **without
+HTML/CSS/JS in pure ES modules, served by `nginx:alpine` (multi-arch), **without
 `npm install`, without bundler, without build step**. That eliminates the supply chain
 npm in arm64, which is where it hurts.
 
 Consequence: `roslibjs` It'll be sold. The rosbridge v2 protocol is JSON simple
-(`subscribe`/ZZX0003QXZZ/`publish`/ZZXQ005QXZZ/`call_service`) and a minimum customer
+(`subscribe`/`unsubscribe`/`publish`/`advertise`/`call_service`) and a minimal client
 with reconnection fits into ~200 testable lines.
 
 Context: the npm registry range check was denied by sandbox** in this session, so the
@@ -114,14 +114,14 @@ decision, but it wasn't her cause.
 
 ### Decision 6 — Scene camera goes in the world, never on `go2_description`
 
-The blue panel ("GAZEBO SIMU ZZX0002QXZZ") becomes a bridged world camera for ROS. It
+The blue panel ("GAZEBO SIMU VIEW") becomes a world camera bridged to ROS. It
 goes on `ros2_ws/src/demo_simulation/worlds/*.sdf`, which are project files.
 
 `go2_description` is **sold with byte-a-byte warranty supporting the license argument**
 (see the README package and the header of `bridge_quadruped.yaml`). It cannot be edited
 — nor to hang a chase camera on the trunk. If a camera that follows the robot is needed
 later, the path is a separate SDF model moved by the service gz `set_pose` from
-ZZXQ005QXZZ, **not** edit the sellable package.
+`/demo/odom`, **not** editing the vendored package.
 
 Start: two static cameras (isometric and top), alternated on UI.
 
@@ -156,7 +156,7 @@ Checked in fact, not supposed:
 | `hmi/` at root | ** does not exist** yet (reserved in `.ai/AGENTS.md` §4) |
 | `viz` already mounts `../scripts:/cockpit:ro` | `docker/compose.host.yml`, service `viz` |
 | All services use `network_mode: host` | `x-common` in `compose.host.yml` — ports ** not** are mapped, bidam straight into the host |
-| Existing Host Services | `base`, `sim`, `nav`(profile learn), `perception`(profile learn), `viz`, ZZXQ005QXZZ(profile tools) |
+| Existing host services | `base`, `sim`, `nav`(profile learn), `perception`(profile learn), `viz`, `tools`(profile tools) |
 | `sim.launch.py` accepts `gui:=` | `sim.launch.py:95`, default `true` |
 | Cockpit tests | `tests/test_cockpit_desktop_safety.py`, 5 tests (names in §6, F5) |
 
@@ -179,8 +179,8 @@ AM69 without change.
               Chromium (host hoje, kiosk no AM69 depois — M3)
 ```
 
-Suggested doors: rosbridge 9090, `web_video_server` ZZX0002QXZZ, nginx 8081. Like
-`network_mode: host`, they bind directly — **must be configurable by ZZXQ005QXZZ** so as
+Suggested ports: rosbridge 9090, `web_video_server` 8080, nginx 8081. Being
+`network_mode: host`, they bind directly — **must be configurable by `.env`** so as
 not to collide with anything from the operator. No IP hard-coded (CLAUDE.md).
 
 Mapping of the five panels of the reference image
@@ -188,18 +188,18 @@ Mapping of the five panels of the reference image
 
 | Panel | Source | Transport |
 | --- | --- | --- |
-| **GAZEBO SIMU ZZX0002QXZZ** (blue) | world scene camera SDF → `/demo/cockpit/scene/image_raw` | `<img>` MJPEG |
+| **GAZEBO SIMU VIEW** (blue) | world scene camera SDF → `/demo/cockpit/scene/image_raw` | `<img>` MJPEG |
 | **RVIZ** (green) | map, footprint, `/demo/scan`, global plan, target, detection | `<canvas>` 2D via rosbridge |
 | **RVIZ CAMERA** (light pink) | `/demo/camera/image_raw` + `/demo/perception/detections` | `<img>` MJPEG + overlay |
 | **LOGS DE MOVEMENT** (pink) | `/rosout`, `/demo/cmd_vel`, `/demo/odom`, Nav2 status | rosbridge WebSocket |
-| **BARRA DE ZZX0002QXZZ** (gray) | teleop → `twist_mux` → `/demo/cmd_vel`; goals → action | rosbridge WebSocket |
+| **BARRA DE CONTROLES** (gray) | teleop → `twist_mux` → `/demo/cmd_vel`; goals → action | rosbridge WebSocket |
 
 ---
 
 ## 5. What DOES NOT Change
 
 Untouched: Nav2, perception, topic contract, `sim.launch.py`, `compose.module.yml`,
-`go2_description` (sold) and all ML3.5 ZZXQ005QXZZ–ZZXQ006QXZZ.
+`go2_description` (vendored) and all of ML3.5 F1–F6.
 
 The additions are in places that the tree already reserved: `hmi/`,
 `ros2_ws/src/demo_hmi/`, `docker/hmi/Dockerfile` and new services in
@@ -212,20 +212,20 @@ The additions are in places that the tree already reserved: `hmi/`,
 ### F1 — Cockpit skeleton and transport (low risk)
 
 Services `rosbridge` and `web_video_server`; `hmi` (`nginx:alpine`, multi-arch); bundle
-`hmi/` in ZZXQ005QXZZ modules with own rosbridge client (ZZXQ006QXZZ); grid CSS
-reproducing the image; state of connection, obsolete data and reconnection (§ZZXQ008QXZZ
-of ZZX0009QXZZ); host/door by configuration.
+`hmi/` in ES modules with its own rosbridge client (Decision 5); grid CSS
+reproducing the image; connection state, stale data and reconnection (§5.7
+of AGENTS); host/port by configuration.
 
 > * *Gate:** the five regions appear in DP-1 in the ratio of the image; the panel
 > camera shows `/demo/camera/image_raw` live; topple rosbridge changes the
 > visual status for "disconnected" and it reconnects itself.
 
-* *CONCLUDED in 24/08/ZZX0002QXZZ, learning mode at workstation.** Gate served on all
+**COMPLETED on 24/08/2026, learn mode on the workstation.** Gate met on all
 three items, with screenshots and logs on `docs/results/cockpit-web-f1.md`.
 
-What stood up: Services `cockpit` (rosbridge 2.7.0 + web video server ZZX0002QXZZ,
+What stood up: services `cockpit` (rosbridge 2.7.0 + web_video_server 3.1.0,
 multi-arch own image by construction) and `hmi` (`nginx:alpine`) in `compose.host.yml`;
-ZZXQ006QXZZ in `demo_bringup`; bundle in ZZXQ008QXZZ with own rosbridge client,
+`cockpit.launch.py` in `demo_bringup`; bundle in `hmi/` with its own rosbridge client,
 never/live/stale freshness tracking, camera panel and functional log panel; 52 bundle
 tests under `node --test` and 7 structural guards under pytest.
 
@@ -246,7 +246,7 @@ fire `load` in Firefox.
 ### F4 — Manual control with referee (closes known debit)
 
 Package `demo_hmi` (`ament_python`): teleop node signing rosbridge commands; `twist_mux`
-(Decision 7); relay `/goal_pose` → action ZZXQ005QXZZ; publication of ZZXQ006QXZZ (which
+(Decision 7); relay `/goal_pose` → action `NavigateToPose`; publication of `/demo/navigation/status` (which
 does not exist today).
 
 Preserved semantics of `scripts/cockpit_teleop.py` — deadman/watchdog of 400 ms, halted
@@ -266,8 +266,8 @@ in release/focus loss/EOF, three zeros in shutdown — and the gear table alread
 ### F5 — Remove the dead path
 
 Remove `scripts/cockpit.py` (PyQt5/Xlib, 672 lines) and `scripts/cockpit_teleop.py`;
-retrace `scripts/run_cockpit.sh` (lifecycle logic, `stop_all`, ZZXQ005QXZZ and
-ZZXQ006QXZZ is good and takes advantage).
+retarget `scripts/run_cockpit.sh` (the lifecycle logic, `stop_all`, `show_status` and
+`cleanup` is good and is reused).
 
 Destination of 5 `tests/test_cockpit_desktop_safety.py` tests:
 
@@ -283,7 +283,7 @@ Destination of 5 `tests/test_cockpit_desktop_safety.py` tests:
 
 `docs/results/cockpit-web.md` with measured FPS, teleop latency and screenshots;
 replaces `cockpit-standalone-parcial.md` as current state. Update `.ai/CLAUDE.md` "Where
-we are," `.ai/changelog.md` and ZZXQ005QXZZ.
+we are", `.ai/changelog.md` and `docs/ml35/estado-fases.md`.
 
 * Out of scope: ** Kiosk Chromium accelerated at AM69. This is M3 and can only be
 validated on real hardware. Do not state acceleration of GPU in the module from this
@@ -306,16 +306,16 @@ work (rule 7 of CLAUDE.md).
 
 ## 8. Open points to be confirmed in implementation
 
-1. ~~`rosbridge_suite` 2.x displays actions ROS ZZX0003QXZZ (`send_action_goal`)?~~
-   **RESPONDIDO no F1: yes.** ZZX0002QXZZ records `SendActionGoal`, `ActionFeedback`,
-   ZZXQ005QXZZ and `AdvertiseAction` on startup. The relay of F4 can shrink — but
+1. ~~Does `rosbridge_suite` 2.x expose ROS 2 actions (`send_action_goal`)?~~
+   **ANSWERED in F1: yes.** Version 2.7.0 registers `SendActionGoal`, `ActionFeedback`,
+   `ActionResult` and `AdvertiseAction` on startup. The F4 relay can shrink — but
    confirm with a long real goal before deleting plan B: registering capacity is not
    delivering feedback.
 2. PNG compression of rosbridge is enough for the `/map` of maze11?
    (still open; `png_compression: true` is already connected to `cockpit.launch.py`)
 3. ~~`web_video_server` accepts QoS reliable no `/demo/camera/image_raw`?~ ~
-   **RESPONDIDO no F1: yes, without reconfiguration** ZZX0002QXZZ MB in ZZX0004QXZZ s
-   of ZZXQ005QXZZ and ZZXQ006QXZZ returning JPEG ZZXQ008QXZZx480.
+   **ANSWERED in F1: yes, without reconfiguration.** 6.4 MB in 6 s
+   of MJPEG and `/snapshot` returning JPEG 640x480.
 4. Frame of the two static cameras against the footprint of 11,6 m.
 5. **New:** bundle was checked in Firefox. The kiosk of M3 is Chromium;
    `<img>` cache save in `config.js` comes from literature and was not measured.
@@ -324,7 +324,7 @@ work (rule 7 of CLAUDE.md).
 
 ## 9. Where to resume
 
-F1 and **F3b** are closed (24/ZZX0002QXZZ/2026). Evidence of F3b, including simulation
+F1 and **F3b** are closed (24/08/2026). Evidence of F3b, including simulation
 control, camera control, Toradex identity and image quality numbers:
 **`docs/results/cockpit-web-f3b.md`**. Operating guide (wheel, panels, controls,
 scenarios, traps): **`docs/guia-completo.md`** (Part II).
@@ -335,7 +335,7 @@ What exists today on the screen:
 | --- | --- | --- |
 | blue, scene | two static cameras of the world | iso/top; rotate, tilt, move, zoom, refocus |
 | green, navigation | costmap, plan, laser, footprint, TF | click send meta; cancel meta |
-| pink, logs | `/rosout` + `cmd_vel`XQ0002QXZZ | — |
+| pink, logs | `/rosout` + `cmd_vel`/odom telemetry | — |
 | Light pink, camera | `/demo/camera/image_raw` | — |
 | bar | link status | simulation play/pause/reset |
 
@@ -366,7 +366,7 @@ Three things still unmeasured and only the module responds:
 ### Restrictions that do not change
 
 - * The simulator never goes to the module. Gazebo is OGRE 2 and AM69 only exposes
-  OpenGL ES 3.2 and Vulkan ZZX0002QXZZ (rule 1). "Controlling the cockpit simulation"
+  OpenGL ES 3.2 and Vulkan 1.2 (rule 1). "Controlling the simulation from the cockpit"
   is supported; "turning the simulation in the module" is not, and no amount of code
   in UI changes that.
 - * * The browser does not speak Gazebo types.** The rosbridge mounts the request

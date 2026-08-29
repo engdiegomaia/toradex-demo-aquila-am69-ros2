@@ -28,8 +28,8 @@ and does not know if you are talking to Gazebo or a physical A1.
 Why `sim` is a container only and not two: `gz_ros2_control` is Gazebo plugin and loads
 `controller_manager` within the `gz sim` process. Separate Gazebo from controllers in
 different containers is not possible without rewriting integration. So the simulated
-plant is a unit: Gazebo, `gz_ros2_control`, march controllers, ZZXQ005QXZZ and the
-ZZXQ006QXZZ bridge.
+plant is a unit: Gazebo, `gz_ros2_control`, gait controllers, `robot_state_publisher` and the
+`ros_gz_bridge` bridge.
 
 ---
 
@@ -41,17 +41,17 @@ ZZXQ006QXZZ bridge.
 | `nav` | x86 64 and arm64 | host or module | Nav2, map, params, costmaps |
 | `perception` | x86 64 and arm64 | host or module | `demo_perception` without change |
 | `viz` | x86 64 only | host only | RViz2, rqt |
-| `tools` | x86 64 and arm64 | any | teleop, CLI ROS ZZX0002QXZZ, colcon, test run |
+| `tools` | x86_64 and arm64 | any | teleop, ROS 2 CLI, colcon, test run |
 | `hw` | arm64 only | module | placeholder, A1 physical, outside the scope of ML3.5 |
 
-`sim` and `viz` never go to arm64. 1 rule of the project, Gazebo is OGRE ZZX0004QXZZ and
-RViz2 either ZZXQ005QXZZ desktop. The multi-arch build is selective, not uniform.
+`sim` and `viz` never go to arm64. Rule 1 of the project, Gazebo is OGRE 2 and
+RViz2 wants desktop GL. The multi-arch build is selective, not uniform.
 
 `hw` exists in the repo since F1, empty, with a README of a line. This is where the
 collision of invariants registered in the plan will hit: the basis of
 `quadruped_ros2_control` documents conflict between CyclonedDS and `unitree_sdk2` and
 recommends FastDDS, while the project's 2 rule is CyclonedDS always. As long as the
-ZZXQ006QXZZ is simulated, the SDK does not enter and there is no collision. The empty
+A1 is simulated, the SDK does not enter and there is no collision. The empty
 container serves to make the problem visible in the right place instead of appearing as
 a surprise.
 
@@ -90,8 +90,8 @@ host, so the official image runs in the module without userspace adaptation.
 
 Two restrictions that apply to the arm64 images:
 
-- Torizon container storage is on the data partition. Fat layer costs real space. Use `--no-install-recommends`, clean `/var/lib/apt/lists` in the same layer and keep ZZX0002QXZZ and `perception` without any graphics.
-- Access to the AM69 accelerator from the container requires the device nodes and runtime of TI, which the generic ROS image does not bring. If `demo_perception` is for accelerated inference at any time, confirm the nodes and stack in the Toradex and TI documentation before assuming anything. List ZZXQ005QXZZ on host first. As long as the perception is CPU and OpenCV, none of this is necessary.
+- Torizon container storage is on the data partition. Fat layer costs real space. Use `--no-install-recommends`, clean `/var/lib/apt/lists` in the same layer and keep `nav` and `perception` without any graphics.
+- Access to the AM69 accelerator from the container requires the device nodes and runtime of TI, which the generic ROS image does not bring. If `demo_perception` is for accelerated inference at any time, confirm the nodes and stack in the Toradex and TI documentation before assuming anything. List `/dev` on the host first. As long as the perception is CPU and OpenCV, none of this is necessary.
 
 Build arm64 from host x86:
 
@@ -258,8 +258,8 @@ services:
 
 No `sim`, no `viz`, no X11, no `/dev/dri`. Nothing graphic gets to the module. The same
 `ROBOT_TYPE` selects the plant in the host and the corresponding Nav2 in the two
-Compose. In the quadruped, `odom_tf` still derives the ZZXQ00006QXZZ from Gazebo's
-ground truth; leg estimation remains outside the closure of ML3.ZZXQ008QXZZ.
+Compose. In the quadruped, `odom_tf` still derives the TF from Gazebo's
+ground truth; leg estimation remains outside the closure of ML3.5.
 
 When there is a real camera in deploy mode, `perception` wins the device mapping:
 
@@ -365,8 +365,8 @@ ros2 topic hz /demo/scan
 ```
 
 If the list is empty, the check order is: `ROS_DOMAIN_ID` equal on both sides, `ip -br
-link` hitting with the `NetworkInterface name` ZZX0003QXZZ, `Peers` IPs correct, host
-firewall releasing ZZXQ005QXZZ ZZXQ006QXZZ and adjacent.
+link` matching the `NetworkInterface name` of the XML, `Peers` IPs correct, host
+firewall allowing UDP 7400 and adjacent.
 
 ### Deploy Mode
 
@@ -380,7 +380,7 @@ that's where the CycloneDDS decision against FastDDS will need to be made.
 | Phase | Docker | ROS |
 |---|---|---|
 | F0 | Nothing | ML3.1, 1047 line commit |
-| F1 | creates `docker/` whole, `base`, `sim`, `nav`, `perception`, `viz`, `tools`, the two compounds, XML by ZZXQ008QXZZ | no behavior change, just packing the current diff-drive |
+| F1 | creates `docker/` whole, `base`, `sim`, `nav`, `perception`, `viz`, `tools`, the two composes, the DDS XML | no behavior change, just packing the current diff-drive |
 | F2 | Disposable tag `demo-sim:spike-go2` | clone from upstream base, Go2 without modification |
 | F3 | same image `sim`, changes content | description of A1, kinematics, masses, joint limits, knitted or crocheted |
 | F4 | Nothing | remaps for `/demo/*`, `demo_perception` untouched |
