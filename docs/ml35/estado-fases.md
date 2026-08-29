@@ -1,7 +1,8 @@
 # ML3.5 — phase status
 
 Continuity document. Whoever takes this project in a new session reads **this file
-first**, then `guia-ml35-docker.md` (a spec).
+first**, then [`implementation-handoff.md`](implementation-handoff.md) for the current
+execution sequence. `guia-ml35-docker.md` remains the architecture specification.
 
 Update the table and phase section when closing each gate.
 
@@ -27,8 +28,282 @@ uncertain result. The discarded alternatives are in "Decisions" below.
 | **F2** | Spike Go2 inside the container `sim` | **Completed** 14/08/2026 | (disposable spike, uncommitted) |
 | **F3** | Go2 in the project tree (was "retarget A1") | **Completed** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contract crossing container border | **Completed** 24/08/2026 | contract and perception revalidated on Go2 headless |
-| **F5** | Nav2 on legs + HIL mode | 🟡 **in progress** 29/08/2026 | **PASSED:** TF (99.94%), global costmap window, map update, gait, **short stability gate**, the **perception gate on the Aquila** (closed 29/08: 60/60 detections, pose, TF at the pose stamp), and autonomous exploration far enough to **detect the exit marker by itself** (round 2: 21.93 m, 8915 map cells, `homing_exit` entered at `sim_s` 403). **FAILED:** `escaped` is still false in every run — homing loses the marker after 9 s, and timed-out goals are permanently blacklisted until no frontier is left. **NOT REACHED:** crossing performance gate, three cold starts. See "Session 29/08", `docs/results/ml35-f5-exploration-r{1,2,3}.md` and `ml35-f5-perception-aquila.md` |
+| **F5** | Nav2 on legs + HIL mode | 🟡 **in progress** 29/08/2026 | **PASSED:** TF (99.94%), global costmap window, map update, gait, **short stability gate**, the **perception gate on the Aquila** (60/60 detections, pose and timestamped TF), and autonomous exploration far enough to **detect the exit marker by itself** (round 2: 21.93 m, 8915 map cells, `homing_exit` at `sim_s` 403). **IMPLEMENTED, HIL PENDING:** timeouts are provisional, near-goal frontiers are skipped, and a provisional-only deadlock receives one bounded recovery attempt. **FAILED:** `escaped` is still false in every run. **NOT REACHED:** crossing performance gate and three cold starts. See “Session 29/08”, `docs/results/ml35-f5-exploration-r{1,2,3,4,4a}.md` and `ml35-f5-perception-aquila.md`. |
 | **F6** | Selectable Fallback and Tests | **Completed** 24/08/2026 | cold start + goal `SUCCEEDED` on both robots |
+
+### 29/08 (fiducial) — the exit marker gets a printed AprilTag, magenta stays as fallback
+
+**Implemented in code, HIL pending.** The magenta-panel range estimate is unbiased but
+noisy with distance (R7: 0.41 m mean error at 3-4 m, 3.08 m above 6 m — see the R7/R8
+entry below); a fiducial fails **CLOSED** instead of returning a confident wrong range.
+`maze_exit_detector.py` gained a `detector_backend` parameter (`fiducial` by default,
+`magenta` as a configurable fallback — never both publishing at once) and a pure
+`find_fiducial`/`fiducial_pose`/`fiducial_diagnostics` path using `cv2.aruco`'s **legacy
+functional API** (`getPredefinedDictionary`, `DetectorParameters_create()`,
+`detectMarkers()`, `estimatePoseSingleMarkers()`) — this project's OpenCV is 4.6.0, which
+predates the newer `ArucoDetector` class. Dictionary `DICT_APRILTAG_36h11`, id 0, 0.64 m
+tag core inside the existing 0.80 m magenta panel (`quadruped_maze11.sdf`'s
+`maze_exit_marker`, pose unchanged). The tag texture is generated deterministically by
+`scripts/generate_maze_exit_marker.py` (not downloaded, regenerate instead of
+hand-editing the PNG) and installed with the package via `demo_simulation`'s `setup.py`.
+
+The detector still does not know the maze — the tag's dictionary/id/size are declared
+parameters with in-code defaults, not read from the scenario, and the isolation contract
+test (`test_neither_perception_nor_frontier_knows_the_maze`) still passes. The explorer's
+existing 3-observation confirmation gate (see the "(auditoria)" entry just below) is
+untouched by this change; it consumes whichever backend is active through the same
+`/demo/perception/maze_exit/pose` topic.
+
+Tests: 22 new/updated in `demo_perception` (pure-function reprojection-error checks,
+node-level pose/diagnostics publishing, backend switching, clipped/wrong-id rejection),
+5 structural checks on the SDF/texture asset in `demo_simulation`. Root suite unaffected
+(261 passed). **Not yet run**: real detection against the actual Gazebo-rendered texture
+(only a synthetic OpenCV-drawn frame was exercised), and the container image has not been
+rebuilt to re-verify `cv2.aruco` resolves the legacy API at runtime with this new code
+path — the interpreter-level spike for that API predates this change.
+
+### 29/08 (auditoria) — o portao nao tinha histerese; dois defeitos corrigidos
+
+Revisao independente do trabalho de R7/R8 achou **dois defeitos funcionais que os testes
+nao pegavam porque os testes codificavam a mesma semantica errada.**
+
+1. **As "tres confirmacoes" eram tres ciclos do timer, nao tres observacoes.** O contador
+   subia em `_tick` (1 Hz) enquanto as deteccoes chegam em `_on_exit_pose`, e uma pose fica
+   fresca por `marker_stale_s` = 2 s -- entao **um unico quadro ruim satisfazia as tres
+   confirmacoes**. O portao nao dava histerese nenhuma, e `marker_far_ignored` contava
+   ciclos do timer. Agora a confirmacao so avanca em `_on_exit_pose`, uma vez por mensagem,
+   deduplicada por `(frame_id, stamp_ns)`.
+2. **O portao protegia so a entrada, nao o alvo.** Toda observacao nova sobrescrevia
+   `_exit_pose_map`, inclusive durante `homing_exit`, entao a oscilacao de 1,27 a 7,94 m
+   medida em R7 podia deslocar o alvo depois da entrada. Separado em
+   `_exit_candidate_pose_map` (observacao bruta, sempre publicada) e `_exit_pose_map` (alvo
+   aceito, **travado durante a tentativa**).
+
+Tambem: borda de igualdade da tolerancia (`<=` com margem numerica); numeros derivados agora
+reproduziveis por `scripts/analyse_exploration.py` com helpers testados; instrumentacao de
+percepcao em `/demo/perception/maze_exit/diagnostics` (contagem de regioes, bbox, razao de
+aspecto, larguras de todas as regioes) e do explorador (`marker_observations`,
+`marker_confirmations`, pose candidata e pose aceita).
+
+**Duas afirmacoes exageradas foram corrigidas:** os 131 pares de R7 sao amostras
+consecutivas de uma trajetoria a 2 Hz, fortemente autocorrelacionadas -- nao sao 131 graus
+de liberdade; e R5/R8 nao sao "a mesma configuracao", so mesma topologia e footprint.
+
+Testes 80 + 39 + 256. **Nem o portao nem a guarda de tolerancia foram exercitados em HIL.**
+
+**Correcao (29/08, segunda passada): a "queda de mobilidade" de 10x era artefato do
+gravador, nao fisica.** `scripts/exploration_trial.py` media `vx_mean_abs`/`vx_work_ratio`
+sobre a janela inteira de gravacao; em R8 o explorador falhou aos 76,5 s mas o gravador
+seguiu ate 670 s, entao ~594 s de zeros pos-falha diluiram a media por ~8,8x. Com o
+gravador agora separando `active_*` (da primeira amostra em estado ativo ate a primeira
+amostra terminal) de `recording_*` (arquivo inteiro), R8 recalculado direto do CSV mostra
+`active_vx_work_ratio` 55,5% e `active_vx_mean_abs` 0,036 m/s contra 66,5% / 0,055 m/s de
+R5 — uma diferenca de ordinaria variancia entre corridas, nao um colapso de uma ordem de
+grandeza. R8 morreu cedo (76,6 s de janela ativa) por causa do modo esteril, nao por
+mobilidade. Ver `docs/results/ml35-f5-exploration-r8.md`.
+
+
+### 29/08 (R7/R8) — a estimativa de alcance deixa de ser enviesada; o portao de homing entra
+
+**R7 — o erro de escala da percepcao esta corrigido.** `magenta_bbox` tomava min/max global
+sobre TODO pixel magenta do quadro, entao qualquer segunda regiao magenta entrava na mesma
+caixa, inflava `width_px` e, como `range_m = fx * marker_width_m / width_px`, encolhia a
+distancia. Trocado pela maior regiao CONEXA (8-vizinhos na grade amostrada, sem dependencia
+nova na imagem arm64), a razao estimado/real contra o marcador do SDF em (-4,90, -2,60)
+passou de **0,478** (12 amostras, R5+R6) para **1,055** (131 amostras). A calibracao ja
+tinha sido descartada: `horizontal_fov` 2,094 rad em 640 px da fx 184,75 contra os 184,836
+publicados.
+
+O que sobra e erro dependente da distancia: erro absoluto medio de **0,41 m** na faixa
+3-4 m, 1,14 m em 4-6 m e **3,08 m acima de 6 m**. A superestimativa longe e a assinatura de
+**visibilidade parcial** -- painel visto por uma abertura mostra menos que seus 0,80 m e
+uma mancha mais estreita le como mais longe. Nenhum estimador por largura resolve isso; a
+resposta estrutural e um marcador fiducial (AprilTag/ArUco: quatro cantos e PnP, que falha
+fechado em vez de devolver alcance errado com confianca). Isso mexe na premissa do demo
+descrita no proprio SDF, entao e decisao de produto, nao correcao de bug.
+
+R7 falhou por interacao propria: entrou em homing a **7,35 m** -- a pior faixa -- e como a
+persistencia de R5 nunca desiste, uma unica observacao ruim prendeu a corrida **520 de
+600 s** em `homing_exit`. Consertar "desiste cedo demais" sem portao de entrada produz
+"nunca desiste". Os dois pertencem a mesma mudanca.
+
+**Portao implantado:** `homing_max_distance_m` 4,0 m (acima da faixa onde o erro medido e
+0,41 m), `homing_confirm_observations` 3 (a estimativa oscilou de 1,27 a 7,94 m na mesma
+corrida) e o contador `marker_far_ignored`. `test_the_measurement_round_adds_no_homing_gate`
+foi SUBSTITUIDO por `test_a_far_marker_is_recorded_but_does_not_capture_the_run`.
+
+**R8 — inconclusivo.** Morreu no modo esteril: UMA meta expirou (45,0 s), a recuperacao
+provisoria soltou o que podia, os dois candidatos restantes foram recusados,
+`frontier_count` foi a zero e o limite de ciclos esteris encerrou. A rodada mal andou --
+**3,46 m** e razao de trabalho de **6,3%**, contra 41,44 m e 60,4% de R5 na mesma
+configuracao -- entao tinha explorado pouco e tinha poucas fronteiras a perder. O marcador nunca foi
+detectado (`homing_entries = 0`), entao **nem o portao nem a correcao de percepcao foram
+exercitados**, e o progress checker segue sem julgamento por duas rodadas. Assinatura de
+R4b: o robo anda para uma pose de onde nao consegue planejar. Arm B tornou isso raro, nao
+impossivel -- R5/R6/R7 terminaram com `refused` <= 2 e sobreviveram porque ainda tinham
+fronteiras; R8 tinha duas.
+
+**Correcao de um erro desta sessao:** o relatorio de R6 afirmou que `goal_timeout_s` 90 -> 45
+funcionou. Nao funcionou -- R6 produziu 6 expiracoes de 45,0 s = 270 s, exatamente os
+3 x 90 s de R5. O contador terminal `timed_out` e uma lista de supressao, nao contagem de
+eventos; conte no CSV por meta. Prazo fixo mede tempo decorrido, nao progresso.
+
+
+### 29/08 (R5/R6) — homing fixed twice, and the exit marker turns out to be a phantom
+
+Two protocol rounds under arm B, each one measured single variable. Evidence:
+`docs/results/ml35-f5-exploration-r5.md`, `ml35-f5-exploration-r6.md` and their CSVs.
+
+**R5 — the best exploration the demo has produced, stopped by the clock.** 41.44 m
+travelled (previous best 21.93 m), 13 378 cells mapped (8 915), `vx_work_ratio` 60.4 %,
+12 of 21 goals reached, `refused = 1`, `barren_cycles = 0`, no falls. Homing entered once
+at 1.85 m, **never abandoned** (`homing_abandons = 0`), and closed to **1.08 m with the
+marker not visible** — the persistence fix doing exactly its job after eleven consecutive
+field failures. It ran out of `total_timeout_s` mid-approach.
+
+Where the 600 s went: 12 successful goals took **6.1–35.1 s** each; 3 stalled goals took
+**exactly 90.0 s** each — 270 s, **45 % of the budget**, with the robot not moving. So
+`goal_timeout_s` 90 → 45 (clears the worst good goal by 28 %). **It returned nothing:** R6
+produced 6 expiries of 45,0 s = 270 s, exactly R5's 3 × 90 s. A fixed ceiling measures
+elapsed time, not progress, so the loss is invariant under scaling it. The terminal
+`timed_out` counter reading 0 is a suppression list, not an event tally -- count the
+per-goal CSV.
+
+**R6 — the defect behind every homing failure.** The marker is a static SDF model at
+`(-4.90, -2.60)`, so ground truth is exact. At detection the robot was at `(-2.45, 1.53)`:
+true distance **4.80 m**, perception's estimate **2.36 m**, ratio **0.49**, marker 50°
+off-axis. At closest approach the robot was at `(-3.43, -0.06)` reporting 0.75 m while
+truly **2.93 m** away. **Homing has been walking to a point that is not the exit.**
+
+Two causes checked and excluded: image and `camera_info` agree (640 × 480, `fx` 184.836,
+`marker_width_m` 0.8 matches the SDF panel); and off-axis projection predicts 0.75, not
+0.49. So `width_px` is ~2× the panel's true subtense. Leading hypothesis, **untested**:
+`find_bbox` takes the global min/max over every magenta pixel rather than one connected
+component, so a second magenta region merges into the bbox and collapses the range. One
+sample only — the confirming campaign is specified in the R6 report §2.
+
+This is now the **top blocker**, because `maze_escape_validator` latches only on crossing
+`y = -0.90` within `x ∈ [-5.50, -4.30]` and clearing `y ≤ -1.28`, and the marker sits 1.7 m
+outside that boundary: homing correctly to a correct pose *is* the escape.
+
+**Also fixed in R6:** the robot froze at a byte-identical pose for **94 s**. With
+`marker_stop_distance_m` 0.70 against Nav2's `xy_goal_tolerance` 0.25, a 0.05 m remaining
+step succeeds without motion and is re-commanded forever — the R4 instant-arrival trap,
+which the frontier side has guarded since R4 via `min_frontier_distance_m = 0.35`. New
+`nav_goal_tolerance_m` mirrors the Nav2 value (contract test keeps them equal in both
+params files) and arrival is declared when `distance - stop < tolerance`. It cannot produce
+an escape while the marker pose is wrong; it only stops the freeze.
+
+Tests 74 (package) + 247 (root). Nothing committed.
+
+
+### 29/08 (latest) — the footprint polygon unblocks the planner; homing is now the blocker
+
+Two findings, one experiment and one code defect. Evidence:
+`docs/results/ml35-f5-footprint-ab.md`, `costtrace-arm{A,B}.csv`,
+`ml35-f5-footprint-ab-live.csv`.
+
+**1. Replacing `robot_radius` with the real trunk polygon removes the 253 failure mode.**
+`robot_radius: 0.38` is the *circumscribed* radius of a 0.70 × 0.31 m body, so a 0.38 m
+circle around a 0.31 m wide robot discards 23 cm of corridor per side. The variant
+`nav2_params_go2_footprint.yaml` swaps both costmaps to a
+`[±0.37, ±0.18]` rectangle and changes nothing else — enforced by a contract test that
+reverts the polygon and requires the two YAMLs to compare equal (241 → 247 root tests).
+
+A 2 Hz trace of the robot's own global-costmap cell during 150 s of walking:
+
+| | arm A (`robot_radius`) | arm B (polygon) |
+| --- | --- | --- |
+| median / max own-cell cost | 168 / **243** | 135 / **165** |
+| % of samples at ≥ 243 | **7.1 %** | **0.0 %** |
+| headroom to the fatal 253 | **10** | **88** |
+
+The feared collision-monitor coupling did not bite — the variant *removes* `robot_radius`
+instead of adding a polygon beside it. No SIGSEGV, no "Inconsistent configuration in
+collision checking", footprint published on both costmap topics, `collision_monitor`
+`active [3]`, static corridor planning 4/4 SUCCEEDED.
+
+Behaviourally the failure mode changed completely: R4b under arm A died at **116 s** with
+`refused=4, barren_cycles=10`; arm B ran the **full 600 s** and ended on
+`prazo total de exploracao excedido` with `refused=2, barren_cycles=0`. The planner stopped
+being the limit.
+
+Caveats kept on the record: neither arm ever sampled 253, so this is **margin**, not a
+prevented event; and arm B covered 50 distinct poses vs arm A's 86, so the traces are not
+pose-matched. **Promoted in code on 29/08/2026, HIL final pending** — `nav2_params_go2.yaml`
+and `params-align8.yaml` now ship the footprint polygon in both costmaps instead of
+`robot_radius`; `nav2_params_go2_footprint.yaml` is kept, byte-equivalent to the default,
+only because Compose/docs/prior commands still reference it. A clean smoke from t = 0 and
+a lateral-displacement replan check under the promoted default are still to run in HIL.
+
+**2. Homing is 0 for 11, and the cause is in the code.** `_send_homing_step` walked to the
+exit in 0.5 m hops and after each hop dropped the entire approach unless the marker was
+visible in that instant (`marker_stale_s = 2.0`). But `_exit_pose_map` is a latched map
+coordinate — line of sight is needed to *learn* the exit, not to reach it, and a maze
+corridor breaks line of sight by construction. Hence the twice-recorded signature: homing
+goals failing at 0.99 s then 8–9 s with "marcador perdido".
+
+Fixed in the host tree (deployed, **not committed**): `homing_persistence_s` (90 s) lets
+homing keep navigating to the latched pose while the marker is stale, and when blind it
+sends the **full approach** rather than a straight-line 0.5 m hop so Nav2 can route around
+walls. Past the budget it gives up and increments the new `homing_abandons` counter. Five
+tests (65 → 70), one of which asserts the budget outlives the freshness deadline, so the
+old "never chase the last-seen pose forever" property survives — bounded instead of
+instant.
+
+The homing **entry** gate still has only a partial measurement: `homing_entry_distance_m`
+latched **3.06 m** on the last of arm B's five entries (R2's glimpse was 3.9 m); the other
+four were lost because the logger attached after them.
+
+
+### 29/08 (late) — the planner refuses from the START pose; frontiers were never the cause
+
+Evidence: `docs/results/ml35-f5-exploration-r4-observed.md` (observed round, does NOT
+count toward acceptance) and `ml35-f5-exploration-r4b.md` (protocol round), with CSVs
+beside them.
+
+- **The provisional recovery is field-validated, twice.** `provisional_recoveries`
+  incremented in both runs, released only `_refused`/`_timed_out`, left the hard
+  blacklist at 0, did not livelock, and terminated through `barren_cycles` as designed.
+  It passes its own contract and it does **not** rescue either run.
+- **Root cause found, and it is the start pose, not the goals.** At the R4b terminal
+  state the robot's own global-costmap cell reads **253 (`INSCRIBED_INFLATED_OBSTACLE`)**.
+  NavFn refuses to plan from a start at 253 or above, whatever the goal is. The five
+  goals refused during the run are all passable (costs 131–195) and inside the robot's
+  own connected component; replanning to them afterwards still aborts. A BFS finds
+  paths only because it relocates the start to a passable cell — NavFn does not, and
+  that relocation is what made earlier analysis blame the frontiers.
+- **Therefore `_refused` records the wrong cause.** The planner rejects the *start*;
+  the explorer books the rejection against the *frontier*. Every cluster is blamed for
+  one robot-pose problem, all clusters end up suppressed, and the recovery cannot help
+  because releasing them re-refuses them from the same bad pose. The R4a deadlock, the
+  observed round's frontier collapse and the R4b barren ending are **one defect wearing
+  three counters**.
+- **The geometry says this is expected.** maze11 corridors are 1.20 m and
+  `robot_radius` is 0.38 m (circumscribed for the 0.70 × 0.31 m trunk), leaving
+  1.20 − 0.76 = **0.44 m** plannable — **± 0.22 m** off the centreline before the start
+  cell goes inscribed, with a 0.10 m costmap cell eating a further 45 % of that. A
+  walking quadruped sways more than that. Two measured, unapplied remedies: maze scale
+  0.0025 (corridor 1.50 m → ± 0.37 m, already measured at 73.3 m² / 1 component in
+  `ml35-labirinto.md`), or an explicit footprint polygon instead of `robot_radius`
+  (inscribed 0.155 m → ± 0.445 m) — the latter is coupled to the collision monitor and
+  `nav2_params.yaml` warns about it explicitly.
+- **Homing remains 0 for 6.** Across round 2 and the observed round, six homing
+  attempts, zero successes, with matching signatures (0.99 s then 8–9 s). In the
+  observed round homing **preempted a healthy six-frontier exploration goal** and gave
+  it back collapsed to one. Ranked behind the start-pose defect only because the
+  refusal storm now kills runs before the marker is ever seen.
+- **Instrumentation added, measurement NOT yet collected.** `marker_distance_m`,
+  `homing_entry_distance_m` (latched at the transition, because status is 2 Hz and the
+  entry is instantaneous) and `homing_entries` now publish on
+  `/demo/exploration/status`; the recorder gained the seven suppression columns it was
+  silently missing. R4b ended with `homing_entries = 0`, so the gate branch is **not
+  exercised** and the only measured marker distance is still round 2's **3.9 m**.
+  `test_the_measurement_round_adds_no_homing_gate` fails if the gate is added first.
+
+**Next single variable**, in order: fix the start-pose refusal (geometry or footprint),
+because until Nav2 can plan from wherever the gait leaves the robot, no frontier policy
+and no homing gate can be evaluated at all.
 
 ### 29/08 — the robot explores the maze and finds the exit marker on its own
 

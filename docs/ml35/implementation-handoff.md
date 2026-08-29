@@ -1,195 +1,341 @@
-# Implementation handoff — repository cleanup and ML3.5 F5 completion
+# ML3.5 F5 implementation handoff — next session
 
-This document is the execution plan for the next LLM. Treat the current working
-tree as authoritative: it contains user-owned F5 evidence and cleanup changes
-that must not be discarded or reset.
+This is the authoritative execution handoff for the next session. Read
+`estado-fases.md` for history and the round reports under `docs/results/` for evidence.
+Do not restart the investigation from older F5 guides.
 
-## 1. Current checkpoint
+## 1. Objective and acceptance bar
 
-Completed and validated before this handoff:
+Finish the autonomous maze demonstration with one exploration start request, no
+manual driving or goals, a fresh map and pose graph, escape within 600 s, zero falls,
+and no recurrent TF/costmap/frame failures. Final acceptance is three successful cold
+starts out of three.
 
-- `joint_state_broadcaster` is limited to 50 Hz without changing the 1 kHz
-  controller-manager loop or the 200 Hz gait controller;
-- `/tf` fell by 86.3%, module load fell by 31%, and `odom <- lidar`
-  availability reached 99.94%;
-- `map_update_interval` is back at 1.0 s, with no material CPU regression;
-- the short stability gate completed its first three goals in all three runs,
-  with no falls, TF extrapolation, `worldToMap`, or invalid-source errors;
-- the repository has an `origin` remote configured as
-  `https://github.com/engdiegomaia/toradex-demo-aquila-am69-ros2.git`;
-- `.ai/` is ignored and removed from the Git index while its local files remain;
-- current tracked files no longer contain the bench hostname, real bench IPs,
-  the project owner's corporate email, common private-key markers, or common
-  GitHub/AWS/OpenAI token patterns;
-- `README.md` and `docs/README.md` provide public documentation entry points;
-- the obsolete `docs/ml35/plano-proximos-passos.md` was removed and references
-  now point to the current movement plan or preserved result report.
+A smoke run can expose a defect but cannot prove reliability. Rounds 2, 3, 4, 4a, the
+29/08 observed round and 4b used byte-identical preconditions and travelled 21.93, 4.26,
+0.82, 5.86, ~3.7 and ~0.6 m with six different endings.
 
-The last complete local validation before the translation pass was:
+## 2. Repository checkpoint
+
+Branch: `feat/f5-percepcao-e-partidas-frias`, 14 commits ahead of its remote before
+the current uncommitted changes. Do not reset, clean or overwrite the working tree.
+
+Expected working tree: the seven files from the previous handoff, plus
+`scripts/exploration_trial.py` (recorder columns), plus new evidence files under
+`docs/results/`. Validation completed on 29/08:
 
 ```text
-pytest -q tests    218 passed
-git diff --check  passed
+demo_navigation tests   65 passed   (61 + 4 new measurement tests)
+root contract tests     241 passed
+hmi tests               180 passed
+ament flake8/pep257     passed  (scoped to the package — see the trap below)
+git diff --check        passed
+host + module Compose   passed
 ```
 
-Run these again before accepting the checkpoint because documentation was
-translated afterward.
+**Trap:** run the package linters from inside `ros2_ws/src/demo_navigation`. Run from
+the repo root, `test_flake8`/`test_pep257` scan the whole tree and report ~94
+pre-existing errors that are not yours.
 
-## 2. Working-tree safety rules
+No HIL run counted toward acceptance, no commit and no push have been performed.
 
-Do not run `git reset`, `git checkout --`, `git clean`, or broad formatting.
-Several F5 documents were already modified by the user before repository
-cleanup began. Preserve all current changes.
+## 3. Bench access
 
-`.ai/` appears as staged deletions because it was removed only from the index.
-The files still exist locally and are ignored. This is intentional.
-
-`artifacts/` remains untracked. Do not add or delete it without an explicit
-decision about scratch-run evidence.
-
-No commit and no push have been performed for this cleanup.
-
-## 3. English documentation migration
-
-The migration is intentionally incomplete. Two external translation providers
-were tried: Claude reached its organization spend limit, while broad Codex
-batches stopped without editing. Small, exact-file batches worked.
-
-Already translated substantially or completely:
-
-- `README.md`;
-- `CLAUDE.md`;
-- `docs/README.md`;
-- `docs/analise-sensores-navegacao.md`;
-- `docs/guia-completo.md`;
-- `docs/guia-hil-go2-labirinto.md`;
-- most files under `docs/guides/`.
-
-Still requiring translation:
-
-- most files under `docs/ml35/`;
-- all or most reports under `docs/results/`;
-- comments and docstrings in `scripts/`, `tests/`, `ros2_ws/src/`, `docker/`,
-  and `hmi/`;
-- a small number of Portuguese comments or literal labels may remain in the
-  already translated guides.
-
-Translation policy:
-
-1. Translate explanatory prose, headings, table labels, source comments, and
-   docstrings.
-2. Preserve executable commands, syntax, paths, filenames, ROS topic/frame/node
-   names, URLs, numeric evidence, and CSV data.
-3. Preserve quoted runtime and log output unless the program itself is also
-   intentionally changed and its tests are updated.
-4. Do not translate user-visible runtime strings as part of the comment pass;
-   they may be API, UI, or test contracts.
-5. Use batches of one large file or at most three small files. Do not ask an
-   external agent to translate an entire directory containing thousands of
-   lines in one turn.
-6. After each batch, scan only that scope for Portuguese and run
-   `git diff --check`.
-
-Suggested discovery command:
+`aquila-am69.local` does **not** resolve — the module's real hostname is
+`aquila-am69-12593525`, so mDNS fails even when the module is up, reachable and serving
+SSH. That failure looks exactly like a dead bench; it is not. Find the module by ARP,
+not by name (no address is recorded here, per the no-hard-coded-IP convention):
 
 ```bash
-rg -n '[áàâãéêíóôõúçÁÀÂÃÉÊÍÓÔÕÚÇ]|\b(não|robô|módulo|navegação|saída|evidência|medido|configuração)\b' \
-  README.md CLAUDE.md docs scripts tests ros2_ws/src docker hmi \
-  --glob '!docs/results/*.csv' --glob '!artifacts/**' --glob '!.ai/**'
+ip -brief addr show <wired-iface>          # the workstation's side of the link
+ip neigh show dev <wired-iface>            # the lladdr with the Toradex OUI 00:14:2d
+ssh torizon@<ip>                           # confirm before blaming DDS or the link
+MODULE_HOST=<ip> scripts/module.sh sync    # bare IP: the script adds the torizon@ prefix
 ```
 
-This scan is a candidate list, not proof: English words such as `façade`,
-identifiers, quoted Portuguese logs, and proper names can be legitimate.
+Check in this order before declaring the bench unavailable: NIC carrier, then the ARP
+entry above, then SSH.
 
-## 4. Sensitive-information closure
+Host-side builds need `BUILDX_BUILDER=default` (the workstation is IPv6-only; the
+`armbuilder` builder has no IPv4 route). `build.network: host` is already set on every
+build in `compose.host.yml`.
 
-The current tree was sanitized, but old commits still contain the removed
-`.ai/` files, bench identifiers, private-network addresses, and old maintainer
-email. No strong secret/token pattern was found in 107 commits.
+## 4. Proven state
 
-Do not push the full history to a public remote until the owner chooses one of
-these options:
+- TF availability 99.94%; global costmap, map update, gait and short stability pass.
+- Aquila perception passes: 60/60 detections, finite pose, timestamped TF.
+- Round 2 travelled 21.93 m autonomously, mapped 8915 cells, detected the exit marker
+  and entered `homing_exit`.
+- The provisional-suppression recovery is **field-validated twice** (observed round and
+  R4b): increments, releases only the provisional lists, never touches the hard
+  blacklist, does not livelock, terminates through `barren_cycles`. It passes its
+  contract and it rescues neither run — see §5.
 
-1. keep history private and push normally;
-2. publish a new clean root history;
-3. rewrite history with `git filter-repo`, then review every changed commit ID
-   and force-push only with explicit authorization.
+F5 remains open because `/demo/maze/escaped` has never become true.
 
-History rewriting is destructive and is not authorized by this handoff.
+## 5. The 253 blocker — addressed by the footprint polygon (not yet promoted)
 
-## 5. Functional F5 completion sequence
+**The defect:** NavFn refuses to plan from a start cell whose global-costmap cost is
+`253` (`INSCRIBED_INFLATED_OBSTACLE`) or above, whatever the goal is. Measured at the R4b
+terminal state with the robot at `(-0.52, 0.36)`, its own cell was exactly 253. The five
+goals refused in that run were all passable (costs 131–195) and inside the robot's own
+connected component; a BFS finds paths to them only because it **relocates the start**,
+which NavFn does not.
 
-After repository cleanup is stable, resume the functional demonstration in this
-order.
+Consequences, which is why four rounds were mis-diagnosed:
 
-### Gate A — perception on the Aquila
+- **`_refused` records the wrong cause.** The planner rejects the *start*; the explorer
+  books it against the *frontier*. One pose problem suppresses every cluster at once.
+- The R4a deadlock, the observed round's frontier collapse and the R4b barren ending are
+  **the same defect wearing three counters.**
 
-Validate, using bounded captures rather than continuous log monitoring:
+**The remedy, measured: replace `robot_radius` with the real trunk polygon.**
+`robot_radius: 0.38` is the *circumscribed* radius of a 0.70 × 0.31 m body — a 0.38 m
+circle around a 0.31 m wide robot throws away 23 cm of real corridor per side. The
+variant `nav2_params_go2_footprint.yaml` swapped both costmaps to
+`[[0.37,0.18],[0.37,-0.18],[-0.37,-0.18],[-0.37,0.18]]` and changed nothing else (proved,
+before promotion, by a contract test that reverted the polygon to `robot_radius` and
+required the two YAMLs to compare equal).
 
-- `/demo/camera/camera_info` reaches the module;
-- the exit detector processes images at the configured rate;
-- at least three of five frames contain the expected detection;
-- `/demo/perception/maze_exit/pose` is published in the correct camera frame;
-- detector CPU does not cause TF availability to fall below 99.5%;
-- the controller does not suffer sustained deadline misses.
+Full evidence: **`docs/results/ml35-f5-footprint-ab.md`**. Headlines:
 
-If detector CPU is the blocker, change only `sample_stride` and repeat the same
-protocol.
+| | arm A (`robot_radius`) | arm B (polygon) |
+| --- | --- | --- |
+| own-cell cost, median / max | 168 / **243** | 135 / **165** |
+| % of walking time at ≥ 243 | **7.1 %** | **0.0 %** |
+| headroom from max to the fatal 253 | **10** | **88** |
+| run outcome | R4b dead at 116 s, `refused=4`, `barren=10` | survived to the **600 s deadline**, `refused=2`, `barren=0` |
 
-### Gate B — one exploration smoke test
+The collision-monitor coupling the old note warned about did **not** bite, because the
+variant *removes* `robot_radius` rather than adding a polygon beside it: no SIGSEGV, no
+"Inconsistent configuration in collision checking", footprint published on both costmap
+topics, `collision_monitor` `active [3]`, static corridor planning 4/4.
 
-Start from a clean map and initial pose. Record:
+Two honest caveats: neither arm ever recorded a 253 sample, so this shows **margin**, not
+a prevented event; and arm B covered 50 distinct poses against arm A's 86, so the traces
+are not pose-matched. `consider_footprint` stays `false` — flipping it would be a second
+variable and `nav2_params_go2.yaml:537` records that `true` beside `robot_radius`
+SIGSEGVs the whole container.
 
-- exploration state transitions;
-- `frontier_extract_ms`, frontier cells/clusters, and selection cycles;
-- every Nav2 goal outcome and error code;
-- blacklist growth, map coverage, path length, and forward-work ratio;
-- TF availability and prohibited error counts;
-- active `maze_explorer` and `nav2_container` CPU.
+**Promoted in code, HIL final pending.** As of 29/08/2026 `nav2_params_go2.yaml` ships
+the footprint polygon in both costmaps (`robot_radius` removed); `params-align8.yaml`
+mirrors the same change. `nav2_params_go2_footprint.yaml` is now byte-equivalent to the
+default (`test_footprint_variant_matches_the_promoted_default`) and kept only because
+Compose, docs and prior campaign commands still reference
+`NAV2_PARAMS=.../nav2_params_go2_footprint.yaml`. What promotion in code does NOT close:
+a clean smoke from t = 0 under the new default plus a lateral-displacement replan check,
+both still to run in HIL.
 
-Use this run to measure the frontier optimization on the Aquila. Idle
-`maze_explorer` CPU is not a blocker by itself. Profile it only if the active
-run shows extraction above 100 ms p95, sustained controller misses, repeated
-selection without progress, or a TF/perception regression.
+## 6. THE BLOCKER — marker range is unbiased now, but noisy with distance
 
-### Gate C — three cold starts
+**R6 found it and R7 half-fixed it.** `magenta_bbox` took the global min/max over every
+magenta pixel in the frame, so any second magenta region merged into one box, inflated
+`width_px`, and — since `range_m = fx * marker_width_m / width_px` — collapsed the range.
+Replacing it with the largest **connected** region (8-connectivity on the sampled lattice,
+dependency-free) moved the estimate/truth ratio against the SDF marker at `(-4.90, -2.60)`:
 
-Only after a successful smoke test:
+| | samples | ratio mean | range |
+| --- | --- | --- | --- |
+| R5+R6, global bbox | 12 | **0.478** | 0.402 – 0.539 |
+| R7, connected components | 131 | **1.055** | 0.474 – 2.403 |
 
-1. restart simulation, SLAM, Nav2, and perception;
-2. confirm there is no saved map or pose graph;
-3. start exploration once, without intervention;
-4. stop on `/demo/maze/escaped=true` or at 600 s;
-5. preserve evidence before the next run.
+Calibration was excluded first: `horizontal_fov` 2.094 rad at 640 px gives fx 184.75
+against the published 184.836.
 
-Final acceptance remains three of three runs escaping within 600 s, with no
-fall, manual intervention, hard-coded maze coordinates in the explorer,
-recurrent TF error, or costmap/frame failure.
+**What remains is range-dependent error, and it is structural:**
 
-## 6. Final repository validation
+| estimated range | n | ratio | mean abs error |
+| --- | --- | --- | --- |
+| 0 – 2 m | 19 | 0.579 | 1.28 m |
+| 2 – 3 m | 39 | 0.876 | 0.60 m |
+| **3 – 4 m** | **43** | **1.062** | **0.41 m** |
+| 4 – 6 m | 14 | 1.316 | 1.14 m |
+| > 6 m | 16 | 1.813 | **3.08 m** |
 
-Before committing:
+The overestimate at range is the signature of **partial visibility**: a panel glimpsed
+through a maze opening presents less than its 0.80 m width, and a narrower blob reads as
+farther. No width-based estimator fixes that.
+
+**The structural answer is a fiducial** — AprilTag or ArUco give four corners and a PnP
+pose, and fail closed instead of returning a confident wrong range
+(`ros2-aruco-pose-estimation`, `apriltag_ros`). The cost is not the node: it is that
+`quadruped_maze11.sdf` states the demo's premise — *"Navigation receives no coordinates:
+perception must find this unique magenta panel"* — and swapping the panel re-derives the
+marker pose, the opening geometry, `maze_escape_validator`'s constants, the scene cameras
+and the contract tests. **That is a product decision, not a bug fix.** Take it if the gate
+below is not enough.
+
+Nav2's **Docking Server** (`SimpleChargingDock` consuming `detected_dock_pose`) is the
+matching structural replacement for the approach logic, and pairs naturally with a fiducial.
+Also deferred for the same reason.
+
+## 6b. Fixed this session — deployed, tested, NOT committed
+
+| change | evidence | status |
+| --- | --- | --- |
+| arm B costmap: trunk polygon instead of `robot_radius` | own-cell cost max 243 → 165; headroom to the fatal 253 10 → 88 | works, **not promoted** |
+| homing survives occlusion (`homing_persistence_s` 90 s, full blind approach) | R5: one entry, `homing_abandons = 0`, closed 1.85 → 1.08 m blind after 11 straight field failures | works |
+| arrival when the remaining step is below `xy_goal_tolerance` (`nav_goal_tolerance_m`) | R6 froze 94 s at a byte-identical pose, 0.75 m vs 0.70 m stop | works |
+| `magenta_bbox` → largest connected component | ratio 0.478 → 1.055 (131 samples) | works |
+| homing entry gate 4.0 m + 3 confirmations + `marker_far_ignored` | R7 committed at 7.35 m and homing held the run 520 s | **untested — R8 never saw the marker** |
+| progress checker 0.20/40 → 0.30/25 | R5+R6 simulation over 45 goals: 6/9 expiries caught, 107 s returned, 0 good goals aborted | **unjudged for two rounds** |
+| `goal_timeout_s` 90 → 45 | **returned nothing** (3 × 90 = 6 × 45 = 270 s) | kept; see §6d |
+
+`demo_perception`'s Python is now bind-mounted on the module like the explorer's, so a
+detector edit costs a sync + restart instead of a QEMU rebuild
+(`tests/test_module_params_mount.py` locks it).
+
+Tests: 78 `demo_navigation`, 36 `demo_perception`, 249 root.
+
+## 6d. Two traps this session walked into — do not repeat
+
+1. **`timed_out` is a suppression list, not an event tally.** Reading it as a count is what
+   produced the false claim that `goal_timeout_s` 90 → 45 worked. Always count expiries in
+   the per-goal CSV. The change in fact returned **zero** budget: R5 had 3 × 90 s, R6 had
+   **6 × 45 s**, both 270 s. A fixed ceiling measures elapsed time, not progress.
+2. **A persistence fix without an entry gate inverts the failure.** R5's
+   `homing_persistence_s` correctly stopped homing abandoning on occlusion; shipped alone,
+   it let R7's single 7.35 m observation own 520 of 600 s. The gate and the persistence
+   belong in the same change.
+
+## 6c. Ranked behind the blocker
+
+**Homing entry gate.** Still only a partial measurement: `homing_entry_distance_m` of
+**1.85 m** (R5) and **2.36 m** (R6), plus R2's 3.9 m glimpse. Record a distant marker
+without cancelling exploration; add hysteresis and separate counters for "distant marker
+ignored" and "homing entry accepted". `test_the_measurement_round_adds_no_homing_gate` is
+now eligible for replacement. **Note this is much less urgent than it looked** — with the
+persistence fix, a homing excursion no longer collapses the frontier set.
+
+**Near-frontier stranding.** The near filter (`min_frontier_distance_m = 0.35`) runs
+*before* the provisional filter, so a near-but-reachable frontier is invisible to the
+recovery by construction. Do **not** lower it below `xy_goal_tolerance` 0.25 — 0.35 exists
+to stop R4's instant-arrival loop. A bounded nudge/rotate is the right shape, only if it
+reappears.
+
+**Refuted, do not revisit:** frontier goal *clearance* is not the constraint (sweep 0.45 →
+0.70 added no reachable goal); raising `goal_timeout_s` to 180 s (R3).
+
+## 6e. Audit of 29/08 and what it changed
+
+An independent review of the R7/R8 work found **two functional defects the tests did not
+catch, because the tests encoded the same wrong semantics.** Both are fixed.
+
+1. **"Three confirmations" were three timer cycles, not three observations.** The streak
+   was incremented in `_tick` (1 Hz) while detections arrive in `_on_exit_pose`. A single
+   pose stays fresh for `marker_stale_s` = 2 s, so **one bad frame satisfied all three
+   confirmations** — the gate provided no hysteresis at all, and `marker_far_ignored`
+   counted timer cycles rather than detections. Confirmation now advances only in
+   `_on_exit_pose`, once per new message, deduplicated by `(frame_id, stamp_ns)` so
+   transport duplication of one frame cannot confirm twice.
+2. **The gate protected only the transition, not the target.** Every new observation
+   overwrote `_exit_pose_map`, including during `homing_exit`, so a later partial view
+   could move the target metres away mid-approach — R7's 1.27–7.94 m swing could still
+   command homing after entry. Split into `_exit_candidate_pose_map` (latest raw
+   observation, always published for the record) and `_exit_pose_map` (target accepted by
+   the gate, **latched for the duration of the attempt** and cleared only when homing
+   ends).
+
+Also from the audit, all applied:
+
+- **Tolerance edge**: `distance - stop < tolerance` missed the equality case, which Nav2
+  also accepts without motion. Now `<= tolerance + 1e-9`, with a test on the boundary.
+- **Overclaims corrected.** R7's 131 range pairs are consecutive 2 Hz samples on one
+  trajectory and are **strongly autocorrelated** — not 131 degrees of freedom; the report
+  now says so. R8's "same configuration as R5" was wrong (R8 also carries the
+  connected-component detector, the 0.30/25 checker, the gate and the 45 s timeout); it now
+  reads "same topology and footprint", and the 41.44 m vs 3.46 m mobility gap is labelled a
+  difference between two runs, not an A/B.
+- **Derived numbers are now reproducible.** `scripts/analyse_exploration.py` regenerates the
+  range-ratio buckets and the progress-checker replay from the committed CSVs, with pure
+  helpers unit-tested in `tests/test_analyse_exploration.py`:
+
+  ```bash
+  scripts/analyse_exploration.py ratio    docs/results/ml35-f5-exploration-r7.csv
+  scripts/analyse_exploration.py progress docs/results/ml35-f5-exploration-r{5,6}.csv
+  ```
+
+  Verified to reproduce every quoted figure: 131 observations at ratio 1.055, the five
+  buckets, and 2/9·29.1 s / 6/9·106.6 s / 7/9·188.3 s(1 false) / 9/9·426.8 s(9 false).
+- **Instrumentation added.** The explorer publishes `marker_observations`,
+  `marker_confirmations` and both candidate and accepted marker poses; the detector
+  publishes `/demo/perception/maze_exit/diagnostics` (JSON on `String`, same shape as the
+  explorer status) with region count, chosen bbox, sample count, **aspect ratio** and the
+  widths of every region. Aspect ratio is the datum that separates "far" from "partially
+  occluded" — the panel is square, so a chosen blob far from 1.0 is a partial view. All of
+  it is now in `exploration_trial.py`'s columns.
+
+**Still not done, and the audit is right that it gates R9:**
+
+- **The 4 m gate does not resolve range ambiguity.** The 0–2 m band still carries 1.28 m of
+  mean absolute error, so a genuinely distant marker can be underestimated *into* the gate.
+  Confirmations do not remove a systematic error from persistent occlusion.
+- **The "mobility collapse" was a recorder artefact, corrected 29/08.** The 0.004 vs
+  0.050 m/s gap came from averaging `vx_mean_abs` over the whole recording, and R8's
+  recorder kept sampling ~594 s past the explorer's 76.5 s failure. `scripts/
+  exploration_trial.py` now reports `active_*` (first active sample to first terminal
+  sample) alongside `recording_*` (full file); recomputed from the CSVs, R8's
+  `active_vx_work_ratio` is 55.5 % (`active_vx_mean_abs` 0.036) against R5's 66.5 %
+  (0.055) — a normal run-to-run gap, not an order-of-magnitude collapse. No diagnosis is
+  owed here before R9; see `docs/results/ml35-f5-exploration-r8.md`.
+- **The fiducial route is cheaper than previously argued.** An AprilTag placed **on the
+  existing magenta panel at the same SDF pose** preserves the demo's premise, the opening
+  geometry, `maze_escape_validator`'s constants and the scene cameras — the earlier
+  objection assumed replacing the panel and moving it. Feed the fiducial pose into the
+  current homing first; adopting Nav2's Docking Server is a separate, larger decision.
+- Neither the gate nor the tolerance guard has been exercised in HIL. Unit-green is not
+  field-validated.
+
+## 7. Smoke protocol
+
+Preconditions to verify and record every time:
+
+1. `MODULE_HOST=<ip> scripts/module.sh sync`.
+2. Restart the **sim first**, wait for `/clock`, then restart `nav` and `perception`.
+   In that order — SLAM must start against the new clock or the map is stale.
+3. Confirm fresh `/map` (small, ~88 × 86), spawn pose `(0.00, 0.04)`, lifecycle nodes
+   `active [3]`, explorer `idle` with all counters zero.
+4. Confirm the deployed `maze_explorer.py` is byte-identical host → module → container.
+5. No arm64 rebuild for a smoke; the source mount exists for iteration.
+
+Recording — passive, publishes nothing, writes the CSV **only at exit**, so give it a
+path that exists *inside* the container and copy it out afterwards:
 
 ```bash
-git diff --check
-pytest -q tests
-cd hmi && npm test
-cd ..
-docker compose -f docker/compose.host.yml config
-docker compose -f docker/compose.module.yml config
-git status --short
-git remote -v
+docker compose -f docker/compose.host.yml --profile tools up -d tools
+docker compose -f docker/compose.host.yml exec -T tools \
+    /usr/local/bin/entrypoint.sh python3 - /tmp/rN.csv --seconds 660 --hz 2 \
+    --stop-on-escape < scripts/exploration_trial.py
+docker cp docker-tools-1:/tmp/rN.csv docs/results/...
 ```
 
-Also run the sensitive-pattern scan again across tracked and untracked files,
-without printing matched values. Review Markdown local links and confirm that
-the only intended document deletion is the obsolete movement plan.
+The `tools` container mounts only the DDS config — there is no writable repo mount, and
+a bad path loses the whole run at the final write.
 
-Prepare separate commits for:
+Then exactly one `/demo/exploration/start`, no manual goals, and only bounded filtered
+log windows afterwards.
 
-1. sensitive-data cleanup and `.ai/` removal;
-2. documentation consolidation and English migration;
-3. any functional F5 changes and their evidence.
+## 8. Official rebuild and final acceptance
 
-Do not combine history rewriting, functional navigation tuning, and translation
-in one commit.
+After a smoke with `escaped = true`:
+
+```bash
+scripts/module.sh sync && scripts/module.sh build && scripts/module.sh up && scripts/module.sh verify
+```
+
+Require a clean tree, record the tested commit, confirm the rebuilt image and mounted
+source are byte-identical to it. Then three cold starts: recreate simulation, SLAM, Nav2
+and perception; load no saved map/graph; verify lifecycle and topics; one start; stop on
+escape, fall, terminal failure or 600 s; preserve evidence before teardown. One failed
+start keeps F5 open.
+
+## 9. Closure
+
+After 3/3, create `docs/results/ml35-f5-final-acceptance.md`, preserve all run and
+per-goal CSVs, update `estado-fases.md` and `ml35-f5-busca-autonoma.md`, and separate
+infrastructure, perception, exploration, homing and crossing evidence. State HIL-only
+limitations and what does not validate a physical Go2.
+
+Run root/package/HMI tests, both Compose validations and the sensitive-pattern scan.
+Commit code with its measured evidence only after the result is known. Do not push or
+rewrite history without explicit authorization.
