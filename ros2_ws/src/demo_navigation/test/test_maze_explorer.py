@@ -177,7 +177,8 @@ def _is_suppressed(node, frontier) -> bool:
     """As duas listas juntas, que e o que o filtro de candidatos aplica."""
     radius = float(node.get_parameter('blacklist_radius_m').value)
     return any(math.hypot(frontier.x - x, frontier.y - y) <= radius
-               for x, y in list(node._blacklist) + list(node._refused))
+               for x, y in list(node._blacklist) + list(node._refused)
+               + list(node._timed_out))
 
 
 class _Wrapped:
@@ -299,14 +300,18 @@ def test_reaching_a_goal_does_not_lift_a_hard_blacklist(node) -> None:
     """
     A blacklist dura permanece: ela registra falha de EXECUCAO, nao de mapa.
 
-    Nav2 recusar a meta ou a meta expirar diz algo sobre aquela fronteira que
-    mapa novo nao desmente. Confundir as duas listas traz de volta o livelock
-    da fumaca de 28/08 por outro caminho.
+    O Nav2 devolver falha explicita para aquela meta diz algo sobre aquela
+    fronteira que mapa novo nao desmente. Confundir as listas traz de volta o
+    livelock da fumaca de 28/08 por outro caminho.
+
+    A expiracao de meta JA NAO e exemplo disto: a rodada 3 mostrou que ela
+    marca uma tentativa travada, nao uma fronteira invalida. Ver
+    `test_a_timed_out_frontier_is_not_hard_blacklisted`.
     """
     node._start(None, trigger(node))
     node._state = 'navigating'
     node._current = Frontier(x=3.0, y=4.0, cells=10, information_gain_m=0.5)
-    node._blacklist_current('meta de fronteira expirou')
+    node._blacklist_current('fronteira terminou com status 6')
     epoch = node._epoch
 
     node._current = Frontier(x=0.0, y=0.5, cells=10, information_gain_m=0.5)
@@ -349,6 +354,98 @@ def test_the_goal_timeout_stays_at_the_value_that_was_measured_best(
         '180 s foi medido e REPROVADO na rodada 3 -- ler '
         'docs/results/ml35-f5-exploration-r3.md antes de tentar de novo. O que '
         'falta corrigir e a permanencia da blacklist, nao o teto.')
+
+
+def _timed_out_frontier(node):
+    """Uma fronteira levada ate a expiracao de meta, como o `_tick` faz."""
+    frontier = Frontier(x=-3.295, y=0.428, cells=35, information_gain_m=1.75)
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._current = frontier
+    node._timeout_current('meta de fronteira expirou')
+    return frontier
+
+
+def test_a_timed_out_frontier_is_not_hard_blacklisted(node) -> None:
+    """
+    Expirar uma meta marca a TENTATIVA, nao a fronteira. Rodada 3 provou isso.
+
+    Uma meta a 0,4 m do robo consumiu 180 s inteiros: o teto corta travamento,
+    e travamento fala da pose, do costmap e do plano daquele instante -- nada
+    disso e permanente. Na rodada 2, tres expiracoes viraram tres pontos
+    permanentes que engoliram os quatro clusters restantes aos 570 s, e a
+    corrida morreu com fronteira real disponivel.
+
+    Evidencia: docs/results/ml35-f5-exploration-r{2,3}.md.
+    """
+    frontier = _timed_out_frontier(node)
+
+    assert node._blacklist == [], (
+        'expiracao de meta nao pode entrar na blacklist dura')
+    assert (frontier.x, frontier.y) in node._timed_out
+    assert node._state == 'selecting'
+
+
+def test_a_timed_out_frontier_is_suppressed_at_once(node) -> None:
+    """Provisoria nao quer dizer frouxa: a meta seguinte tem de ser outra."""
+    frontier = _timed_out_frontier(node)
+    assert _is_suppressed(node, frontier) is True
+
+
+def test_map_republication_does_not_release_a_timed_out_frontier(node) -> None:
+    """
+    O que libera e progresso, nao tempo nem mensagem.
+
+    `slam_toolbox` republica `/map` a cada 1 s mexa o mapa ou nao. Se a
+    republicacao limpasse a supressao, a fronteira travada voltaria a cada
+    segundo e o livelock de 28/08 estaria de volta por outro caminho.
+    """
+    frontier = _timed_out_frontier(node)
+    for _ in range(5):
+        node._on_map(OccupancyGrid())
+    assert _is_suppressed(node, frontier) is True
+
+
+def test_reaching_another_frontier_releases_a_timed_out_frontier(node) -> None:
+    """Chegar noutro lugar muda pose, costmap e plano -- os tres motivos."""
+    frontier = _timed_out_frontier(node)
+
+    node._current = Frontier(x=0.0, y=0.5, cells=10, information_gain_m=0.5)
+    node._on_nav_result(_Future(SimpleNamespace(
+        status=GoalStatus.STATUS_SUCCEEDED)), node._epoch, True)
+
+    assert _is_suppressed(node, frontier) is False
+
+
+def test_an_explicit_nav2_failure_is_still_hard_in_this_round(node) -> None:
+    """
+    Uma politica por rodada. O resultado de falha do Nav2 continua duro.
+
+    Trocar as duas permanencias na mesma rodada faria o resultado ilegivel:
+    nao daria para dizer qual das duas produziu a diferenca.
+    """
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._current = Frontier(x=3.0, y=4.0, cells=10, information_gain_m=0.5)
+    node._on_nav_result(_Future(SimpleNamespace(
+        status=GoalStatus.STATUS_ABORTED)), node._epoch, True)
+
+    assert (3.0, 4.0) in node._blacklist
+    assert node._timed_out == []
+
+
+def test_a_new_run_clears_every_suppression_list(node) -> None:
+    """Supressao vale dentro de uma execucao, nunca entre partidas frias."""
+    node._blacklist.append((1.0, 2.0))
+    node._refused.append((3.0, 4.0))
+    node._timed_out.append((5.0, 6.0))
+    node._state = 'failed'
+
+    node._start(None, trigger(node))
+
+    assert node._blacklist == []
+    assert node._refused == []
+    assert node._timed_out == []
 
 
 def test_a_barren_selection_fails_the_run_instead_of_idling(node) -> None:

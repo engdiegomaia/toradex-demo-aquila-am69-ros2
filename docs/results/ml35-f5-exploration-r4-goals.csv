@@ -1,0 +1,2 @@
+goal_index,goal_x,goal_y,phase,sent_sim_s,elapsed_s,outcome,nav2_status,message
+0,-0.132,0.741,exploration,54.008,6.255,ok,4,fronteira alcancada; atualizando mapa
