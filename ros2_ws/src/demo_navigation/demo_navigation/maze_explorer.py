@@ -38,7 +38,16 @@ class MazeExplorer(Node):
         super().__init__('maze_explorer')
         self.declare_parameter('exploration_bt_xml', '')
         self.declare_parameter('total_timeout_s', 600.0)
-        self.declare_parameter('goal_timeout_s', 90.0)
+        # 90 s foi medido e REPROVADO na rodada 2 (29/08). As metas que
+        # falharam falharam TODAS exatamente em 90,0 s -- o teto, nao um
+        # travamento -- enquanto as bem-sucedidas levaram ate 65 s. Com |vx|
+        # medio de 0,025 m/s e razao de trabalho de 42%, uma meta a 3 m nao
+        # cabe em 90 s, e cada expiracao espuria manda a fronteira para a
+        # blacklist DURA. Foi assim que a rodada 2 morreu: 3 expiracoes viraram
+        # 3 pontos permanentes que engoliram os 4 clusters restantes aos 570 s.
+        # 180 s cabe tres vezes em `total_timeout_s`; o Nav2 ja tem seu proprio
+        # `progress_checker` para o travamento de verdade.
+        self.declare_parameter('goal_timeout_s', 180.0)
         self.declare_parameter('marker_stale_s', 2.0)
         self.declare_parameter('marker_stop_distance_m', 0.7)
         self.declare_parameter('homing_step_m', 0.5)
@@ -94,6 +103,21 @@ class MazeExplorer(Node):
         self._selection_cycle = 0
         self._current: Frontier | None = None
         self._blacklist: list[tuple[float, float]] = []
+        # DUAS listas, porque as duas falhas nao significam a mesma coisa.
+        #
+        # `_blacklist` e dura: o Nav2 recusou a meta, ou a meta expirou. Isso
+        # e falha de EXECUCAO daquela fronteira, e mapa novo nao a desmente.
+        #
+        # `_refused` e provisoria: o planejador nao achou caminho AGORA.
+        # `ExplorationGrid` roda com `allow_unknown: false`, entao toda
+        # fronteira distante e reprovada enquanto o caminho ate ela
+        # atravessar desconhecido -- e e exatamente isso que a exploracao vai
+        # desfazer. Medido na rodada 1 de 29/08: as duas unicas reprovacoes
+        # foram a 2,3 m e 2,7 m do robo, e aposenta-las de vez deixou 3
+        # clusters e 157 celulas de fronteira real sem nenhum candidato
+        # permitido. Reduzir o raio nao ajudaria: o ponto anotado E o
+        # centroide do cluster.
+        self._refused: list[tuple[float, float]] = []
         self._barren_cycles = 0
         self._started_s = 0.0
         self._goal_started_s = 0.0
@@ -119,6 +143,7 @@ class MazeExplorer(Node):
         self._message = 'aguardando mapa, TF e Nav2'
         self._started_s = self._now_s()
         self._blacklist.clear()
+        self._refused.clear()
         self._barren_cycles = 0
         self._homing_failures = 0
         self._release_goal()
@@ -235,7 +260,8 @@ class MazeExplorer(Node):
         #
         # A epoca entra na chave para que iniciar ou cancelar a busca force uma
         # extracao, mesmo que o mapa e a blacklist estejam iguais.
-        key = (self._epoch, self._map_seq, len(self._blacklist))
+        key = (self._epoch, self._map_seq,
+               len(self._blacklist) + len(self._refused))
         if key == self._selection_key:
             # Nada mudou desde o ciclo anterior, entao nao ha o que reextrair --
             # mas tambem nao houve progresso, e ficar aqui e indistinguivel de
@@ -251,10 +277,11 @@ class MazeExplorer(Node):
         self._frontier_clusters = len(frontiers)
         self._frontier_cells = sum(item.cells for item in frontiers)
 
+        suppressed = list(self._blacklist) + list(self._refused)
         frontiers = [item for item in frontiers if not any(
             math.hypot(item.x - x, item.y - y) <= float(
                 self.get_parameter('blacklist_radius_m').value)
-            for x, y in self._blacklist)]
+            for x, y in suppressed)]
         frontiers.sort(key=lambda item: math.hypot(
             item.x - robot[0], item.y - robot[1]))
         self._frontier_count = len(frontiers)
@@ -321,7 +348,7 @@ class MazeExplorer(Node):
             # anotacao, sem trocar de epoca. `len(self._blacklist)` ja faz parte
             # da chave de `_begin_selection`, entao o append sozinho ja forca
             # uma extracao nova no proximo ciclo.
-            self._blacklist.append((frontier.x, frontier.y))
+            self._refused.append((frontier.x, frontier.y))
         self._pending = False
         self._validate_next()
 
@@ -372,6 +399,9 @@ class MazeExplorer(Node):
                 self._blacklist_current(f'fronteira terminou com status {status}')
             else:
                 self._release_goal()
+                # Chegar mudou o mapa, entao toda reprovacao do planejador
+                # anterior a esta chegada esta desatualizada. As duras ficam.
+                self._refused.clear()
                 self._state = 'selecting'
                 self._message = 'fronteira alcancada; atualizando mapa'
         elif status == GoalStatus.STATUS_SUCCEEDED:
@@ -476,6 +506,7 @@ class MazeExplorer(Node):
             'frontier_count': self._frontier_count,
             'goal': goal,
             'blacklisted': len(self._blacklist),
+            'refused': len(self._refused),
             # Custo da busca, para o operador e para o gate de CPU. Estes cinco
             # campos sao aditivos: o cockpit ignora o que nao conhece.
             'frontier_extract_ms': self._frontier_extract_ms,

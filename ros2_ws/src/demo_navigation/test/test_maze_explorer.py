@@ -173,6 +173,13 @@ def _is_blacklisted(node, frontier) -> bool:
                for x, y in node._blacklist)
 
 
+def _is_suppressed(node, frontier) -> bool:
+    """As duas listas juntas, que e o que o filtro de candidatos aplica."""
+    radius = float(node.get_parameter('blacklist_radius_m').value)
+    return any(math.hypot(frontier.x - x, frontier.y - y) <= radius
+               for x, y in list(node._blacklist) + list(node._refused))
+
+
 class _Wrapped:
     """O que `get_result_async()` entrega: status mais o resultado da acao."""
 
@@ -211,7 +218,7 @@ def test_a_frontier_the_planner_refuses_is_retired(node) -> None:
     node._on_path_result(_Future(_Wrapped(GoalStatus.STATUS_ABORTED)),
                          node._epoch, frontier)
 
-    assert _is_blacklisted(node, frontier) is True, (
+    assert _is_suppressed(node, frontier) is True, (
         'fronteira reprovada pelo planejador continua sendo oferecida')
 
 
@@ -251,7 +258,90 @@ def test_a_frontier_the_planner_accepts_is_not_retired(node) -> None:
     wrapped.result = path
     node._on_path_result(_Future(wrapped), node._epoch, frontier)
 
-    assert node._blacklist == []
+    assert node._blacklist == [] and node._refused == []
+
+
+def test_a_planner_refusal_is_provisional_and_lifts_when_the_map_grows(
+        node) -> None:
+    """
+    "Inalcancavel agora" nao e "inalcancavel sempre", e a diferenca e o mapa.
+
+    `ExplorationGrid` roda com `allow_unknown: false`, entao uma fronteira
+    distante e reprovada porque o CAMINHO ate ela atravessa desconhecido -- nao
+    porque a fronteira seja ruim. Medido na rodada 1 (29/08): as duas unicas
+    reprovacoes foram (0.07, 3.20) e (-2.93, 0.15), a 2,3 m e 2,7 m do robo, e
+    aposenta-las de vez matou a metade distante do labirinto. Sobraram 3
+    clusters e 157 celulas de fronteira real com zero candidatos permitidos.
+
+    Reduzir o raio nao resolve: o ponto anotado E o centroide do cluster, entao
+    qualquer raio maior que zero mata o proprio cluster que o gerou. O que tem
+    de mudar e a permanencia.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    far = Frontier(x=-2.93, y=0.15, cells=80, information_gain_m=1.2)
+    node._candidates = [far]
+    node._candidate_index = 1
+
+    node._on_path_result(_Future(_Wrapped(GoalStatus.STATUS_ABORTED)),
+                         node._epoch, far)
+    assert _is_suppressed(node, far) is True
+
+    node._current = Frontier(x=0.0, y=0.5, cells=10, information_gain_m=0.5)
+    node._on_nav_result(_Future(SimpleNamespace(
+        status=GoalStatus.STATUS_SUCCEEDED)), node._epoch, True)
+
+    assert _is_suppressed(node, far) is False, (
+        'chegar a uma meta muda o mapa; a reprovacao anterior tem de expirar')
+
+
+def test_reaching_a_goal_does_not_lift_a_hard_blacklist(node) -> None:
+    """
+    A blacklist dura permanece: ela registra falha de EXECUCAO, nao de mapa.
+
+    Nav2 recusar a meta ou a meta expirar diz algo sobre aquela fronteira que
+    mapa novo nao desmente. Confundir as duas listas traz de volta o livelock
+    da fumaca de 28/08 por outro caminho.
+    """
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._current = Frontier(x=3.0, y=4.0, cells=10, information_gain_m=0.5)
+    node._blacklist_current('meta de fronteira expirou')
+    epoch = node._epoch
+
+    node._current = Frontier(x=0.0, y=0.5, cells=10, information_gain_m=0.5)
+    node._on_nav_result(_Future(SimpleNamespace(
+        status=GoalStatus.STATUS_SUCCEEDED)), epoch, True)
+
+    assert (3.0, 4.0) in node._blacklist
+
+
+def test_the_goal_timeout_leaves_room_for_more_than_one_goal(node) -> None:
+    """
+    O prazo por meta e o prazo total nao sao independentes.
+
+    Curto demais e ele expira metas que estavam progredindo, e cada expiracao
+    manda a fronteira para a blacklist DURA -- foi o que matou a rodada 2, com
+    3 expiracoes engolindo os 4 clusters restantes. Longo demais e uma meta
+    ruim consome a corrida inteira. O piso util e caber pelo menos tres vezes
+    no orcamento total.
+    """
+    goal = float(node.get_parameter('goal_timeout_s').value)
+    total = float(node.get_parameter('total_timeout_s').value)
+    assert goal * 3 <= total, (
+        f'{goal} s por meta nao cabe tres vezes em {total} s de orcamento')
+
+
+def test_the_goal_timeout_clears_the_slowest_traversal_measured(node) -> None:
+    """
+    O teto tem de folgar sobre a travessia mais lenta que ja deu certo.
+
+    Rodada 2, 29/08: a meta bem-sucedida mais lenta levou 65 s, e TODAS as que
+    falharam pararam exatamente em 90,0 s -- o teto, nao um travamento.
+    """
+    slowest_success_s = 65.0
+    assert float(node.get_parameter('goal_timeout_s').value) \
+        >= slowest_success_s * 2.0
 
 
 def test_a_barren_selection_fails_the_run_instead_of_idling(node) -> None:
