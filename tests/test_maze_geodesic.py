@@ -65,16 +65,29 @@ def test_reading_goals_does_not_require_ros(geodesic):
 
 
 def test_robot_radius_matches_the_costmaps(geodesic):
-    """Geodesica erodida por um raio diferente do costmap descreve outro robo."""
+    """Geodesica erodida por um raio menor que o costmap descreve outro robo.
+
+    Desde a promocao do footprint poligonal (29/08/2026) o costmap nao declara
+    mais `robot_radius`; o piso comparavel e o raio CIRCUNSCRITO do poligono
+    (sqrt(0.37^2+0.18^2) ~ 0.411 m), que inclui 0,02 m de margem sobre o tronco
+    medido. A geodesica offline usa o tronco puro (`ROBOT_RADIUS_M`), entao ela
+    tem de ser MENOR OU IGUAL ao raio do costmap -- maior descreveria um robo
+    que o costmap protege menos do que a analise offline assume.
+    """
+    import math
     import yaml
     params = yaml.safe_load(
         (ROOT / 'ros2_ws/src/demo_navigation/config/nav2_params_go2.yaml')
         .read_text(encoding='utf-8'))
     for scope in ('local_costmap', 'global_costmap'):
-        radius = params[scope][scope]['ros__parameters']['robot_radius']
-        assert abs(radius - geodesic.ROBOT_RADIUS_M) < 0.01, (
-            f'{scope}.robot_radius={radius} diverge de '
-            f'ROBOT_RADIUS_M={geodesic.ROBOT_RADIUS_M}')
+        points = ast.literal_eval(
+            params[scope][scope]['ros__parameters']['footprint'])
+        circumscribed = max(math.hypot(x, y) for x, y in points)
+        assert geodesic.ROBOT_RADIUS_M <= circumscribed, (
+            f'{scope} footprint circumscribed radius {circumscribed} is '
+            f'smaller than ROBOT_RADIUS_M={geodesic.ROBOT_RADIUS_M} -- the '
+            'offline geodesic would describe a smaller robot than the '
+            'costmap actually protects')
 
 
 @needs_mesh

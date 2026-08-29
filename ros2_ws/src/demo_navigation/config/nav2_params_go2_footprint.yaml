@@ -1,3 +1,46 @@
+# PROMOVIDO EM CODIGO EM 29/08/2026 — este arquivo agora e byte-equivalente
+# ao arquivo default (`nav2_params_go2.yaml`), enforcado por
+# `tests/test_nav_params_override.py::test_footprint_variant_matches_the_promoted_default`.
+# HIL final sob o default ainda esta PENDENTE.
+#
+# Mantido apenas porque `docker/compose.host.yml`/`compose.module.yml`
+# (`NAV2_PARAMS`), a documentacao de campanha e comandos anteriores
+# (`docs/ml35/implementation-handoff.md`, `docs/results/ml35-f5-exploration-r{5,6}.md`)
+# ainda apontam para `NAV2_PARAMS=.../nav2_params_go2_footprint.yaml`. Nao
+# apague-o enquanto essas referencias existirem; se um dia divergir do default
+# de novo, sera uma segunda variante deliberada, nao um erro de sincronizacao.
+#
+# POR QUE A PEGADA POLIGONAL EXISTE (historico, ver o item 2 do cabecalho
+# abaixo e `docs/results/ml35-f5-footprint-ab.md` para a medicao completa)
+#
+# Em 29/08/2026 a rodada 4b mediu a celula do proprio robo no global_costmap
+# valendo 253 (INSCRIBED_INFLATED_OBSTACLE). O NavFn recusa planejar a partir
+# de um inicio em 253 ou acima, seja qual for a meta, e o explorador registrava
+# essa recusa contra a FRONTEIRA em vez de contra a POSE. Evidencia completa em
+# docs/results/ml35-f5-exploration-r4b.md.
+#
+# Causa geometrica: corredor de 1,20 m contra `robot_radius` 0,38 (o raio
+# CIRCUNSCRITO de um tronco de 0,31 m de largura) deixa 1,20 - 0,76 = 0,44 m
+# planejaveis, ou seja +/- 0,22 m da linha de centro. Um quadrupede caminhando
+# oscila mais do que isso.
+#
+# `robot_radius: 0.38` virou uma pegada retangular 0,74 x 0,36 nos DOIS
+# costmaps. O raio inscrito cai de 0,38 para 0,18, e a largura planejavel sobe
+# para 1,20 - 0,36 = 0,84 m, ou +/- 0,42 m.
+#
+# `CostCritic.consider_footprint` CONTINUA false de proposito. Com a pegada
+# declarada a precondicao dele passa a estar satisfeita (sem poligono publicado
+# ele derruba o container com SIGSEGV), mas liga-lo seria uma SEGUNDA variavel
+# comportamental na mesma promocao. Ele e o proximo experimento, nao este.
+#
+# O collision_monitor le `/local_costmap/published_footprint`, que passa a
+# publicar o retangulo em vez do circulo. Validar a pegada publicada e o
+# comportamento do monitor ANTES de mover o robo em HIL.
+#
+# Se este caminho travar, gerar inconsistencia no collision monitor ou regredir
+# o portao curto: reverter e testar o cenario em escala 0,0025 (corredor 1,50 m,
+# +/- 0,37 m), ja medido em docs/results/ml35-labirinto.md.
+#
 # Parametros do Nav2 para o QUADRUPEDE Go2 (ML3.5 F5).
 #
 # Derivado de nav2_params.yaml, que e do TurtleBot 4 e continua valendo para o
@@ -17,16 +60,12 @@
 # de licenca (ver o README dele), entao o nome do frame e dado.  Quem cede e este
 # arquivo, que e do projeto.
 #
-# 2. robot_radius: 0.18 (TB4) -> pegada poligonal [+/-0.37, +/-0.18] (Go2)
+# 2. robot_radius: 0.18 -> 0.38
 #
-# O tronco do Go2 tem ~0,70 x 0,31 m. Ate 29/08/2026 este arquivo usava
-# `robot_radius: 0.38`, o raio CIRCUNSCRITO (sqrt(0.35^2 + 0.155^2) = 0.383).
-# Promovido em codigo para a pegada retangular real, medida em
-# `docs/results/ml35-f5-footprint-ab.md` como `nav2_params_go2_footprint.yaml` --
-# ver a nota no bloco `footprint` de cada costmap abaixo para os numeros e o
-# estado da validacao HIL. Nao baixe a pegada pensando em passar em vao mais
-# estreito: as PERNAS varrem para fora do tronco durante o trote, e uma forma
-# menor que o tronco planeja caminho que a perna nao cabe.
+# O tronco do Go2 tem ~0,70 x 0,31 m.  O raio circunscrito e
+# sqrt(0.35^2 + 0.155^2) = 0.383.  Nao baixe isso pensando em passar em vao mais
+# estreito: as PERNAS varrem para fora do tronco durante o trote, e um raio menor
+# que o circunscrito planeja caminho que a perna nao cabe.
 #
 # 3. Fonte de obstaculo: /demo/scan (LaserScan) -> /demo/scan_cloud (PointCloud2)
 #
@@ -533,27 +572,26 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        # STAYS false on purpose, even now that both costmaps publish a
-        # footprint polygon instead of robot_radius.
+        # MUST stay false while the costmaps use robot_radius.
         #
         # consider_footprint: true makes the critic do polygon collision checks
-        # against the costmap's footprint. Before the footprint promotion, both
-        # costmaps declared robot_radius (a circle) and never published a
-        # polygon, so the critic dereferenced an empty one and the whole
-        # nav2_container died with SIGSEGV a few ms after "Created controller :
-        # MPPIController" (Nav2 warns first — "Inconsistent configuration in
-        # collision checking. Please verify the robot's shape settings in both
-        # the costmap and the cost critic" — and then crashes; that warning is
-        # the only hint, and it does not name this parameter). That precondition
-        # for the crash no longer holds, but enabling this now would be a
-        # SECOND behavioural variable riding on the same promotion — the
-        # footprint change is measured in `docs/results/ml35-f5-footprint-ab.md`
-        # on its own; consider_footprint is the next experiment, not this one.
+        # against the costmap's footprint. Both costmaps here declare
+        # robot_radius (a circle) and never publish a footprint polygon, so the
+        # critic dereferences an empty polygon and the whole nav2_container dies
+        # with SIGSEGV a few ms after "Created controller : MPPIController".
+        #
+        # Nav2 warns first — "Inconsistent configuration in collision checking.
+        # Please verify the robot's shape settings in both the costmap and the
+        # cost critic" — and then crashes. That warning is the only hint, and it
+        # does not name this parameter.
         #
         # With false, the critic samples costmap cell cost at the trajectory
-        # points instead; the inflation gradient (0.55 local / 0.85 global,
-        # both above the polygon's 0.411 m circumscribed radius) does the
-        # standoff work.
+        # points instead. For a round 0.38 m robot whose inflation_radius (0.55)
+        # already exceeds the footprint that is the correct model anyway; the
+        # inflation gradient does the standoff work.
+        #
+        # To turn this on, first replace robot_radius with an explicit footprint
+        # polygon in BOTH costmaps.
         consider_footprint: false
         collision_cost: 1000000.0
         near_goal_distance: 1.0
@@ -606,23 +644,13 @@ local_costmap:
       width: 6
       height: 6
       resolution: 0.05
-      # PEGADA POLIGONAL, PROMOVIDA EM CODIGO EM 29/08/2026; HIL FINAL PENDENTE.
-      #
-      # Substitui o circulo circunscrito (`robot_radius: 0.38`, sqrt(0.35^2 +
-      # 0.155^2) = 0.383) pelo retangulo real do tronco (0,70 x 0,31 m, com
-      # 0,02 m de margem por lado). O que muda de fato e o raio INSCRITO, que
-      # cai de 0,38 para 0,18: a faixa 253 (INSCRIBED_INFLATED_OBSTACLE) encolhe
-      # na mesma proporcao. Raio circunscrito da pegada: sqrt(0.37^2 + 0.18^2) =
-      # 0.411, ainda abaixo dos inflation_radius dos dois costmaps (0,55 e
-      # 0,85), entao a regra "inflacao nao pode ser menor que a pegada" continua
-      # valendo.
-      #
-      # Medido em `docs/results/ml35-f5-footprint-ab.md`: A/B de 150 s HIL,
-      # unica variavel a forma do robo. Custo mediano/maximo na celula do
-      # proprio robo caiu de 168/243 (circulo) para 135/165 (poligono), e a
-      # fracao de amostras no limiar fatal 253 caiu de 7,1% para 0,0%. Nao
-      # promovido antes por falta de medicao; a promocao em codigo ainda
-      # aguarda uma corrida HIL confirmando a mesma folga sob o default.
+      # EXPERIMENTO: pegada retangular em vez do circulo circunscrito.
+      # O tronco e 0,70 x 0,31 m; 0,74 x 0,36 da uma margem de 2 cm por lado.
+      # O que muda de verdade e o raio INSCRITO, que passa de 0,38 para 0,18:
+      # a faixa 253 (INSCRIBED_INFLATED_OBSTACLE) encolhe na mesma proporcao.
+      # Raio circunscrito da pegada: sqrt(0.37^2 + 0.18^2) = 0.411, ainda
+      # abaixo dos inflation_radius dos dois costmaps (0,55 e 0,85), entao a
+      # regra "inflacao nao pode ser menor que a pegada" continua valendo.
       footprint: "[ [0.37, 0.18], [0.37, -0.18], [-0.37, -0.18], [-0.37, 0.18] ]"
       # perception_layer sits between obstacles and inflation so that
       # detections are inflated like any other obstacle.

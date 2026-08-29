@@ -289,8 +289,8 @@ controller_server:
       # 0,12 rad/s de guinada, qualquer coisa mais apertada reprova manobra
       # legitima. O que este verificador ainda pega e o caso real de robo
       # ENCALHADO, que a 0,005 m/s nao passa.
-      required_movement_radius: 0.20
-      movement_time_allowance: 40.0
+      required_movement_radius: 0.30
+      movement_time_allowance: 25.0
 
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
@@ -514,26 +514,8 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        # MUST stay false while the costmaps use robot_radius.
-        #
-        # consider_footprint: true makes the critic do polygon collision checks
-        # against the costmap's footprint. Both costmaps here declare
-        # robot_radius (a circle) and never publish a footprint polygon, so the
-        # critic dereferences an empty polygon and the whole nav2_container dies
-        # with SIGSEGV a few ms after "Created controller : MPPIController".
-        #
-        # Nav2 warns first — "Inconsistent configuration in collision checking.
-        # Please verify the robot's shape settings in both the costmap and the
-        # cost critic" — and then crashes. That warning is the only hint, and it
-        # does not name this parameter.
-        #
-        # With false, the critic samples costmap cell cost at the trajectory
-        # points instead. For a round 0.38 m robot whose inflation_radius (0.55)
-        # already exceeds the footprint that is the correct model anyway; the
-        # inflation gradient does the standoff work.
-        #
-        # To turn this on, first replace robot_radius with an explicit footprint
-        # polygon in BOTH costmaps.
+        # STAYS false. See the note in nav2_params_go2.yaml -- enabling it is a
+        # second, unmeasured variable, separate from the footprint promotion.
         consider_footprint: false
         collision_cost: 1000000.0
         near_goal_distance: 1.0
@@ -586,9 +568,9 @@ local_costmap:
       width: 6
       height: 6
       resolution: 0.05
-      # Raio circunscrito do tronco do Go2 (0,70 x 0,31 m):
-      # sqrt(0.35^2 + 0.155^2) = 0.383. Ver o item 2 do cabecalho.
-      robot_radius: 0.38
+      # Pegada poligonal, promovida junto com nav2_params_go2.yaml em
+      # 29/08/2026 -- ver a nota completa la.
+      footprint: "[ [0.37, 0.18], [0.37, -0.18], [-0.37, -0.18], [-0.37, 0.18] ]"
       # perception_layer sits between obstacles and inflation so that
       # detections are inflated like any other obstacle.
       plugins: ["obstacle_layer", "perception_layer", "inflation_layer"]
@@ -716,8 +698,8 @@ global_costmap:
       publish_frequency: 1.0
       global_frame: map
       robot_base_frame: base
-      # Same value as the local costmap — see the note there.
-      robot_radius: 0.38
+      # Same polygon as the local costmap — see the note there.
+      footprint: "[ [0.37, 0.18], [0.37, -0.18], [-0.37, -0.18], [-0.37, 0.18] ]"
       # 10 cm, e NAO os 5 cm do costmap local. Ver o bloco da janela abaixo: as
       # duas coisas mudaram juntas e uma sem a outra e o caso ruim.
       resolution: 0.10

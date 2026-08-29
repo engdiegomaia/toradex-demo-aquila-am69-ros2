@@ -1,3 +1,5 @@
+import ast
+import math
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -63,17 +65,20 @@ def test_local_costmap_keeps_five_centimetre_cells():
         assert costmap['height'] == 6, name
 
 
-def test_global_costmap_inflation_still_clears_the_robot_radius():
+def test_global_costmap_inflation_still_clears_the_robot_footprint():
     # `inflation_radius` NAO faz parte desta rodada A/B; esta aqui porque 10 cm
-    # por celula so e seguro enquanto a inflacao seguir maior que o raio do
+    # por celula so e seguro enquanto a inflacao seguir maior que a pegada do
     # robo, e com folga de mais de uma celula. 0.85 e o valor do costmap GLOBAL
-    # (o 0.55 e o do local) -- a 10 cm dao 8,5 celulas para um robo de 0,38 m.
+    # (o 0.55 e o do local). Desde a promocao do footprint poligonal
+    # (29/08/2026) a forma e um retangulo, nao um circulo; o piso comparavel e
+    # o raio CIRCUNSCRITO do poligono (sqrt(0.37^2+0.18^2) ~ 0.411 m).
     for name in ('nav2_params_go2.yaml', 'params-align8.yaml'):
         costmap = _costmap(name, 'global_costmap')
         radius = costmap['inflation_layer']['inflation_radius']
         assert radius == 0.85, name
-        assert costmap['robot_radius'] == 0.38, name
-        assert (radius - costmap['robot_radius']) > costmap['resolution'], name
+        points = ast.literal_eval(costmap['footprint'])
+        circumscribed = max(math.hypot(x, y) for x, y in points)
+        assert (radius - circumscribed) > costmap['resolution'], name
 
 
 def test_starting_is_a_cockpit_state_and_never_a_ros_one():
