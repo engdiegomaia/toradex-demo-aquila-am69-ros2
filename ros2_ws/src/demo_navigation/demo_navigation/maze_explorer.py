@@ -50,10 +50,31 @@ class MazeExplorer(Node):
         #
         # O que continua errado e a PERMANENCIA: uma meta que expira vai para a
         # blacklist dura e nunca volta. Ver docs/results/ml35-f5-exploration-r3.md.
-        self.declare_parameter('goal_timeout_s', 90.0)
+        # Medido em R5 (arm B, 21 metas): as 12 metas que deram certo levaram
+        # 6,1-35,1 s; as 3 que estouraram gastaram 90,0 s cada, 270 s de um
+        # orcamento de 600 s. 45 s cobre a pior meta boa com 28% de margem e
+        # corta pela metade o custo de cada meta travada.
+        self.declare_parameter('goal_timeout_s', 45.0)
         self.declare_parameter('marker_stale_s', 2.0)
         self.declare_parameter('marker_stop_distance_m', 0.7)
+        # Espelha `xy_goal_tolerance` do `general_goal_checker` do Nav2. Serve
+        # para nao comandar passo que o controlador nao distingue de zero;
+        # um teste de contrato mantem os dois valores iguais.
+        self.declare_parameter('nav_goal_tolerance_m', 0.25)
         self.declare_parameter('homing_step_m', 0.5)
+        # Orcamento da aproximacao as cegas. `marker_stale_s` diz quando o
+        # marcador deixou de ser visto; este diz por quanto tempo ainda vale
+        # caminhar ate a pose ja travada. Sem ele o homing desistia na
+        # primeira parede que cortava a visada -- 0 de 11 aproximacoes em campo.
+        self.declare_parameter('homing_persistence_s', 90.0)
+        # Portao de ENTRADA, dimensionado com as 131 amostras de R7 contra o
+        # marcador do SDF: o erro absoluto medio da estimativa e 0,41 m na faixa
+        # 3-4 m, 1,14 m em 4-6 m e 3,08 m acima de 6 m. R7 comprometeu-se a
+        # 7,35 m e a aproximacao, agora persistente, prendeu a corrida 520 s.
+        self.declare_parameter('homing_max_distance_m', 4.0)
+        # Histerese: a estimativa oscilou de 1,27 a 7,94 m na mesma corrida, e
+        # uma amostra unica nao pode cancelar a exploracao.
+        self.declare_parameter('homing_confirm_observations', 3)
         self.declare_parameter('blacklist_radius_m', 0.75)
         # Ciclos CONSECUTIVOS de selecao sem nenhum candidato viavel antes
         # de declarar falha. Existe porque aposentar fronteiras reprovadas
@@ -144,6 +165,18 @@ class MazeExplorer(Node):
         # centroide do cluster.
         self._refused: list[tuple[float, float]] = []
         self._timed_out: list[tuple[float, float]] = []
+        # If provisional suppression covers every otherwise usable frontier,
+        # release it once. A second dead end before real navigation progress
+        # must count as barren instead of creating a refuse/release livelock.
+        self._provisional_recovery_used = False
+        self._provisional_recoveries = 0
+        # Keep the raw visual candidate separate from the pose accepted for
+        # homing. R7 measured estimates swinging from 1.27 to 7.94 m; a later
+        # partial view must not overwrite a target which already passed the
+        # entry gate.
+        self._marker_distance_m: float | None = None
+        self._homing_entry_distance_m: float | None = None
+        self._homing_entries = 0
         self._barren_cycles = 0
         self._started_s = 0.0
         self._goal_started_s = 0.0
@@ -153,9 +186,15 @@ class MazeExplorer(Node):
         self._candidates: list[Frontier] = []
         self._candidate_index = 0
         self._best: tuple[float, Frontier] | None = None
+        self._exit_candidate_pose_map: tuple[float, float] | None = None
         self._exit_pose_map: tuple[float, float] | None = None
         self._exit_seen_s = 0.0
+        self._last_exit_observation: tuple[str, int] | None = None
+        self._marker_observations = 0
         self._homing_failures = 0
+        self._marker_far_ignored = 0
+        self._near_marker_streak = 0
+        self._homing_abandons = 0
         self.create_timer(1.0, self._tick)
         self._publish_status()
 
@@ -171,8 +210,21 @@ class MazeExplorer(Node):
         self._blacklist.clear()
         self._refused.clear()
         self._timed_out.clear()
+        self._provisional_recovery_used = False
+        self._provisional_recoveries = 0
+        self._marker_distance_m = None
+        self._homing_entry_distance_m = None
+        self._exit_candidate_pose_map = None
+        self._exit_pose_map = None
+        self._exit_seen_s = 0.0
+        self._last_exit_observation = None
+        self._marker_observations = 0
+        self._homing_entries = 0
         self._barren_cycles = 0
         self._homing_failures = 0
+        self._marker_far_ignored = 0
+        self._near_marker_streak = 0
+        self._homing_abandons = 0
         self._release_goal()
         if self._nav_cancel_client.service_is_ready():
             # Empty goal_info means every active NavigateToPose goal.  Starting
@@ -215,11 +267,62 @@ class MazeExplorer(Node):
         )
         cosine, sine = math.cos(yaw), math.sin(yaw)
         x, y = message.pose.position.x, message.pose.position.y
-        self._exit_pose_map = (
+        candidate = (
             translation.x + cosine * x - sine * y,
             translation.y + sine * x + cosine * y,
         )
+        stamp_ns = message.header.stamp.sec * 1_000_000_000 \
+            + message.header.stamp.nanosec
+        observation = (message.header.frame_id, stamp_ns)
+        if observation == self._last_exit_observation:
+            return
+        self._last_exit_observation = observation
+        self._marker_observations += 1
+        self._exit_candidate_pose_map = candidate
         self._exit_seen_s = self._now_s()
+        self._marker_distance_m = self._distance_to_pose(candidate)
+
+        # Count camera observations here, not timer cycles. A pose remains
+        # fresh across several `_tick` calls; counting there allowed a single
+        # bad frame to satisfy all three confirmations.
+        if self._state not in {'waiting_map', 'selecting', 'navigating'} \
+                or self._marker_distance_m is None:
+            return
+        if self._marker_distance_m > float(
+                self.get_parameter('homing_max_distance_m').value):
+            self._near_marker_streak = 0
+            self._marker_far_ignored += 1
+            return
+        self._near_marker_streak += 1
+        if self._near_marker_streak < int(
+                self.get_parameter('homing_confirm_observations').value):
+            return
+
+        self._exit_pose_map = candidate
+        self._homing_entry_distance_m = self._marker_distance_m
+        self._homing_entries += 1
+        self._epoch += 1
+        self._cancel_goal()
+        self._state = 'homing_exit'
+        self._message = 'marcador da saida detectado'
+        self._near_marker_streak = 0
+        # Preserve the exact entry event for a slower external recorder.
+        self._publish_status()
+
+    def _distance_to_pose(
+        self, target: tuple[float, float] | None,
+    ) -> float | None:
+        """Return robot-to-target map distance, or None without target/TF."""
+        if target is None:
+            return None
+        robot = self._robot_pose()
+        if robot is None:
+            return None
+        return round(math.hypot(target[0] - robot[0], target[1] - robot[1]), 2)
+
+    def _distance_to_exit(self) -> float | None:
+        """Return distance to the accepted homing target, if one exists."""
+        return self._distance_to_pose(self._exit_pose_map)
 
     def _tick(self) -> None:
         if self._state not in {'waiting_map', 'selecting', 'navigating', 'homing_exit'}:
@@ -230,13 +333,11 @@ class MazeExplorer(Node):
                 self.get_parameter('total_timeout_s').value):
             self._fail('prazo total de exploracao excedido')
             return
-        marker_fresh = self._exit_pose_map is not None and now - self._exit_seen_s \
-            <= float(self.get_parameter('marker_stale_s').value)
-        if marker_fresh and self._state != 'homing_exit':
-            self._epoch += 1
-            self._cancel_goal()
-            self._state = 'homing_exit'
-            self._message = 'marcador da saida detectado'
+        marker_fresh = self._exit_candidate_pose_map is not None \
+            and now - self._exit_seen_s <= float(
+                self.get_parameter('marker_stale_s').value)
+        self._marker_distance_m = self._distance_to_pose(
+            self._exit_candidate_pose_map)
 
         if self._state == 'waiting_map':
             if self._map is not None and self._robot_pose() is not None \
@@ -252,11 +353,19 @@ class MazeExplorer(Node):
                 self._timeout_current('meta de fronteira expirou')
         elif self._state == 'homing_exit' and not self._pending \
                 and self._goal_handle is None:
-            if not marker_fresh:
+            if marker_fresh:
+                self._send_homing_step()
+            elif now - self._exit_seen_s <= float(
+                    self.get_parameter('homing_persistence_s').value):
+                # A saida ja esta travada em `_exit_pose_map`; a visada servia
+                # para aprende-la, nao para chegar la. Segue as cegas.
+                self._send_homing_step(blind=True)
+            else:
+                self._homing_abandons += 1
                 self._state = 'selecting'
                 self._message = 'marcador perdido; retomando fronteiras'
-            else:
-                self._send_homing_step()
+                self._exit_pose_map = None
+                self._near_marker_streak = 0
         self._publish_status()
 
     def _grid(self) -> Grid | None:
@@ -305,12 +414,12 @@ class MazeExplorer(Node):
         self._frontier_clusters = len(frontiers)
         self._frontier_cells = sum(item.cells for item in frontiers)
 
-        suppressed = (list(self._blacklist) + list(self._refused)
-                      + list(self._timed_out))
+        # Apply permanent and geometric exclusions first. This intermediate
+        # set tells whether provisional suppression alone caused a dead end.
         frontiers = [item for item in frontiers if not any(
             math.hypot(item.x - x, item.y - y) <= float(
                 self.get_parameter('blacklist_radius_m').value)
-            for x, y in suppressed)]
+            for x, y in self._blacklist)]
         # Depois da supressao e ANTES da ordenacao: a ordenacao e por
         # proximidade, entao sem este corte a fronteira degenerada seria sempre
         # a primeira candidata.
@@ -319,7 +428,25 @@ class MazeExplorer(Node):
         reachable = [item for item in frontiers if math.hypot(
             item.x - robot[0], item.y - robot[1]) >= near_limit]
         self._near_skipped = len(frontiers) - len(reachable)
-        frontiers = reachable
+        provisional = list(self._refused) + list(self._timed_out)
+        frontiers = [item for item in reachable if not any(
+            math.hypot(item.x - x, item.y - y) <= float(
+                self.get_parameter('blacklist_radius_m').value)
+            for x, y in provisional)]
+
+        # R4a ended with real clusters but zero permitted candidates: every
+        # cluster was covered by provisional entries whose only release event
+        # was reaching another frontier. Break that circular dependency once.
+        # If the retried frontiers fail again before a successful arrival, the
+        # normal barren limit terminates the run instead of clearing forever.
+        if reachable and not frontiers and provisional \
+                and not self._provisional_recovery_used:
+            self._refused.clear()
+            self._timed_out.clear()
+            self._provisional_recovery_used = True
+            self._provisional_recoveries += 1
+            frontiers = reachable
+            self._message = 'released provisional frontier suppressions'
         frontiers.sort(key=lambda item: math.hypot(
             item.x - robot[0], item.y - robot[1]))
         self._frontier_count = len(frontiers)
@@ -446,6 +573,7 @@ class MazeExplorer(Node):
                 # blacklist dura fica.
                 self._refused.clear()
                 self._timed_out.clear()
+                self._provisional_recovery_used = False
                 self._state = 'selecting'
                 self._message = 'fronteira alcancada; atualizando mapa'
         elif status == GoalStatus.STATUS_SUCCEEDED:
@@ -455,7 +583,7 @@ class MazeExplorer(Node):
         else:
             self._homing_failed(f'aproximacao terminou com status {status}')
 
-    def _send_homing_step(self) -> None:
+    def _send_homing_step(self, blind: bool = False) -> None:
         robot = self._robot_pose()
         target = self._exit_pose_map
         if robot is None or target is None:
@@ -463,11 +591,21 @@ class MazeExplorer(Node):
         dx, dy = target[0] - robot[0], target[1] - robot[1]
         distance = math.hypot(dx, dy)
         stop = float(self.get_parameter('marker_stop_distance_m').value)
-        if distance <= stop:
+        # O que falta pode ser menor que a tolerancia de chegada do Nav2. Nesse
+        # caso a meta seria satisfeita sem o robo andar, o explorador veria a
+        # distancia inalterada e mandaria de novo -- 94 s parado a 0,75 m em R6.
+        # Faltando menos que a tolerancia, ja se chegou.
+        tolerance = float(self.get_parameter('nav_goal_tolerance_m').value)
+        if distance - stop <= tolerance + 1e-9:
             self._state = 'completed'
             self._message = 'marcador alcancado; aguardando confirmacao de cruzamento'
             return
-        step = min(float(self.get_parameter('homing_step_m').value), distance - stop)
+        # Com marcador fresco o passo curto reaproveita cada nova deteccao para
+        # corrigir a mira. As cegas nao ha o que corrigir, e uma sequencia de
+        # retas de 0,5 m so da ao planejador paredes para recusar: manda uma
+        # meta unica e deixa o Nav2 contornar.
+        step = distance - stop if blind else min(
+            float(self.get_parameter('homing_step_m').value), distance - stop)
         ratio = step / distance
         frontier = Frontier(
             robot[0] + dx * ratio, robot[1] + dy * ratio, 0, 0.0)
@@ -480,6 +618,8 @@ class MazeExplorer(Node):
             self._state = 'selecting'
             self._message = f'{message}; retomando exploracao'
             self._homing_failures = 0
+            self._exit_pose_map = None
+            self._near_marker_streak = 0
         else:
             self._state = 'homing_exit'
             self._message = message
@@ -570,12 +710,34 @@ class MazeExplorer(Node):
             'path_requests': self._path_requests,
             'selection_cycle': self._selection_cycle,
             'near_frontiers_skipped': self._near_skipped,
+            'provisional_recoveries': self._provisional_recoveries,
             'barren_cycles': self._barren_cycles,
             'marker_visible': (
-                self._exit_pose_map is not None
+                self._exit_candidate_pose_map is not None
                 and now - self._exit_seen_s <= float(
                     self.get_parameter('marker_stale_s').value)
             ),
+            # The raw candidate and the accepted/latching homing target are
+            # separate so a partial view cannot silently move the target.
+            'marker_distance_m': self._marker_distance_m,
+            'marker_observations': self._marker_observations,
+            'marker_confirmations': self._near_marker_streak,
+            'marker_candidate_x': (
+                None if self._exit_candidate_pose_map is None
+                else round(self._exit_candidate_pose_map[0], 3)),
+            'marker_candidate_y': (
+                None if self._exit_candidate_pose_map is None
+                else round(self._exit_candidate_pose_map[1], 3)),
+            'marker_accepted_x': (
+                None if self._exit_pose_map is None
+                else round(self._exit_pose_map[0], 3)),
+            'marker_accepted_y': (
+                None if self._exit_pose_map is None
+                else round(self._exit_pose_map[1], 3)),
+            'homing_entry_distance_m': self._homing_entry_distance_m,
+            'homing_entries': self._homing_entries,
+            'homing_abandons': self._homing_abandons,
+            'marker_far_ignored': self._marker_far_ignored,
             'message': self._message,
         }
         self._status_pub.publish(String(

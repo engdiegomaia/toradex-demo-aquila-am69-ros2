@@ -1,0 +1,25 @@
+goal_index,goal_x,goal_y,phase,sent_sim_s,elapsed_s,outcome,nav2_status,message
+0,-0.132,0.691,exploration,105.011,6.13,ok,4,fronteira alcancada; atualizando mapa
+1,0.018,2.291,exploration,112.003,11.08,ok,4,fronteira alcancada; atualizando mapa
+2,-0.132,0.691,exploration,124.009,31.094,ok,4,fronteira alcancada; atualizando mapa
+3,-1.282,0.191,exploration,156.009,44.994,failed,,meta de fronteira expirou
+4,-3.313,0.407,exploration,203.014,17.06,ok,4,fronteira alcancada; atualizando mapa
+5,-2.996,1.724,exploration,221.014,18.17,ok,4,fronteira alcancada; atualizando mapa
+6,-1.637,2.224,exploration,240.003,20.225,ok,4,fronteira alcancada; atualizando mapa
+7,-1.937,3.124,exploration,261.006,19.291,ok,4,fronteira alcancada; atualizando mapa
+8,-4.637,1.724,exploration,281.007,31.01,failed,,aproximando marcador da saida
+9,-2.743,1.235,homing,312.017,0.99,failed,,aproximando marcador da saida
+10,-2.788,1.228,homing,313.007,6.999,failed,,aproximando marcador da saida
+11,-3.558,0.014,homing,320.006,14.0,failed,,aproximando marcador da saida
+12,-3.693,0.061,homing,334.006,4.004,failed,,aproximando marcador da saida
+13,-3.683,0.058,homing,338.01,1.006,failed,,aproximando marcador da saida
+14,-3.684,0.059,homing,339.016,60.993,failed,,aproximando marcador da saida
+15,-3.685,0.059,homing,400.009,6.998,failed,,marcador perdido; retomando fronteiras
+16,-2.987,0.474,exploration,409.013,44.996,failed,,meta de fronteira expirou
+17,-2.037,5.524,exploration,456.007,45.002,failed,,meta de fronteira expirou
+18,-1.937,3.824,exploration,503.011,22.058,ok,4,fronteira alcancada; atualizando mapa
+19,-1.587,5.274,exploration,526.02,11.083,ok,4,fronteira alcancada; atualizando mapa
+20,-0.237,5.624,exploration,538.007,45.004,failed,,meta de fronteira expirou
+21,-0.887,5.024,exploration,585.006,45.005,failed,,meta de fronteira expirou
+22,-4.337,1.624,exploration,632.008,45.001,failed,,meta de fronteira expirou
+23,-0.237,5.874,exploration,679.009,23.999,failed,,prazo total de exploracao excedido

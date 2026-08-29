@@ -142,3 +142,24 @@ Behind it, unchanged: R4b (measure real displacement before clearing `_barren_cy
 is still not triggered — no success-without-movement occurred in this run. The homing
 entry threshold is still not reachable, since exploration has not reached the marker
 again. `frontier_extract_ms` breached its criterion once more at 146.9 ms.
+
+## 8. Follow-up implemented — field execution pending
+
+The deadlock recovery described in §7 is implemented after this run. When real
+frontiers survive the hard blacklist and the near-goal filter, but all of them are
+covered by `_refused` or `_timed_out`, the explorer now:
+
+1. clears only the two provisional collections;
+2. retries the already extracted frontier set immediately;
+3. records `provisional_recoveries` in the status;
+4. refuses to perform a second recovery until an exploration goal succeeds.
+
+The fourth rule is essential. Clearing provisional entries on every selection would
+create a refusal–release livelock. If the retried frontiers are suppressed again before
+real navigation progress, subsequent empty selections increment `barren_cycles` and
+retain the existing bounded failure behavior. The hard blacklist is never cleared by
+this recovery.
+
+Automated validation: 61 `demo_navigation` tests and 241 root contract tests pass.
+No new HIL run has been executed, so this section is implementation evidence only and
+must not be read as field acceptance.
