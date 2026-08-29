@@ -62,11 +62,20 @@ def camera_info(fx: float = 40.0) -> CameraInfo:
 
 @pytest.fixture
 def node():
-    """Detector com stride 1 e as saídas capturadas em vez de publicadas."""
+    """
+    Detector com stride 1 e as saídas capturadas em vez de publicadas.
+
+    `detector_backend` fixado em 'magenta' porque este arquivo testa
+    especificamente o portão de confirmação e a geometria do painel magenta
+    (`test_maze_exit_detector.py` cobre o backend fiducial); o default do nó
+    mudou para 'fiducial' quando a tag foi adicionada.
+    """
     rclpy.init()
     detector = MazeExitDetector()
-    detector.set_parameters([Parameter('sample_stride',
-                                       Parameter.Type.INTEGER, 1)])
+    detector.set_parameters([
+        Parameter('sample_stride', Parameter.Type.INTEGER, 1),
+        Parameter('detector_backend', Parameter.Type.STRING, 'magenta'),
+    ])
     detector.detections = []
     detector.poses = []
     detector._detections_pub.publish = detector.detections.append

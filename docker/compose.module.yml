@@ -83,6 +83,13 @@ x-common: &common
     # Read-only: the interpreter cannot write __pycache__ here and does not
     # need to — it falls back to not caching bytecode, silently and harmlessly.
     - ./ros2_ws/src/demo_navigation/demo_navigation:/ws/src/demo_navigation/demo_navigation:ro
+    # Same trick again for the maze-exit detector, added 29/08/2026. R6 measured
+    # the published exit pose at 0.478 of the true range over 12 samples, so the
+    # detector is now the file that changes every round -- and it lives in the
+    # arm64 perception image, whose rebuild runs under QEMU. Mounting it makes a
+    # detector edit cost a sync plus a container restart, exactly like the
+    # explorer above, with the same no-divergence argument.
+    - ./ros2_ws/src/demo_perception/demo_perception:/ws/src/demo_perception/demo_perception:ro
 
 services:
   nav:
