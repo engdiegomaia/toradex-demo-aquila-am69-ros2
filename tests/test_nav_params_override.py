@@ -8,6 +8,7 @@ sentinel which the selector also interprets as "use the robot default".
 from __future__ import annotations
 
 import ast
+import math
 from pathlib import Path
 
 import yaml
@@ -21,6 +22,12 @@ NAV_CAMPAIGN = ROOT / 'scripts/nav_campaign.py'
 NAV_ROADMAP = ROOT / 'docs/ml35/proximos-passos-navegacao.md'
 GO2_PARAMS = ROOT / 'ros2_ws/src/demo_navigation/config/nav2_params_go2.yaml'
 ALIGN8_PARAMS = ROOT / 'ros2_ws/src/demo_navigation/config/params-align8.yaml'
+FOOTPRINT_PARAMS = (
+    ROOT / 'ros2_ws/src/demo_navigation/config/nav2_params_go2_footprint.yaml')
+
+# Tronco do Go2, medido: 0,70 x 0,31 m.
+TRUNK_LENGTH_M = 0.70
+TRUNK_WIDTH_M = 0.31
 
 
 def _tree() -> ast.Module:
@@ -91,3 +98,95 @@ def test_align8_changes_only_the_path_alignment_weight() -> None:
 
     cursor[path[-1]] = 14.0
     assert align8 == baseline
+
+
+def _costmap_params(document: dict, name: str) -> dict:
+    return document[name][name]['ros__parameters']
+
+
+def test_footprint_variant_matches_the_promoted_default() -> None:
+    """
+    The footprint experiment was promoted into the default on 29/08/2026
+    (`docs/results/ml35-f5-footprint-ab.md`; HIL under the new default still
+    PENDING).
+
+    `nav2_params_go2_footprint.yaml` is kept only because Compose, docs and
+    prior campaign commands still reference `NAV2_PARAMS=...footprint.yaml`;
+    it must describe the exact same robot as the default now, not a second
+    shape. If this fails, the two files drifted apart again.
+    """
+    baseline = yaml.safe_load(GO2_PARAMS.read_text(encoding='utf-8'))
+    variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
+
+    assert variant == baseline
+
+
+def test_default_uses_the_footprint_polygon_not_a_circle() -> None:
+    """Promoted 29/08/2026: the default no longer ships `robot_radius`."""
+    baseline = yaml.safe_load(GO2_PARAMS.read_text(encoding='utf-8'))
+    for name in ('local_costmap', 'global_costmap'):
+        params = _costmap_params(baseline, name)
+        assert 'footprint' in params, name
+        assert 'robot_radius' not in params, name
+
+
+def test_local_and_global_costmaps_share_the_same_default_footprint() -> None:
+    baseline = yaml.safe_load(GO2_PARAMS.read_text(encoding='utf-8'))
+    local = _costmap_params(baseline, 'local_costmap')['footprint']
+    glob = _costmap_params(baseline, 'global_costmap')['footprint']
+    assert local == glob
+
+
+def test_footprint_variant_never_declares_a_radius_beside_the_polygon() -> None:
+    """
+    `robot_radius` e `footprint` juntos deixam a forma efetiva ambigua.
+
+    O costmap aceita os dois e usa um deles; qual, depende da ordem de leitura
+    dos parametros. Medir uma rodada nesse estado nao mede nada.
+    """
+    variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
+    for name in ('local_costmap', 'global_costmap'):
+        params = _costmap_params(variant, name)
+        assert 'robot_radius' not in params, name
+
+
+def test_footprint_encloses_the_measured_trunk() -> None:
+    """A pegada tem de conter o tronco medido, senao ela nao descreve o robo."""
+    variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
+    for name in ('local_costmap', 'global_costmap'):
+        points = ast.literal_eval(_costmap_params(variant, name)['footprint'])
+        assert len(points) == 4, name
+        length = max(x for x, _ in points) - min(x for x, _ in points)
+        width = max(y for _, y in points) - min(y for _, y in points)
+        assert length >= TRUNK_LENGTH_M, (name, length)
+        assert width >= TRUNK_WIDTH_M, (name, width)
+
+
+def test_inflation_still_covers_the_circumscribed_footprint() -> None:
+    """
+    Inflacao menor que a pegada deixa o planejador raspar o canto na parede.
+
+    A regra ja estava no arquivo default contra `robot_radius`; com um poligono
+    o piso passa a ser o raio CIRCUNSCRITO, que e maior que o inscrito.
+    """
+    variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
+    for name in ('local_costmap', 'global_costmap'):
+        params = _costmap_params(variant, name)
+        points = ast.literal_eval(params['footprint'])
+        circumscribed = max(math.hypot(x, y) for x, y in points)
+        inflation = params['inflation_layer']['inflation_radius']
+        assert inflation >= circumscribed, (name, inflation, circumscribed)
+
+
+def test_footprint_variant_keeps_consider_footprint_disabled() -> None:
+    """
+    Ligar `consider_footprint` seria a SEGUNDA variavel, e e o proximo teste.
+
+    Com a pegada declarada a precondicao dele passa a estar satisfeita -- sem
+    poligono publicado ele derruba o nav2_container com SIGSEGV -- mas medir
+    forma e criterio de colisao na mesma rodada nao atribui o resultado a
+    nenhum dos dois.
+    """
+    variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
+    critic = variant['controller_server']['ros__parameters']['FollowPath']
+    assert critic['CostCritic']['consider_footprint'] is False
