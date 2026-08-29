@@ -43,6 +43,14 @@ class MazeExplorer(Node):
         self.declare_parameter('marker_stop_distance_m', 0.7)
         self.declare_parameter('homing_step_m', 0.5)
         self.declare_parameter('blacklist_radius_m', 0.75)
+        # Ciclos CONSECUTIVOS de selecao sem nenhum candidato viavel antes
+        # de declarar falha. Existe porque aposentar fronteiras reprovadas
+        # (ver `_on_path_result`) pode acabar engolindo todas elas, e o
+        # robo parado nao gera mapa novo -- a situacao nunca se resolve
+        # sozinha. A 1 Hz do `_tick`, 10 e ~10 s: folgado para a janela em
+        # que o mapa ainda nao atualizou depois de uma chegada, e curto o
+        # bastante para nao gastar o orcamento parado.
+        self.declare_parameter('barren_selections_limit', 10)
 
         transient = QoSProfile(
             depth=1,
@@ -86,6 +94,7 @@ class MazeExplorer(Node):
         self._selection_cycle = 0
         self._current: Frontier | None = None
         self._blacklist: list[tuple[float, float]] = []
+        self._barren_cycles = 0
         self._started_s = 0.0
         self._goal_started_s = 0.0
         self._epoch = 0
@@ -110,6 +119,7 @@ class MazeExplorer(Node):
         self._message = 'aguardando mapa, TF e Nav2'
         self._started_s = self._now_s()
         self._blacklist.clear()
+        self._barren_cycles = 0
         self._homing_failures = 0
         self._release_goal()
         if self._nav_cancel_client.service_is_ready():
@@ -227,6 +237,10 @@ class MazeExplorer(Node):
         # extracao, mesmo que o mapa e a blacklist estejam iguais.
         key = (self._epoch, self._map_seq, len(self._blacklist))
         if key == self._selection_key:
+            # Nada mudou desde o ciclo anterior, entao nao ha o que reextrair --
+            # mas tambem nao houve progresso, e ficar aqui e indistinguivel de
+            # estar travado. Conta para o limite.
+            self._note_barren_selection()
             return
         self._selection_key = key
 
@@ -249,6 +263,7 @@ class MazeExplorer(Node):
         self._best = None
         if not self._candidates:
             self._message = 'nenhuma fronteira segura alcancavel'
+            self._note_barren_selection()
             return
         self._validate_next()
 
@@ -294,6 +309,19 @@ class MazeExplorer(Node):
             score = frontier_score(frontier, route_m)
             if self._best is None or score > self._best[0]:
                 self._best = score, frontier
+        else:
+            # O planejador REPROVOU esta fronteira. Sem aposenta-la, ela volta
+            # identica no proximo ciclo, para sempre: foi o que consumiu 459 s
+            # dos 600 s da fumaca de 28/08, com o mapa congelado e um
+            # `ComputePathToPose` por segundo sobre a mesma coordenada morta.
+            #
+            # Nao usa `_blacklist_current`: aquele incrementa `_epoch` para
+            # matar a meta em voo, e aqui ha uma rodada de validacao em
+            # andamento cujos callbacks seguintes seriam descartados. So a
+            # anotacao, sem trocar de epoca. `len(self._blacklist)` ja faz parte
+            # da chave de `_begin_selection`, entao o append sozinho ja forca
+            # uma extracao nova no proximo ciclo.
+            self._blacklist.append((frontier.x, frontier.y))
         self._pending = False
         self._validate_next()
 
@@ -310,6 +338,7 @@ class MazeExplorer(Node):
             goal.behavior_tree = str(self.get_parameter('exploration_bt_xml').value)
         self._current = frontier
         self._pending = True
+        self._barren_cycles = 0
         self._goal_started_s = self._now_s()
         self._state = 'navigating' if exploration else 'homing_exit'
         self._message = 'navegando para fronteira' if exploration \
@@ -381,6 +410,13 @@ class MazeExplorer(Node):
             self._state = 'homing_exit'
             self._message = message
 
+    def _note_barren_selection(self) -> None:
+        """Um ciclo de selecao que nao produziu meta. Falha se virar habito."""
+        self._barren_cycles += 1
+        if self._barren_cycles >= int(
+                self.get_parameter('barren_selections_limit').value):
+            self._fail('nenhuma fronteira segura alcancavel')
+
     def _blacklist_current(self, message: str) -> None:
         if self._current is not None:
             self._blacklist.append((self._current.x, self._current.y))
@@ -448,6 +484,7 @@ class MazeExplorer(Node):
             'candidates_checked': self._candidate_index,
             'path_requests': self._path_requests,
             'selection_cycle': self._selection_cycle,
+            'barren_cycles': self._barren_cycles,
             'marker_visible': (
                 self._exit_pose_map is not None
                 and now - self._exit_seen_s <= float(
