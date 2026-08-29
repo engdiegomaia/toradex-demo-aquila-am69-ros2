@@ -60,6 +60,29 @@ x-common: &common
     # a imagem A PARTIR da mesma arvore sincronizada, entao montagem e imagem
     # saem sempre do mesmo arquivo. O que ela remove e a obrigacao de rebuildar.
     - ./ros2_ws/src/demo_navigation/config:/ws/src/demo_navigation/config:ro
+    # Same trick, same reason, for the explorer's Python. `colcon
+    # --symlink-install` makes the build tree a SYMLINK to the source tree, so
+    # what the interpreter actually loads is the source file. Verified in the
+    # running container on 29/08/2026:
+    #
+    #   import demo_navigation.maze_explorer
+    #     -> /ws/build/demo_navigation/demo_navigation/maze_explorer.py
+    #   /ws/build/demo_navigation/demo_navigation
+    #     -> /ws/src/demo_navigation/demo_navigation   (symlinked DIRECTORY)
+    #
+    # Mounting the package directory therefore makes an explorer edit cost a
+    # `module.sh sync` + `docker compose restart nav`, not a native arm64
+    # rebuild of `base` and then `nav`. F5 is a one-variable-per-round protocol
+    # and every round touches this one file; paying a full rebuild per round is
+    # hours of wall clock spent proving nothing.
+    #
+    # Same no-divergence argument as the config mount above: `module.sh build`
+    # builds FROM the synced tree, so mount and image always come from the same
+    # file. `tests/test_module_params_mount.py` locks both sides.
+    #
+    # Read-only: the interpreter cannot write __pycache__ here and does not
+    # need to — it falls back to not caching bytecode, silently and harmlessly.
+    - ./ros2_ws/src/demo_navigation/demo_navigation:/ws/src/demo_navigation/demo_navigation:ro
 
 services:
   nav:
