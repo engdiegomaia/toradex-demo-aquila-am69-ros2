@@ -27,8 +27,54 @@ uncertain result. The discarded alternatives are in "Decisions" below.
 | **F2** | Spike Go2 inside the container `sim` | **Completed** 14/08/2026 | (disposable spike, uncommitted) |
 | **F3** | Go2 in the project tree (was "retarget A1") | **Completed** 17/08/2026 | `db4e6f3`, `ae3d9a1` |
 | **F4** | Contract crossing container border | **Completed** 24/08/2026 | contract and perception revalidated on Go2 headless |
-| **F5** | Nav2 on legs + HIL mode | 🟡 **in progress** 28/08/2026 (night) | **PASSED:** TF (99.94%), global costmap window, map update, gait, **short stability gate** (3/3 goals in all three runs, worst goal 27.9 s of 45) and the **perception transport chain on the Aquila**. **FAILED:** exploration smoke — `escaped=false`, explorer livelocked 459 s on a frontier the planner rejects. **NOT REACHED:** positive detection and exit pose, crossing performance gate, three cold starts. See "Session 28/08 (night)", `docs/results/ml35-f5-exploration-smoke.md` and `ml35-f5-perception-aquila.md` |
+| **F5** | Nav2 on legs + HIL mode | 🟡 **in progress** 29/08/2026 | **PASSED:** TF (99.94%), global costmap window, map update, gait, **short stability gate**, the **perception gate on the Aquila** (closed 29/08: 60/60 detections, pose, TF at the pose stamp), and autonomous exploration far enough to **detect the exit marker by itself** (round 2: 21.93 m, 8915 map cells, `homing_exit` entered at `sim_s` 403). **FAILED:** `escaped` is still false in every run — homing loses the marker after 9 s, and timed-out goals are permanently blacklisted until no frontier is left. **NOT REACHED:** crossing performance gate, three cold starts. See "Session 29/08", `docs/results/ml35-f5-exploration-r{1,2,3}.md` and `ml35-f5-perception-aquila.md` |
 | **F6** | Selectable Fallback and Tests | **Completed** 24/08/2026 | cold start + goal `SUCCEEDED` on both robots |
+
+### 29/08 — the robot explores the maze and finds the exit marker on its own
+
+Four things closed and one refused. Evidence: `docs/results/ml35-f5-perception-aquila.md`
+§6 and `ml35-f5-exploration-r{1,2,3}.md`, with per-run CSVs beside them.
+
+- **Perception gate CLOSED.** The 28/08 shortfall was line of sight, not software.
+  With the robot placed at the exit region — `gait/hold` → `set_entity_pose` →
+  `gait/resume`, never a raw teleport, because `SetEntityPose` preserves velocity —
+  the detector returned **60/60 non-empty detections**, `class_id maze_exit` at score
+  1.0, bbox 149 × 153 px, pose `(0.992, 0.011, 0.000)` in `front_camera`, and
+  `front_camera` resolvable to `map`, `odom` and `base` at the pose timestamp. TF held
+  **99.83%**, so CPU did not interfere and `sample_stride` stays at 4. One quantified
+  limitation: range reads **21% short** (0.992 m against 1.254 m true) because the
+  panel's emissive material blooms 26% past its geometric edge.
+
+- **Round 1 — the livelock is gone.** Retiring frontiers the planner refuses turned
+  459 s in `selecting` into 15 s, 463 selection cycles into 14, and 459 planner aborts
+  into 2. The run then failed fast and explicitly on a new wall instead of burning the
+  budget looking busy.
+
+- **Round 2 — the demonstration essentially works.** Making planner refusals
+  *provisional* (cleared on arrival, because `ExplorationGrid` runs `allow_unknown:
+  false` and refuses distant frontiers only until the path is mapped) produced
+  **21.93 m travelled, 8915 map cells, 13 goals with 7 reached, 41.7% work ratio**, and
+  the **first autonomous detection of the exit marker in this project** at `sim_s`
+  402.9, with `homing_exit` entered at 403.0.
+
+- **Round 3 — REJECTED, and locked.** Raising `goal_timeout_s` 90 → 180 made
+  everything worse (4.26 m, 3746 cells, 8.6% work ratio, no detection) because a goal
+  **0.4 m away** consumed the full 180 s. The ceiling cuts stalls, not slow
+  traversals. Reverted to 90 s;
+  `test_the_goal_timeout_stays_at_the_value_that_was_measured_best` now blocks the
+  repeat.
+
+**What still blocks the escape, in order.** (1) The **permanence** of the timeout
+blacklist: a stalled goal is retired for the whole run, and in round 2 three such
+entries swallowed the last four frontier clusters at `sim_s` 570. (2) **Homing commits
+too early**: the marker was first seen from 3.9 m through the opening, and the next
+wall occluded it 9 s later. (3) `frontier_extract_ms` p95 reached 201 ms on the bigger
+map, over the 100 ms criterion — real, but under 2 s across the whole run.
+
+**Infrastructure.** `compose.module.yml` now mounts
+`demo_navigation/demo_navigation` over the symlink target, the same trick already used
+for `config/`. An explorer edit costs `module.sh sync` plus a container restart instead
+of a native arm64 rebuild of `base` and then `nav`. Verified live on the AM69.
 
 ### 28/08 (night) — perception transport passes on the module; the exploration smoke fails on an explorer livelock
 
