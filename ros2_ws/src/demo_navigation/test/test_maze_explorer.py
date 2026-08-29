@@ -338,8 +338,7 @@ def test_the_goal_timeout_leaves_room_for_more_than_one_goal(node) -> None:
         f'{goal} s por meta nao cabe tres vezes em {total} s de orcamento')
 
 
-def test_the_goal_timeout_stays_at_the_value_that_was_measured_best(
-        node) -> None:
+def test_the_goal_timeout_is_never_raised_again(node) -> None:
     """
     Trava um experimento REPROVADO para que ninguem o repita.
 
@@ -349,9 +348,15 @@ def test_the_goal_timeout_stays_at_the_value_that_was_measured_best(
     41,7%, e nenhuma deteccao do marcador -- porque travou 180 s numa meta a
     0,4 m do robo. O teto corta travamento, nao travessia lenta.
 
+    Este teste nasceu como `== 90.0` para barrar aquela subida. O limite REAL
+    que ele defende e o teto: baixar anda no mesmo sentido do que a rodada 3
+    mediu. O piso fica em
+    `test_goal_timeout_is_sized_from_the_measured_goal_durations`, que usa a
+    distribuicao de duracoes de R5; os dois juntos prendem o valor.
+
     Evidencia: docs/results/ml35-f5-exploration-r3.md.
     """
-    assert float(node.get_parameter('goal_timeout_s').value) == 90.0, (
+    assert float(node.get_parameter('goal_timeout_s').value) <= 90.0, (
         '180 s foi medido e REPROVADO na rodada 3 -- ler '
         'docs/results/ml35-f5-exploration-r3.md antes de tentar de novo. O que '
         'falta corrigir e a permanencia da blacklist, nao o teto.')
@@ -560,6 +565,81 @@ def test_r4a_leaves_the_r4_timeout_policy_alone(node) -> None:
     assert (frontier.x, frontier.y) in node._timed_out
 
 
+def _run_provisionally_suppressed_selection(
+        node, monkeypatch, frontiers, *, hard=False) -> None:
+    """Run one selection where every real frontier starts suppressed."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    node._map_seq += 1
+    monkeypatch.setattr(node, '_grid', lambda: object())
+    monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
+    monkeypatch.setattr(node, '_validate_next', lambda: None)
+    monkeypatch.setattr(maze_explorer_module, 'extract_frontiers',
+                        lambda grid: list(frontiers))
+    targets = node._blacklist if hard else node._refused
+    targets.extend((item.x, item.y) for item in frontiers)
+    node._begin_selection()
+
+
+def test_all_provisional_suppressions_are_released_once(
+        node, monkeypatch) -> None:
+    """A provisional-only dead end gets one chance to explore again."""
+    frontiers = [
+        Frontier(x=1.0, y=0.0, cells=20, information_gain_m=1.0),
+        Frontier(x=2.0, y=0.0, cells=30, information_gain_m=1.5),
+    ]
+    _run_provisionally_suppressed_selection(node, monkeypatch, frontiers)
+
+    assert node._refused == []
+    assert node._timed_out == []
+    assert node._blacklist == []
+    assert node._candidates == frontiers
+    assert node._provisional_recoveries == 1
+    assert node._provisional_recovery_used is True
+    assert node._barren_cycles == 0
+
+
+def test_provisional_recovery_cannot_repeat_without_progress(
+        node, monkeypatch) -> None:
+    """Repeated refusal after recovery counts barren instead of livelocking."""
+    frontier = Frontier(x=1.0, y=0.0, cells=20, information_gain_m=1.0)
+    _run_provisionally_suppressed_selection(node, monkeypatch, [frontier])
+
+    node._refused.append((frontier.x, frontier.y))
+    node._map_seq += 1
+    node._begin_selection()
+
+    assert node._refused == [(frontier.x, frontier.y)]
+    assert node._candidates == []
+    assert node._provisional_recoveries == 1
+    assert node._barren_cycles == 1
+
+
+def test_hard_blacklist_is_never_released_by_deadlock_recovery(
+        node, monkeypatch) -> None:
+    """Recovery must not resurrect a frontier with an execution failure."""
+    frontier = Frontier(x=1.0, y=0.0, cells=20, information_gain_m=1.0)
+    _run_provisionally_suppressed_selection(
+        node, monkeypatch, [frontier], hard=True)
+
+    assert node._blacklist == [(frontier.x, frontier.y)]
+    assert node._candidates == []
+    assert node._provisional_recoveries == 0
+    assert node._barren_cycles == 1
+
+
+def test_successful_motion_rearms_provisional_recovery(node) -> None:
+    """Only a reached exploration goal permits another recovery attempt."""
+    node._provisional_recovery_used = True
+    node._state = 'navigating'
+    node._current = Frontier(x=1.0, y=0.0, cells=20, information_gain_m=1.0)
+
+    node._on_nav_result(_Future(SimpleNamespace(
+        status=GoalStatus.STATUS_SUCCEEDED)), node._epoch, True)
+
+    assert node._provisional_recovery_used is False
+
+
 def test_a_barren_selection_fails_the_run_instead_of_idling(node) -> None:
     """
     Aposentar fronteiras sem condicao terminal troca um livelock por outro.
@@ -615,7 +695,7 @@ def test_marker_goes_stale_and_stops_counting_as_visible(node) -> None:
     perseguindo a última pose vista para sempre.
     """
     stale_s = float(node.get_parameter('marker_stale_s').value)
-    node._exit_pose_map = (5.0, 5.0)
+    node._exit_candidate_pose_map = (5.0, 5.0)
     node._exit_seen_s = node._now_s()
     node._publish_status()
     assert node.published[-1]['marker_visible'] is True
@@ -682,6 +762,7 @@ def test_exit_pose_without_tf_is_dropped_rather_than_used_raw(node) -> None:
     pose.header.frame_id = 'front_camera'
     pose.pose.position.x = 3.0
     node._on_exit_pose(pose)
+    assert node._exit_candidate_pose_map is None
     assert node._exit_pose_map is None
 
 
@@ -807,3 +888,382 @@ def test_extraction_is_timed_on_a_monotonic_clock(selecting, monkeypatch):
     selecting._begin_selection()
 
     assert selecting._frontier_extract_ms == pytest.approx(250.0)
+
+
+def test_homing_entry_distance_is_latched_for_the_gate_measurement(
+        node, monkeypatch) -> None:
+    """
+    O portao de distancia do homing precisa de um numero medido, nao de um chute.
+
+    O status sai a 2 Hz e a entrada em `homing_exit` e instantanea, entao uma
+    amostragem periodica perde o instante. A distancia da entrada e travada no
+    momento da transicao; a corrente continua sendo amostrada.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
+    monkeypatch.setattr(node, '_cancel_goal', lambda: None)
+    for _ in range(int(node.get_parameter('homing_confirm_observations').value)):
+        _marker_at(node, monkeypatch, 3.0)
+
+    assert node._state == 'homing_exit'
+    assert node._homing_entry_distance_m == 3.0
+    assert node._homing_entries == 1
+    assert node.published[-1]['homing_entry_distance_m'] == 3.0
+    assert node.published[-1]['marker_distance_m'] == 3.0
+
+
+def test_homing_entry_distance_is_not_overwritten_while_homing(
+        node, monkeypatch) -> None:
+    """A later partial view cannot move the target accepted by the gate."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
+    monkeypatch.setattr(node, '_cancel_goal', lambda: None)
+    for _ in range(int(node.get_parameter('homing_confirm_observations').value)):
+        _marker_at(node, monkeypatch, 3.0)
+
+    accepted = node._exit_pose_map
+    # A new observation swings far while homing. It remains observable as the
+    # raw candidate, but cannot redirect the active approach.
+    monkeypatch.setattr(node, '_robot_pose', lambda: (2.4, 0.8, 0.0))
+    pose = PoseStamped()
+    pose.header.frame_id = 'front_camera'
+    pose.header.stamp.nanosec = 99
+    pose.pose.position.x = 7.0
+    node._on_exit_pose(pose)
+    node._tick()
+
+    assert node._homing_entries == 1
+    assert node._homing_entry_distance_m == 3.0
+    assert node._exit_pose_map == accepted
+    assert node._exit_candidate_pose_map == (7.0, 0.0)
+    assert node.published[-1]['marker_distance_m'] == pytest.approx(4.67)
+
+
+def test_marker_distance_is_none_without_a_marker_or_a_pose(
+        node, monkeypatch) -> None:
+    """Sem marcador ou sem TF a medida e ausente, nunca zero."""
+    monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
+    assert node._distance_to_exit() is None
+
+    node._exit_pose_map = (1.0, 1.0)
+    monkeypatch.setattr(node, '_robot_pose', lambda: None)
+    assert node._distance_to_exit() is None
+
+
+def test_a_far_marker_is_recorded_but_does_not_capture_the_run() -> None:
+    """
+    Substitui `test_the_measurement_round_adds_no_homing_gate`; a medida existe.
+
+    R7 mediu o erro de alcance por faixa contra o marcador do SDF em
+    (-4,90, -2,60), 131 amostras:
+
+        faixa estimada   razao est/real   erro absoluto medio
+        0-2 m                 0,579              1,28 m
+        2-3 m                 0,876              0,60 m
+        3-4 m                 1,062              0,41 m
+        4-6 m                 1,316              1,14 m
+        acima de 6 m          1,813              3,08 m
+
+    R7 entrou em homing a 7,35 m -- a pior faixa -- e como a aproximacao agora
+    persiste, aquela observacao unica prendeu a corrida por 520 s em
+    `homing_exit` sem nunca chegar. O portao e um MAXIMO: acima dele, registra
+    o marcador e continua explorando.
+    """
+
+
+def _marker_at(node, monkeypatch, distance_m, stamp=None):
+    """Deliver one distinct, identity-transformed camera observation."""
+    monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
+    monkeypatch.setattr(node, '_cancel_goal', lambda: None)
+    transform = SimpleNamespace(transform=SimpleNamespace(
+        translation=SimpleNamespace(x=0.0, y=0.0),
+        rotation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0)))
+    monkeypatch.setattr(
+        node._tf_buffer, 'lookup_transform', lambda *args: transform)
+    if stamp is None:
+        stamp = getattr(node, '_test_marker_stamp', 0) + 1
+        node._test_marker_stamp = stamp
+    pose = PoseStamped()
+    pose.header.frame_id = 'front_camera'
+    pose.header.stamp.nanosec = stamp
+    pose.pose.position.x = distance_m
+    node._on_exit_pose(pose)
+    return pose
+
+
+def test_a_marker_beyond_the_gate_never_enters_homing(node, monkeypatch) -> None:
+    """7,35 m foi o que prendeu R7 por 520 s. Registrar sim, comprometer nao."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    far = float(node.get_parameter('homing_max_distance_m').value) + 1.0
+    _marker_at(node, monkeypatch, far)
+
+    for _ in range(10):
+        node._tick()
+
+    assert node._state != 'homing_exit'
+    assert node._homing_entries == 0
+    assert node.published[-1]['marker_distance_m'] == round(far, 2)
+    assert node.published[-1]['marker_far_ignored'] == 1
+
+
+def test_entering_homing_needs_more_than_one_near_observation(
+        node, monkeypatch) -> None:
+    """
+    Uma amostra unica nao decide: em R7 a estimativa oscilou de 1,27 a 7,94 m.
+
+    A histerese exige `homing_confirm_observations` observacoes proximas
+    seguidas antes de cancelar a exploracao.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    needed = int(node.get_parameter('homing_confirm_observations').value)
+    assert needed >= 2, 'sem histerese o portao nao filtra a oscilacao medida'
+    _marker_at(node, monkeypatch, 3.0)
+    for _ in range(10):
+        node._tick()
+        assert node._state != 'homing_exit'
+
+    for _ in range(needed - 1):
+        _marker_at(node, monkeypatch, 3.0)
+    assert node._state == 'homing_exit'
+    assert node._homing_entry_distance_m == 3.0
+
+
+def test_duplicate_source_stamp_is_not_a_second_confirmation(
+        node, monkeypatch) -> None:
+    """Transport duplication of one camera frame cannot satisfy the gate."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    _marker_at(node, monkeypatch, 3.0, stamp=42)
+    _marker_at(node, monkeypatch, 3.0, stamp=42)
+
+    assert node._marker_observations == 1
+    assert node._near_marker_streak == 1
+    assert node._state == 'selecting'
+
+
+def test_a_far_observation_resets_the_hysteresis(node, monkeypatch) -> None:
+    """Perto-longe-perto nao pode somar como se fossem seguidas."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    far = float(node.get_parameter('homing_max_distance_m').value) + 1.0
+
+    _marker_at(node, monkeypatch, 3.0)
+    _marker_at(node, monkeypatch, far)
+    _marker_at(node, monkeypatch, 3.0)
+
+    assert node._state != 'homing_exit'
+
+
+def test_the_gate_sits_in_the_band_where_the_range_was_measured_good(
+        node) -> None:
+    """Acima de 4 m o erro medio medido em R7 passa de 1,1 m."""
+    assert 2.0 < float(
+        node.get_parameter('homing_max_distance_m').value) <= 4.0
+
+
+def _homing_ready(node, monkeypatch, sent):
+    """Um no em `homing_exit`, sem meta em voo, com a saida travada a 3 m."""
+    node._start(None, trigger(node))
+    node._state = 'homing_exit'
+    node._pending = False
+    node._goal_handle = None
+    monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
+    monkeypatch.setattr(
+        node, '_send_navigation',
+        lambda frontier, exploration: sent.append((frontier, exploration)))
+    node._exit_pose_map = (3.0, 0.0)
+    node._exit_candidate_pose_map = (3.0, 0.0)
+    node._exit_seen_s = node._now_s()
+    return node
+
+
+def test_homing_survives_a_briefly_occluded_marker(node, monkeypatch) -> None:
+    """
+    Perder o marcador de vista nao e perder a saida.
+
+    `_exit_pose_map` e uma coordenada travada no frame do mapa. A linha de visada
+    serve para APRENDER onde fica a saida, nao para navegar ate ela -- andar por
+    um corredor de labirinto quebra a visada por construcao. Abandonar a cada
+    oclusao e o que deixou o homing 0 de 11 em campo (R2, rodada observada, arm B).
+    """
+    sent: list = []
+    _homing_ready(node, monkeypatch, sent)
+    stale_s = float(node.get_parameter('marker_stale_s').value)
+    node._exit_seen_s = node._now_s() - stale_s - 1.0
+
+    node._tick()
+
+    assert node._state == 'homing_exit'
+    assert sent, 'o homing precisa continuar a aproximacao com a pose travada'
+    assert node.published[-1]['marker_visible'] is False
+
+
+def test_blind_approach_goes_to_the_exit_not_to_a_half_metre_hop(
+        node, monkeypatch) -> None:
+    """
+    Sem marcador fresco nao ha por que re-mirar, entao o passo curto so custa tempo.
+
+    Com a visada, o passo de `homing_step_m` reaproveita cada nova deteccao para
+    corrigir a mira. As cegas isso vira uma sequencia de metas retas de 0,5 m que
+    o planejador recusa quando ha parede no caminho; uma meta unica deixa o Nav2
+    contornar.
+    """
+    sent: list = []
+    _homing_ready(node, monkeypatch, sent)
+    stop = float(node.get_parameter('marker_stop_distance_m').value)
+    node._exit_seen_s = node._now_s() - float(
+        node.get_parameter('marker_stale_s').value) - 1.0
+
+    node._tick()
+
+    assert sent[-1][1] is False, 'aproximacao nao e exploracao'
+    assert sent[-1][0].x == pytest.approx(3.0 - stop)
+
+    sent.clear()
+    node._exit_seen_s = node._now_s()
+    node._tick()
+    assert sent[-1][0].x == pytest.approx(
+        float(node.get_parameter('homing_step_m').value))
+
+
+def test_homing_gives_up_after_the_persistence_budget(node, monkeypatch) -> None:
+    """
+    A perseguicao as cegas e limitada, senao volta o bug que o prazo de frescor evitava.
+
+    O contrato antigo era "sem marcador fresco, desiste ja". O novo e "sem
+    marcador fresco, insiste por `homing_persistence_s` e depois desiste" -- o
+    explorador nunca persegue a ultima pose vista para sempre.
+    """
+    sent: list = []
+    _homing_ready(node, monkeypatch, sent)
+    persistence_s = float(node.get_parameter('homing_persistence_s').value)
+    node._exit_seen_s = node._now_s() - persistence_s - 1.0
+
+    node._tick()
+
+    assert node._state == 'selecting'
+    assert not sent, 'estourado o orcamento, nao se despacha mais aproximacao'
+    assert node._homing_abandons == 1
+    assert node.published[-1]['homing_abandons'] == 1
+
+
+def test_persistence_budget_outlives_the_freshness_deadline(node) -> None:
+    """Se o orcamento fosse menor que o frescor, a insistencia nunca aconteceria."""
+    assert float(node.get_parameter('homing_persistence_s').value) > float(
+        node.get_parameter('marker_stale_s').value)
+
+
+def test_homing_abandons_is_published_and_reset_by_start(node) -> None:
+    """O contador separa "desistiu da aproximacao" de "meta falhou no Nav2"."""
+    node._publish_status()
+    assert node.published[-1]['homing_abandons'] == 0
+    node._homing_abandons = 4
+    node._start(None, trigger(node))
+    assert node._homing_abandons == 0
+
+
+def test_goal_timeout_is_sized_from_the_measured_goal_durations(node) -> None:
+    """
+    O prazo por meta e um orcamento, nao uma folga: cada estouro custa o valor cheio.
+
+    Medido na rodada R5 (arm B, 21 metas): as 12 metas BEM SUCEDIDAS levaram de
+    6,1 s a 35,1 s, e as 3 que falharam gastaram exatamente 90,0 s cada -- 270 s
+    de um orcamento de 600 s, 45%, sem sair do lugar. A corrida terminou a 1,08 m
+    do marcador por falta de tempo.
+
+    O prazo tem de cobrir a pior meta que deu certo com margem, e tres estouros
+    nao podem comer metade do orcamento total.
+    """
+    worst_successful_goal_s = 35.1     # R5, meta 2
+    observed_timeouts = 3              # R5
+    goal_timeout_s = float(node.get_parameter('goal_timeout_s').value)
+    total_timeout_s = float(node.get_parameter('total_timeout_s').value)
+
+    # Piso: nao pode cortar uma meta legitima. Teto: os tres estouros observados
+    # precisam caber num quarto do orcamento, para que a maioria sobre para andar.
+    assert goal_timeout_s > worst_successful_goal_s * 1.2
+    assert observed_timeouts * goal_timeout_s <= total_timeout_s / 4
+
+
+def test_homing_arrives_when_the_remaining_step_is_below_nav2_tolerance(
+        node, monkeypatch) -> None:
+    """
+    Nao se comanda um deslocamento menor que a tolerancia de chegada do Nav2.
+
+    Medido em R6: a aproximacao chegou a 0,75 m do marcador com
+    `marker_stop_distance_m` em 0,70 -- 5 cm de falta. O passo restante de 5 cm
+    e menor que `xy_goal_tolerance` (0,25 m), entao o Nav2 declara sucesso sem
+    mover, o explorador ve 0,75 > 0,70 e manda de novo. O robo ficou 94 s
+    parado ate o orcamento de persistencia estourar, e a exploracao foi embora.
+
+    E a mesma armadilha que `min_frontier_distance_m = 0.35` ja resolve do lado
+    das fronteiras desde R4; a aproximacao nunca ganhou a guarda equivalente.
+    """
+    sent: list = []
+    _homing_ready(node, monkeypatch, sent)
+    stop = float(node.get_parameter('marker_stop_distance_m').value)
+    tolerance = float(node.get_parameter('nav_goal_tolerance_m').value)
+    # Faltando menos que a tolerancia: mandar meta aqui e o laco de R6.
+    node._exit_pose_map = (stop + tolerance * 0.5, 0.0)
+    node._exit_seen_s = node._now_s()
+
+    node._tick()
+
+    assert node._state == 'completed'
+    assert not sent, 'passo abaixo da tolerancia nao pode virar meta do Nav2'
+
+
+def test_homing_arrives_at_exactly_the_nav2_tolerance(node, monkeypatch) -> None:
+    """The equality boundary is also a Nav2 no-motion success."""
+    sent: list = []
+    _homing_ready(node, monkeypatch, sent)
+    stop = float(node.get_parameter('marker_stop_distance_m').value)
+    tolerance = float(node.get_parameter('nav_goal_tolerance_m').value)
+    node._exit_pose_map = (stop + tolerance, 0.0)
+
+    node._tick()
+
+    assert node._state == 'completed'
+    assert not sent
+
+
+def test_homing_still_steps_when_the_remaining_distance_is_worth_commanding(
+        node, monkeypatch) -> None:
+    """A guarda acima nao pode engolir uma aproximacao legitima."""
+    sent: list = []
+    _homing_ready(node, monkeypatch, sent)
+    stop = float(node.get_parameter('marker_stop_distance_m').value)
+    tolerance = float(node.get_parameter('nav_goal_tolerance_m').value)
+    node._exit_pose_map = (stop + tolerance * 3.0, 0.0)
+    node._exit_seen_s = node._now_s()
+
+    node._tick()
+
+    assert node._state == 'homing_exit'
+    assert sent
+
+
+def test_the_homing_tolerance_matches_what_nav2_is_configured_with(node) -> None:
+    """
+    Duas copias do mesmo numero em arquivos diferentes divergem sozinhas.
+
+    O explorador precisa saber a tolerancia de chegada do Nav2 para nao comandar
+    passos que o controlador nao consegue distinguir de zero. Ele nao le o YAML
+    do Nav2, entao este teste e o que mantem os dois valores iguais -- nos dois
+    arquivos de parametros, o padrao e a variante de footprint.
+    """
+    import pathlib
+
+    import yaml
+
+    config = pathlib.Path(__file__).resolve().parents[1] / 'config'
+    declared = float(node.get_parameter('nav_goal_tolerance_m').value)
+    for name in ('nav2_params_go2.yaml', 'nav2_params_go2_footprint.yaml'):
+        params = yaml.safe_load((config / name).read_text(encoding='utf-8'))
+        checker = params['controller_server']['ros__parameters'][
+            'general_goal_checker']
+        assert declared == float(checker['xy_goal_tolerance']), name

@@ -159,16 +159,95 @@ def test_summarise_reports_the_escape_and_its_timestamp() -> None:
 
 def test_summarise_counts_forward_work_not_peak_speed() -> None:
     rows = [
-        _row(sim_s=0.0, wall_s=0.0, cmd_vx=0.0),
-        _row(sim_s=1.0, wall_s=1.0, cmd_vx=0.10),
-        _row(sim_s=2.0, wall_s=2.0, cmd_vx=0.0),
-        _row(sim_s=3.0, wall_s=3.0, cmd_vx=0.10),
+        _row(sim_s=0.0, wall_s=0.0, cmd_vx=0.0, state='navigating'),
+        _row(sim_s=1.0, wall_s=1.0, cmd_vx=0.10, state='navigating'),
+        _row(sim_s=2.0, wall_s=2.0, cmd_vx=0.0, state='navigating'),
+        _row(sim_s=3.0, wall_s=3.0, cmd_vx=0.10, state='navigating'),
     ]
 
     summary = summarise(rows, [], {})
 
-    assert summary['vx_work_ratio'] == 0.5
-    assert summary['vx_mean_abs'] == pytest.approx(0.05)
+    # No terminal state: the active window is the whole recording, so the
+    # two views agree.
+    assert summary['recording_vx_work_ratio'] == 0.5
+    assert summary['recording_vx_mean_abs'] == pytest.approx(0.05)
+    assert summary['active_vx_work_ratio'] == 0.5
+    assert summary['active_vx_mean_abs'] == pytest.approx(0.05)
+    assert summary['active_duration_s'] == 3.0
+
+
+def test_summarise_excludes_post_failure_samples_from_active_metrics() -> None:
+    """The R8 defect: a run that fails early keeps recording zeros.
+
+    The explorer fails at sim_s=2 with real work happening at cmd_vx=0.10
+    before that. 600 s of post-failure zeros must not dilute `active_*`,
+    only `recording_*`.
+    """
+    rows = [
+        _row(sim_s=0.0, wall_s=0.0, cmd_vx=0.10, state='navigating'),
+        _row(sim_s=1.0, wall_s=1.0, cmd_vx=0.10, state='navigating'),
+        _row(sim_s=2.0, wall_s=2.0, cmd_vx=0.0, state='failed'),
+        _row(sim_s=602.0, wall_s=602.0, cmd_vx=0.0, state='failed'),
+        _row(sim_s=1202.0, wall_s=1202.0, cmd_vx=0.0, state='failed'),
+    ]
+
+    summary = summarise(rows, [], {})
+
+    # The active window is inclusive of the terminal sample itself (the
+    # failure at sim_s=2), so its trailing zero counts once, not 600s worth.
+    assert summary['active_vx_work_ratio'] == pytest.approx(2 / 3, abs=1e-4)
+    assert summary['active_vx_mean_abs'] == pytest.approx(0.0667, abs=1e-3)
+    assert summary['active_duration_s'] == 2.0
+    # The full-window view is still dominated by the post-failure zeros --
+    # that is expected, and exactly why it must not be read alone.
+    assert summary['recording_vx_work_ratio'] == pytest.approx(0.4)
+    assert summary['recording_vx_mean_abs'] < summary['active_vx_mean_abs']
+
+
+def test_summarise_active_window_stops_at_first_terminal_sample() -> None:
+    """A second, later terminal-looking sample must not extend the window."""
+    rows = [
+        _row(sim_s=0.0, state='waiting_map', cmd_vx=0.0),
+        _row(sim_s=1.0, state='selecting', cmd_vx=0.0),
+        _row(sim_s=2.0, state='navigating', cmd_vx=0.20),
+        _row(sim_s=3.0, state='completed', cmd_vx=0.0),
+        _row(sim_s=4.0, state='completed', cmd_vx=0.0),
+    ]
+
+    summary = summarise(rows, [], {})
+
+    assert summary['active_duration_s'] == 3.0
+    assert summary['state_durations_s']['navigating'] == 1.0
+
+
+def test_summarise_of_a_run_with_no_active_state_does_not_break() -> None:
+    """A recording that never left `idle` has no active window to report."""
+    rows = [
+        _row(sim_s=0.0, wall_s=0.0, state='idle', cmd_vx=0.0),
+        _row(sim_s=1.0, wall_s=1.0, state='idle', cmd_vx=0.0),
+    ]
+
+    summary = summarise(rows, [], {})
+
+    assert summary['active_vx_work_ratio'] is None
+    assert summary['active_vx_mean_abs'] is None
+    assert summary['active_duration_s'] is None
+    assert summary['recording_vx_work_ratio'] == 0.0
+
+
+def test_summarise_reports_state_durations_for_the_full_recording() -> None:
+    rows = [
+        _row(sim_s=0.0, state='waiting_map'),
+        _row(sim_s=1.5, state='navigating'),
+        _row(sim_s=4.5, state='navigating'),
+        _row(sim_s=5.0, state='completed'),
+    ]
+
+    summary = summarise(rows, [], {})
+
+    assert summary['state_durations_s'] == {
+        'waiting_map': 1.5, 'navigating': 3.5,
+    }
 
 
 def test_summarise_separates_homing_goals_from_exploration_goals() -> None:

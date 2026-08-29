@@ -90,7 +90,12 @@ ROW_FIELDS = [
     'cmd_vx', 'cmd_wz', 'path_m', 'map_known_pct', 'map_known_cells',
     'frontier_count', 'frontier_cells', 'frontier_clusters',
     'frontier_extract_ms', 'candidates_checked', 'path_requests',
-    'selection_cycle', 'blacklisted', 'marker_visible', 'detections_n',
+    'selection_cycle', 'blacklisted', 'refused', 'timed_out',
+    'near_frontiers_skipped', 'provisional_recoveries', 'barren_cycles',
+    'marker_visible', 'marker_distance_m', 'marker_observations',
+    'marker_confirmations', 'marker_candidate_x', 'marker_candidate_y',
+    'marker_accepted_x', 'marker_accepted_y', 'homing_entry_distance_m',
+    'homing_entries', 'homing_abandons', 'marker_far_ignored', 'detections_n',
     'exit_pose_seen', 'escaped', 'message',
 ]
 
@@ -146,17 +151,82 @@ def _floats(rows: list, key: str) -> list:
     return [float(row[key]) for row in rows if row.get(key) not in ('', None)]
 
 
+# States the explorer is actually doing something in. `idle` (before the
+# first `/demo/exploration/start`) and the three terminal states below are
+# excluded on purpose.
+ACTIVE_STATES = frozenset({'waiting_map', 'selecting', 'navigating', 'homing_exit'})
+
+# Mirrors the state literals in `maze_explorer.py` (`_fail`, `_cancel`, and
+# the `_state = 'completed'` transition).
+TERMINAL_STATES = frozenset({'completed', 'failed', 'cancelled'})
+
+
+def _active_window(rows: list) -> tuple | None:
+    """Return the ``(start, end)`` row indices the run was actually active in.
+
+    R8 exposed the bug this exists to prevent: the explorer failed at
+    ~76 s but the recorder kept sampling for ~670 s, and folding those ~600 s
+    of post-failure zeros into `vx_mean_abs` manufactured a 10x mobility
+    collapse that was never physical. The active window starts at the first
+    sample in `ACTIVE_STATES` and ends at the first `TERMINAL_STATES` sample
+    that follows it (inclusive), or at the last recorded sample if the run
+    never reached a terminal state. Returns ``None`` if the run never left
+    `idle`.
+    """
+    start = next((i for i, row in enumerate(rows)
+                  if row.get('state') in ACTIVE_STATES), None)
+    if start is None:
+        return None
+    end = next((i for i in range(start, len(rows))
+                if rows[i].get('state') in TERMINAL_STATES), len(rows) - 1)
+    return start, end
+
+
+def _vx_stats(rows: list) -> tuple:
+    """Return ``(work_ratio, mean_abs)`` of ``|cmd_vx|`` over ``rows``."""
+    values = [abs(value) for value in _floats(rows, 'cmd_vx')]
+    if not values:
+        return None, None
+    work_ratio = round(sum(1 for value in values if value > 0.01) / len(values), 4)
+    mean_abs = round(sum(values) / len(values), 4)
+    return work_ratio, mean_abs
+
+
+def _state_durations(rows: list) -> dict:
+    """Return total sim-time seconds spent in each recorded ``state``.
+
+    Duration is attributed from each sample to the next by their `sim_s`
+    gap, over the full recording (not just the active window), so it also
+    shows how much of the run the recorder spent past the terminal state.
+    """
+    totals: dict = {}
+    for current, following in zip(rows, rows[1:]):
+        state = current.get('state') or ''
+        dt = float(following['sim_s']) - float(current['sim_s'])
+        if dt > 0:
+            totals[state] = totals.get(state, 0.0) + dt
+    return {state: round(total, 3) for state, total in totals.items()}
+
+
 def summarise(rows: list, goals: list, marks: dict) -> dict:
     """Reduce the recorded rows to the acceptance numbers of the F5 protocol."""
     if not rows:
         return {'samples': 0}
     extract = _floats(rows, 'frontier_extract_ms')
-    vx = [abs(value) for value in _floats(rows, 'cmd_vx')]
     tilt = _floats(rows, 'tilt_deg')
     height = _floats(rows, 'z')
     known = _floats(rows, 'map_known_cells')
     sim_span = rows[-1]['sim_s'] - rows[0]['sim_s']
     wall_span = rows[-1]['wall_s'] - rows[0]['wall_s']
+
+    window = _active_window(rows)
+    active_rows = rows[window[0]:window[1] + 1] if window else []
+    recording_vx_work_ratio, recording_vx_mean_abs = _vx_stats(rows)
+    active_vx_work_ratio, active_vx_mean_abs = _vx_stats(active_rows)
+    active_duration_s = (
+        round(active_rows[-1]['sim_s'] - active_rows[0]['sim_s'], 3)
+        if active_rows else None)
+
     return {
         'samples': len(rows),
         'sim_span_s': round(sim_span, 1),
@@ -172,9 +242,20 @@ def summarise(rows: list, goals: list, marks: dict) -> dict:
         'frontier_extract_ms_p50': round(percentile(extract, 0.50), 2),
         'frontier_extract_ms_p95': round(percentile(extract, 0.95), 2),
         'frontier_extract_ms_max': round(max(extract), 2) if extract else None,
-        'vx_work_ratio': round(
-            sum(1 for value in vx if value > 0.01) / len(vx), 4) if vx else None,
-        'vx_mean_abs': round(sum(vx) / len(vx), 4) if vx else None,
+        # Full-window numbers: every sample from start to end of the
+        # recording, terminal state or not. Kept for continuity with older
+        # reports, but NOT evidence of a mobility collapse on their own --
+        # a run that fails early and keeps recording dilutes these with
+        # post-failure zeros. See `active_*` below for the run itself.
+        'recording_vx_work_ratio': recording_vx_work_ratio,
+        'recording_vx_mean_abs': recording_vx_mean_abs,
+        # Active-window numbers: only samples between the first active
+        # state and the terminal state (or run end). This is what R8 needed
+        # and did not have.
+        'active_vx_work_ratio': active_vx_work_ratio,
+        'active_vx_mean_abs': active_vx_mean_abs,
+        'active_duration_s': active_duration_s,
+        'state_durations_s': _state_durations(rows),
         'tilt_max_deg': round(max(tilt), 2) if tilt else None,
         'z_min_m': round(min(height), 4) if height else None,
         'goals_total': len(goals),
@@ -182,6 +263,30 @@ def summarise(rows: list, goals: list, marks: dict) -> dict:
         'goals_failed': sum(1 for goal in goals if goal['outcome'] == 'failed'),
         'goals_homing': sum(1 for goal in goals if goal['phase'] == 'homing'),
         'blacklisted_final': rows[-1]['blacklisted'],
+        'refused_final': rows[-1].get('refused'),
+        'timed_out_final': rows[-1].get('timed_out'),
+        'near_frontiers_skipped_final': rows[-1].get('near_frontiers_skipped'),
+        'provisional_recoveries_final': rows[-1].get('provisional_recoveries'),
+        'barren_cycles_final': rows[-1].get('barren_cycles'),
+        # The number this round exists to collect: at what range does the
+        # explorer commit to homing, and does that range predict the failure.
+        'homing_entries': rows[-1].get('homing_entries'),
+        'homing_abandons': rows[-1].get('homing_abandons'),
+        'marker_far_ignored': rows[-1].get('marker_far_ignored'),
+        'marker_observations': rows[-1].get('marker_observations'),
+        'homing_entry_distances_m': sorted({
+            float(row['homing_entry_distance_m'])
+            for row in rows
+            if row.get('homing_entry_distance_m') not in (None, '')
+        }),
+        'marker_distance_m_min': min(
+            (float(row['marker_distance_m']) for row in rows
+             if row.get('marker_distance_m') not in (None, '')),
+            default=None),
+        'marker_distance_m_max': max(
+            (float(row['marker_distance_m']) for row in rows
+             if row.get('marker_distance_m') not in (None, '')),
+            default=None),
         'first_detection_sim_s': marks.get('first_detection_sim_s'),
         'first_exit_pose_sim_s': marks.get('first_exit_pose_sim_s'),
         'exit_pose_frame': marks.get('exit_pose_frame', ''),
@@ -394,10 +499,23 @@ def build_recorder(period_s: float):
                 row['map_known_pct'] = round(
                     100.0 * self.map_known / self.map_total, 2)
 
+            # Every suppression counter is recorded, not just the hard one.
+            # The 29/08 observed round had to recover `refused`, `timed_out`,
+            # `near_frontiers_skipped` and `provisional_recoveries` from the
+            # live topic and from log windows because they were published but
+            # never sampled; the handoff asks for all of them per round.
             for name in ('frontier_count', 'frontier_cells',
                          'frontier_clusters', 'frontier_extract_ms',
                          'candidates_checked', 'path_requests',
-                         'selection_cycle', 'blacklisted', 'marker_visible'):
+                         'selection_cycle', 'blacklisted', 'refused',
+                         'timed_out', 'near_frontiers_skipped',
+                         'provisional_recoveries', 'barren_cycles',
+                         'marker_visible', 'marker_distance_m',
+                         'homing_entry_distance_m', 'homing_entries',
+                         'homing_abandons', 'marker_far_ignored',
+                         'marker_observations', 'marker_confirmations',
+                         'marker_candidate_x', 'marker_candidate_y',
+                         'marker_accepted_x', 'marker_accepted_y'):
                 if name in self.status:
                     row[name] = self.status[name]
 
