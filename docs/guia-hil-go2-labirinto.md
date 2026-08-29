@@ -165,8 +165,9 @@ not create an image dependency between separate Dockerfiles — only Compose's
 build):
 
 ```bash
-# 1. build the base first, by itself — leaves the image in the local image store
-docker compose -f docker/compose.host.yml build base
+# 1. build the base first, by itself, with the daemon-backed builder — leaves
+#    the image in the local image store
+BUILDX_BUILDER=default docker compose -f docker/compose.host.yml build base
 
 # 2. build the rest with the default builder — only it can see the newly built image
 BUILDX_BUILDER=default docker compose -f docker/compose.host.yml build sim cockpit hmi
@@ -180,6 +181,12 @@ docker compose -f docker/compose.host.yml up -d viz
 
 Do not change the default builder globally — `armbuilder` is what serves the
 module's arm64 multi-arch builds (section 6 of the full guide).
+
+The host Compose file also sets `build.network: host`. This is required on
+IPv6-only workstations whose DNS is a scoped, link-local IPv6 address: a bridged
+BuildKit sandbox otherwise falls back to public IPv4 DNS without having an IPv4
+default route. The setting affects build steps only; service runtime networking
+remains governed by `network_mode: host`.
 
 Before bringing things up, check that no old stack is still holding the port:
 since the default Compose project name is the directory name, an earlier

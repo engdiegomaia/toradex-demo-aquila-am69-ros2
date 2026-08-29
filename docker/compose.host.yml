@@ -59,6 +59,7 @@ services:
     build:
       context: ..
       dockerfile: docker/sim/Dockerfile
+      network: host
       args:
         REGISTRY: ${REGISTRY:-local}
         TAG: ${TAG:-dev}
@@ -154,6 +155,7 @@ services:
     build:
       context: ..
       dockerfile: docker/nav/Dockerfile
+      network: host
       args:
         REGISTRY: ${REGISTRY:-local}
         TAG: ${TAG:-dev}
@@ -182,6 +184,7 @@ services:
     build:
       context: ..
       dockerfile: docker/perception/Dockerfile
+      network: host
       args:
         REGISTRY: ${REGISTRY:-local}
         TAG: ${TAG:-dev}
@@ -201,6 +204,7 @@ services:
     build:
       context: ..
       dockerfile: docker/viz/Dockerfile
+      network: host
       args:
         REGISTRY: ${REGISTRY:-local}
         TAG: ${TAG:-dev}
@@ -242,6 +246,7 @@ services:
     build:
       context: ..
       dockerfile: docker/cockpit/Dockerfile
+      network: host
       args:
         REGISTRY: ${REGISTRY:-local}
         TAG: ${TAG:-dev}
@@ -270,6 +275,7 @@ services:
     build:
       context: ..
       dockerfile: docker/hmi/Dockerfile
+      network: host
     platform: linux/amd64
     network_mode: host
     environment:
@@ -294,6 +300,7 @@ services:
     build:
       context: ..
       dockerfile: docker/tools/Dockerfile
+      network: host
       args:
         REGISTRY: ${REGISTRY:-local}
         TAG: ${TAG:-dev}
@@ -323,6 +330,7 @@ services:
     build:
       context: ..
       dockerfile: docker/base/Dockerfile
+      network: host
     platform: linux/amd64
     network_mode: host
     command: "true"
