@@ -38,16 +38,19 @@ class MazeExplorer(Node):
         super().__init__('maze_explorer')
         self.declare_parameter('exploration_bt_xml', '')
         self.declare_parameter('total_timeout_s', 600.0)
-        # 90 s foi medido e REPROVADO na rodada 2 (29/08). As metas que
-        # falharam falharam TODAS exatamente em 90,0 s -- o teto, nao um
-        # travamento -- enquanto as bem-sucedidas levaram ate 65 s. Com |vx|
-        # medio de 0,025 m/s e razao de trabalho de 42%, uma meta a 3 m nao
-        # cabe em 90 s, e cada expiracao espuria manda a fronteira para a
-        # blacklist DURA. Foi assim que a rodada 2 morreu: 3 expiracoes viraram
-        # 3 pontos permanentes que engoliram os 4 clusters restantes aos 570 s.
-        # 180 s cabe tres vezes em `total_timeout_s`; o Nav2 ja tem seu proprio
-        # `progress_checker` para o travamento de verdade.
-        self.declare_parameter('goal_timeout_s', 180.0)
+        # 90 s, e NAO 180 s. A rodada 3 (29/08) subiu para 180 e o resultado
+        # foi pior em tudo: 4,26 m contra 21,93 m, 3746 celulas contra 8915,
+        # razao de trabalho 8,6% contra 41,7%, e nenhuma deteccao do marcador.
+        #
+        # A rodada 2 tinha expirado tres metas distantes em exatamente 90,0 s e
+        # a leitura foi "o teto e curto demais". Era leitura errada: a rodada 3
+        # travou 180 s numa meta a 0,4 m do robo. O teto nao esta cortando
+        # travessia lenta, esta cortando travamento -- e dobra-lo so torna cada
+        # travamento duas vezes mais caro.
+        #
+        # O que continua errado e a PERMANENCIA: uma meta que expira vai para a
+        # blacklist dura e nunca volta. Ver docs/results/ml35-f5-exploration-r3.md.
+        self.declare_parameter('goal_timeout_s', 90.0)
         self.declare_parameter('marker_stale_s', 2.0)
         self.declare_parameter('marker_stop_distance_m', 0.7)
         self.declare_parameter('homing_step_m', 0.5)
