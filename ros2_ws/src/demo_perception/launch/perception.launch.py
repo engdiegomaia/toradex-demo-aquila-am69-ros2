@@ -33,6 +33,15 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
+    detector_backend_arg = DeclareLaunchArgument(
+        'detector_backend',
+        default_value='fiducial',
+        description=(
+            'Maze-exit pose source: fiducial (AprilTag, default) or magenta '
+            '(the panel-colour fallback). Never both at once.'
+        ),
+    )
+
     detection_stub_node = Node(
         package='demo_perception',
         executable='detection_stub',
@@ -57,12 +66,16 @@ def generate_launch_description() -> LaunchDescription:
         executable='maze_exit_detector',
         name='maze_exit_detector',
         output='screen',
-        parameters=[{'use_sim_time': LaunchConfiguration('use_sim_time')}],
+        parameters=[{
+            'use_sim_time': LaunchConfiguration('use_sim_time'),
+            'detector_backend': LaunchConfiguration('detector_backend'),
+        }],
     )
 
     return LaunchDescription([
         use_sim_time_arg,
         assumed_range_arg,
+        detector_backend_arg,
         detection_stub_node,
         detections_to_cloud_node,
         maze_exit_detector_node,
