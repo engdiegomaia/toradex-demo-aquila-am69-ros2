@@ -34,6 +34,16 @@ CONFIG_DIR = ROOT / 'ros2_ws/src/demo_navigation/config'
 CONTAINER_CONFIG = '/ws/src/demo_navigation/config'
 HOST_CONFIG = './ros2_ws/src/demo_navigation/config'
 
+# O mesmo, para o Python do explorador. Verificado dentro do container em
+# 29/08/2026: `import demo_navigation.maze_explorer` carrega
+# /ws/build/demo_navigation/demo_navigation/maze_explorer.py, e
+# /ws/build/demo_navigation/demo_navigation e um SYMLINK de diretorio para
+# /ws/src/demo_navigation/demo_navigation. O alvo final e o mesmo padrao da
+# config: montar no caminho instalado ou no de build seria ignorado.
+CONTAINER_PKG = '/ws/src/demo_navigation/demo_navigation'
+HOST_PKG = './ros2_ws/src/demo_navigation/demo_navigation'
+PKG_DIR = ROOT / 'ros2_ws/src/demo_navigation/demo_navigation'
+
 
 def _compose() -> dict:
     return yaml.safe_load(MODULE_COMPOSE.read_text(encoding='utf-8'))
@@ -58,6 +68,36 @@ def test_config_is_mounted_from_the_synced_tree() -> None:
         f'origem {source} nao e o que `module.sh sync` popula ({HOST_CONFIG})')
     assert target == CONTAINER_CONFIG
     assert 'ro' in flags, 'a config e lida, nunca escrita pelo container'
+
+
+def test_explorer_source_is_mounted_from_the_synced_tree() -> None:
+    """F5 roda uma variavel por rodada, e toda rodada edita maze_explorer.py.
+
+    Sem esta montagem cada rodada custa um rebuild arm64 NATIVO de `base` e
+    depois `nav` no proprio modulo. Com ela custa `module.sh sync` mais um
+    `docker compose restart nav`.
+    """
+    mounts = [v for v in _common_volumes() if CONTAINER_PKG in v]
+    assert len(mounts) == 1, (
+        f'esperava exatamente uma montagem sobre {CONTAINER_PKG}, '
+        f'achei {mounts}')
+    source, target, *flags = mounts[0].split(':')
+    assert source == HOST_PKG, (
+        f'origem {source} nao e o que `module.sh sync` popula ({HOST_PKG})')
+    assert target == CONTAINER_PKG
+    assert 'ro' in flags, (
+        'o pacote e lido, nunca escrito pelo container -- o interpretador '
+        'apenas deixa de gravar __pycache__, sem erro')
+
+
+def test_explorer_mount_does_not_hide_a_module_that_only_exists_in_the_image(
+) -> None:
+    """A montagem cobre o pacote INTEIRO, entao ele tem de estar completo."""
+    present = {p.name for p in PKG_DIR.glob('*.py')}
+    for required in ('__init__.py', 'maze_explorer.py', 'frontier.py'):
+        assert required in present, (
+            f'{required} sumiu de {PKG_DIR}; a montagem o esconderia da '
+            'imagem e o no do explorador nao subiria')
 
 
 def test_mount_target_is_the_symlink_target_not_the_installed_path() -> None:
