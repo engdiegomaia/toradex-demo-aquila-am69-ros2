@@ -180,11 +180,29 @@ was north, or because the corridor south of there is clearance-filtered like R11
 cluster, is not distinguished by this round. Full record in
 `docs/results/ml35-f5-exploration-r12.md`.
 
-**Still not done:** item 6 of the earlier review (AprilTag positioned HIL validation,
-explicitly non-acceptance-counted); and determining whether continuing south of
-`(-5.08, 1.47)` needs a clearance fix or is simply not yet where the map's largest
-remaining frontier is. (The reset-before-restart sequencing fix is now done — see the
-30/08 update above.)
+**Still not done:** determining whether continuing south of `(-5.08, 1.47)` needs a
+clearance fix or is simply not yet where the map's largest remaining frontier is. (The
+reset-before-restart sequencing fix is now done — see the 30/08 update above.)
+
+**Update (30/08) — item 6, AprilTag positioned HIL validation, done (explicitly
+non-acceptance-counted, no exploration ran):** robot teleported directly to vantage
+points in front of the exit marker (safe hold-gait/set_entity_pose/resume-gait sequence,
+always kept north of `BOUNDARY_Y` with margin). Confirmed with real HIL evidence: the
+printed tag texture renders correctly in Gazebo; `cv2.aruco` finds id 0 reliably at
+~2.5 m (14/20 frames, reprojection error <= 0.48 px) but only marginally at ~3.6 m (1/21
+frames) — a real range-dependent reliability curve worth weighing against
+`homing_max_distance_m=4.0`; `map -> front_camera` TF resolves; adverse framing (yaw swept
+to -140°) always fails closed (never a wrong-but-confident pose), though only the coarser
+"no tag found" path was empirically triggered, not the finer "partially out of frame"
+one; and the 29/08 audit's target-latch fix holds under real detections
+(`marker_accepted_x/y` stayed fixed at `(-3.503, -2.75)` for ~90 s while
+`marker_candidate_x/y` reflected the last live sighting). **Unplanned finding:** during
+the latch test's blind-homing phase, the quadruped tipped over near the opening
+(`(-5.057, -1.255)`, large roll/pitch, `/demo/maze/escaped` read `false` — confirmed, not
+inferred, and very close to the escape threshold). Not investigated further; recovered
+cleanly via `/demo/sim/reset`. This is a new, real risk for whoever next drives homing
+through the exit opening, not previously known. Full record in
+`docs/results/ml35-f5-apriltag-positioned.md`.
 
 ### 29/08 (fiducial) — the exit marker gets a printed AprilTag, magenta stays as fallback
 
