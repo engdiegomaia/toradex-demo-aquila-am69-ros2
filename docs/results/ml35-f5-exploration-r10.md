@@ -88,12 +88,33 @@ the same snapshot confirm it is not a broken planner or a filter artefact:
 
 So the honest state of this round is: **the sole frontier candidate sat in a region the
 global planner could not reach from the robot's position, for a reason this diagnostic
-does not yet pin down** (most likely a coverage/connectivity gap in the still-very-thin
-map — only 9.13 % known at the moment of death — rather than anything
-`frontier_wall_clearance_m` controls). An attempt to locate the exact break point along
-the corridor by probing guessed intermediate coordinates was inconclusive (the guessed
-points were not verified to lie on the real corridor centreline) and is not reported
-here as a finding.
+does not yet pin down** (at the time of writing this section, believed most likely a
+coverage/connectivity gap in the still-very-thin map — only 9.13 % known at the moment
+of death — rather than anything `frontier_wall_clearance_m` controls; **see the
+follow-up below, this explanation is now superseded**). An attempt to locate the exact
+break point along the corridor by probing guessed intermediate coordinates was
+inconclusive (the guessed points were not verified to lie on the real corridor
+centreline) and is not reported here as a finding.
+
+**Follow-up (30/08/2026), after R12's diagnosis:** this round's own preconditions state
+the deploy order used — `nav`/`perception` force-recreated **first**, `/demo/sim/reset`
+called **after**. That is exactly the ordering later identified in R12
+(`docs/results/ml35-f5-exploration-r12.md`) as corrupting `slam_toolbox`'s map anchor:
+recreating `nav` restarts `slam_toolbox`, which anchors its first scan(s) at wherever the
+robot physically was at that moment (here, wherever R9 left it), and the reset's
+teleport afterward does not undo an anchor already taken. R10's candidate,
+`(-1.731, 8.175)` in a cluster centred at `(-3.04, 7.95)`, sits almost exactly where R9
+ended (`y≈7.49`) — not near the real spawn the robot was teleported to before this run's
+`/demo/exploration/start`. That is the same signature as R12's stale-anchor failure:
+`error_code=208` on every candidate, a single small disconnected cluster, and known
+cells far from `(0,0)` despite a correct `map`→`odom` TF. **R10 was in all likelihood the
+first reproduction of the nav-restart-before-sim-reset bug, not an independent
+map-coverage/connectivity fragility.** This does not change the A/B conclusion above —
+`frontier_wall_clearance_m` is still ruled out, because both clearance values hit the
+identical unreachable candidate — it changes only the explanation of *why* that
+candidate was unreachable. The fix (`scripts/module.sh up` now refuses to recreate
+`nav`/`perception` when the robot is far from spawn, `docs/guia-completo.md` trap 20) is
+committed as `7f03df7`.
 - **No fall, but there was no motion to fall from.** This run says nothing about mobility
   or the fiducial detector.
 
@@ -103,9 +124,11 @@ here as a finding.
 - **Rules out** `frontier_wall_clearance_m` as the cause of R10's death — confirmed by a
   real, matched A/B `ComputePathToPose` call against the frozen map, not inference. No
   reason from this data to revert 0.38 back to 0.45.
-- Does **not** explain why the sole reachable-looking frontier was actually unreachable —
-  that remains open, and is a map-coverage/connectivity question, separate from wall
-  clearance.
+- Does **not** explain, *at the time this round was run*, why the sole reachable-looking
+  frontier was actually unreachable. **Update (30/08/2026): now explained** — see the
+  follow-up above. R10 is the likely first reproduction of the nav-restart-before-
+  sim-reset map-anchor bug later confirmed in R12, not an independent
+  map-coverage/connectivity fragility. Separate from wall clearance either way.
 - Does **confirm** the rebuilt `nav` image, the redeployed `frontier_wall_clearance_m=0.38`
   parameter, and the recorder-first launch order all worked mechanically as intended.
 

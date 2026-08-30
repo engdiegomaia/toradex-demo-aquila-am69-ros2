@@ -1103,7 +1103,8 @@ the first attempt of R12); see `docs/results/ml35-f5-exploration-r12.md`.
 
 `scripts/module.sh up` now refuses to recreate `nav`/`perception` when it can
 see (via `/demo/odom` on the host) that the robot is more than 1 m from spawn,
-unless `--force` is passed. If it refuses, the fix is always the same order:
+unless `--force-spawn` is passed. If it refuses, the fix is always the same
+order:
 
 ```bash
 ros2 service call /demo/sim/reset std_srvs/srv/Trigger '{}'
@@ -1113,9 +1114,16 @@ scripts/module.sh up
 Never call `/demo/sim/reset` again after that `up` — the anchor is already
 correct once `nav`'s first scan lands at spawn, and resetting a second time
 does not undo an anchor from a container that has not been recreated since.
-If a caller genuinely does not care (the sim will be reset anyway, or this
-`up` does not precede an exploration round), `scripts/module.sh up --force`
-skips the check.
+
+`--force-spawn` is a separate flag from the pre-existing `--force` (which
+bypasses the unrelated `/demo/cmd_vel` collision guard, trap 8) — the two
+guards are independent and so are their bypasses. `--force-spawn` means only
+"the SLAM anchor does not matter for this operation" (typically: this `up`
+does not precede an exploration round at all). It never means "I'll reset the
+sim afterward" — resetting *after* this restart is precisely the sequence
+that causes the bug, since `slam_toolbox` has already anchored on its first
+scan by the time a later reset's teleport happens, and the teleport does not
+undo an existing anchor.
 
 ## 10. The Aquila AM69 module
 

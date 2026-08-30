@@ -8,6 +8,11 @@ set -euo pipefail
 #   scripts/module.sh sync        # push sources + rendered config to ~/demo
 #   scripts/module.sh build       # build the arm64 images ON the module
 #   scripts/module.sh up          # docker compose up -d  (nav + perception)
+#     --force        bypass the /demo/cmd_vel collision guard (two publishers)
+#     --force-spawn  bypass the spawn-distance guard (SLAM re-anchor risk) --
+#                    means "the anchor doesn't matter here", never "I'll
+#                    reset after"; the two flags are independent and
+#                    combinable
 #   scripts/module.sh down
 #   scripts/module.sh status
 #   scripts/module.sh verify      # DDS reachability + topic contract from the module
@@ -426,6 +431,23 @@ EOS
 cmd_up() {
   resolve_addresses
 
+  # Dois guards independentes, dois bypasses independentes. Cada um so
+  # significa "este risco especifico nao se aplica agora" -- nunca "vou
+  # corrigir depois". Em particular --force-spawn NUNCA deve ser lido como
+  # "vou resetar o sim em seguida": resetar DEPOIS de recriar 'nav' e
+  # exatamente a sequencia que ancora o slam_toolbox na pose errada (ver
+  # check_robot_near_spawn_before_nav_restart abaixo). Um --force generico que
+  # desativasse os dois guards de uma vez esconderia essa distincao.
+  local has_force=0
+  local has_force_spawn=0
+  local arg
+  for arg in "$@"; do
+    case "${arg}" in
+      --force) has_force=1 ;;
+      --force-spawn) has_force_spawn=1 ;;
+    esac
+  done
+
   # A GUARDA CERTA E "quem PUBLICA /demo/cmd_vel neste host", nao "a simulacao
   # esta rodando".
   #
@@ -449,7 +471,7 @@ cmd_up() {
     fi
   done
 
-  if [[ -n "${host_pubs}" && "${2:-}" != "--force" ]]; then
+  if [[ -n "${host_pubs}" && "${has_force}" -eq 0 ]]; then
     printf '\n[module.sh] RECUSADO: publicador de /demo/cmd_vel ativo neste host:\n%s' "${host_pubs}" >&2
     cat >&2 <<EOF
 Subir 'nav' no modulo agora coloca um SEGUNDO publisher em /demo/cmd_vel no
@@ -485,7 +507,7 @@ EOF
     say "e dos sensores que o Gazebo publica; sem isso o Nav2 fica esperando."
   fi
 
-  check_robot_near_spawn_before_nav_restart "${2:-}"
+  check_robot_near_spawn_before_nav_restart "${has_force_spawn}"
 
   # The rendered CycloneDDS file is a bind mount whose PATH does not change
   # between syncs. Compose therefore considers an old container up to date even
@@ -509,11 +531,22 @@ EOF
 # docs/results/ml35-f5-exploration-r12.md.
 #
 # So: refuse by default when the robot is not near spawn, same shape as the
-# cmd_vel guard above. --force is for when a fresh /demo/sim/reset is about
-# to follow anyway, or the caller is not running an exploration round at all.
-check_robot_near_spawn_before_nav_restart() {
-  local force_flag="$1"
-
+# cmd_vel guard above. --force-spawn is ONLY for "the SLAM anchor does not
+# matter for this operation" (e.g. this 'up' is not going to precede an
+# exploration round at all) -- it is NEVER "I will reset the sim afterward".
+# Resetting AFTER this restart is precisely the sequence that produces the
+# bug: slam_toolbox has already anchored on its first scan by the time the
+# reset's teleport happens, and the teleport does not undo an existing
+# anchor. The only sequence that is actually safe for exploration is reset ->
+# confirm odom at spawn -> up.
+# Reads /demo/odom's x/y position from the host, once. Prints "x y" (space
+# separated) on success, or nothing at all if unavailable (ROS not installed
+# on this host, sim not up yet, or the read timed out) -- callers must treat
+# "nothing" as "let it through", never as a refusal: this guard must never be
+# the reason 'up' fails for a caller it has nothing useful to say to. Split
+# out from check_robot_near_spawn_before_nav_restart so tests can stub this
+# one function instead of needing a live /demo/odom.
+_read_current_odom_xy() {
   if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
     return 0
   fi
@@ -540,30 +573,46 @@ check_robot_near_spawn_before_nav_restart() {
     timeout 5 ros2 topic echo --once --field pose.pose.position.y /demo/odom 2>/dev/null
   ' | head -1)"
 
-  # No /demo/odom at all (sim not up yet, first-ever bring-up): nothing to
-  # compare against, and nothing this guard can usefully say. Let it through.
-  if [[ -z "${pos_x}" || -z "${pos_y}" ]]; then
-    return 0
-  fi
+  [[ -z "${pos_x}" || -z "${pos_y}" ]] && return 0
+  printf '%s %s\n' "${pos_x}" "${pos_y}"
+}
 
-  # 1.0 m: comfortably above spawn noise (a few cm in every round observed
-  # this session), comfortably below "a previous round actually explored".
-  # `|| true` keeps a malformed value (or python itself missing) from
-  # aborting the whole script under `set -e` -- this guard must never be the
-  # reason 'up' fails for a caller it has nothing useful to say to.
-  local verdict
-  verdict="$(python3 -c "
+# Pure decision given a position: "far <distance>" or "near <distance>", or
+# nothing if the inputs cannot be parsed as numbers (a malformed odom read) --
+# same "nothing means let it through" contract as _read_current_odom_xy.
+# 1.0 m: comfortably above spawn noise (a few cm in every round observed this
+# session), comfortably below "a previous round actually explored". `|| true`
+# keeps a malformed value (or python itself missing) from aborting the whole
+# script under `set -e`.
+_spawn_distance_verdict() {
+  local pos_x="$1" pos_y="$2"
+  python3 -c "
 import math
 distance = math.hypot(${pos_x}, ${pos_y})
 print('far' if distance > 1.0 else 'near', f'{distance:.2f}')
-" 2>/dev/null || true)"
+" 2>/dev/null || true
+}
+
+check_robot_near_spawn_before_nav_restart() {
+  local force_spawn="$1"
+
+  local odom
+  odom="$(_read_current_odom_xy)"
+  # No /demo/odom at all (sim not up yet, first-ever bring-up): nothing to
+  # compare against, and nothing this guard can usefully say. Let it through.
+  [[ -z "${odom}" ]] && return 0
+  local pos_x pos_y
+  read -r pos_x pos_y <<<"${odom}"
+
+  local verdict
+  verdict="$(_spawn_distance_verdict "${pos_x}" "${pos_y}")"
   if [[ -z "${verdict}" ]]; then
     return 0
   fi
   local far_or_near distance
   read -r far_or_near distance <<<"${verdict}"
 
-  if [[ "${far_or_near}" == "far" ]] && [[ "${force_flag}" != "--force" ]]; then
+  if [[ "${far_or_near}" == "far" ]] && [[ "${force_spawn}" -eq 0 ]]; then
     printf '\n[module.sh] RECUSADO: robo a %s m do spawn (x=%s y=%s).\n' \
       "${distance}" "${pos_x}" "${pos_y}" >&2
     cat >&2 <<EOF
@@ -573,13 +622,19 @@ orfao longe de (0,0) e a proxima exploracao morre em menos de um minuto
 com ComputePathToPose recusando tudo (error_code=208). Reproduzido em
 ML3.5 F5 R10 e R12 -- docs/results/ml35-f5-exploration-r12.md.
 
+--force-spawn NAO significa "vou resetar o sim depois" -- resetar DEPOIS
+deste restart e exatamente o bug acima (o slam_toolbox ja ancorou na
+primeira varredura antes do teleporte acontecer). So use --force-spawn
+quando a ancora do SLAM for irrelevante para esta operacao, tipicamente
+porque este 'up' nao antecede uma rodada de exploracao.
+
 Escolha uma saida:
-  1. Resete o sim primeiro, confirme o robo perto do spawn, so entao suba:
+  1. (recomendado para exploracao) Resete o sim primeiro, confirme o robo
+     perto do spawn, so entao suba:
        ros2 service call /demo/sim/reset std_srvs/srv/Trigger '{}'
        scripts/module.sh up
-  2. Force, sabendo que vai resetar o sim de qualquer forma OU que este
-     'up' nao antecede uma rodada de exploracao:
-       scripts/module.sh up --force
+  2. Force, sabendo que a ancora do SLAM nao importa agora:
+       scripts/module.sh up --force-spawn
 EOF
     exit 1
   fi
