@@ -66,9 +66,20 @@ call with `maze_explorer.py`'s exact `planner_id='ExplorationGrid'` returns the
 "ambos recusam" branch of the decision table: a startup/single-candidate fragility, not
 a clearance effect. No reason to revert to 0.45. A separate check confirmed only one
 raw frontier cluster genuinely existed (not several eaten by filters), and the planner
-works normally on a closer, different goal on the same map — so the open question is why
-that one candidate's region was unreachable (likely map coverage, not clearance), not
-resolved here. Full diagnostic in `docs/results/ml35-f5-exploration-r10.md`.
+works normally on a closer, different goal on the same map — so the open question was why
+that one candidate's region was unreachable (at the time, thought likely map coverage,
+not clearance). Full diagnostic in `docs/results/ml35-f5-exploration-r10.md`.
+
+**Update (30/08, after R12's diagnosis):** R10's own preconditions recreated `nav`
+*before* calling `/demo/sim/reset` — exactly the ordering R12 later identified as
+corrupting `slam_toolbox`'s map anchor. R10's sole candidate, in a cluster centred at
+`(-3.04, 7.95)`, sits almost exactly where R9 had ended (`y≈7.49`), not near the real
+spawn. Same signature as R12's stale-anchor failure (`error_code=208`, one small
+disconnected cluster, known cells far from `(0,0)` despite a correct `map`→`odom` TF).
+**R10 was in all likelihood the first reproduction of the nav-restart-before-sim-reset
+bug, not an independent map-coverage/connectivity fragility** — the A/B result ruling out
+`frontier_wall_clearance_m` still stands, only the explanation of *why* the candidate was
+unreachable changes. Detail in `docs/results/ml35-f5-exploration-r10.md`'s own follow-up.
 
 **Follow-up (same day) — structural fixes from the R10/R9 diagnosis, implemented in code,
 HIL pending (no R11 run yet):**
@@ -144,10 +155,19 @@ uncompetitiveness. Fixed by changing the penalty to `-0.5*sqrt(route_m)` (sub-li
 **A second, unrelated bug surfaced before the reported run**: recreating the `nav`
 container while the robot was still sitting wherever R11 left it (`y≈9.3`) let
 `slam_toolbox` anchor its first scan there before `/demo/sim/reset` ran, corrupting the
-map with an orphaned patch disconnected from spawn — died in 43.3 s, not counted. Fix is
-**operational**: `/demo/sim/reset` must run *before* recreating `nav`, never after. Not
-yet folded into `scripts/module.sh` or `docs/guia-completo.md` — currently only
-documented in `docs/results/ml35-f5-exploration-r12.md`.
+map with an orphaned patch disconnected from spawn — died in 43.3 s, not counted. Fix at
+the time was **operational only**: `/demo/sim/reset` must run *before* recreating `nav`,
+never after.
+
+**Update (30/08):** fixed in code, not just operationally. `scripts/module.sh up` now
+calls `check_robot_near_spawn_before_nav_restart()` and refuses (exit 1) to recreate
+`nav`/`perception` when `/demo/odom` shows the robot more than 1 m from spawn, printing
+the correct reset-then-up sequence. Bypass is `--force-spawn`, deliberately a separate
+flag from the pre-existing `--force` (cmd_vel collision guard) — `--force-spawn` means
+only "the SLAM anchor doesn't matter here", never "I'll reset afterward" (resetting after
+is the bug). Documented as `docs/guia-completo.md` trap 20. Committed `7f03df7`, verified
+live against the module in both the refuse-path (5.05 m from spawn) and the proceed-path
+(after a proper reset).
 
 The corrected re-run: `path_m` 33.6 m, no fall, and — the real result — **goal 13
 reached `(-5.077, 1.469)` successfully**, west of the reported exit's own `x=-4.90` and
@@ -161,10 +181,10 @@ cluster, is not distinguished by this round. Full record in
 `docs/results/ml35-f5-exploration-r12.md`.
 
 **Still not done:** item 6 of the earlier review (AprilTag positioned HIL validation,
-explicitly non-acceptance-counted); folding the reset-before-restart sequencing fix into
-`scripts/module.sh`/the runbook; and determining whether continuing south of
+explicitly non-acceptance-counted); and determining whether continuing south of
 `(-5.08, 1.47)` needs a clearance fix or is simply not yet where the map's largest
-remaining frontier is.
+remaining frontier is. (The reset-before-restart sequencing fix is now done — see the
+30/08 update above.)
 
 ### 29/08 (fiducial) — the exit marker gets a printed AprilTag, magenta stays as fallback
 
