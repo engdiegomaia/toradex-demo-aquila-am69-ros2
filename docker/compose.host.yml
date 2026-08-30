@@ -311,6 +311,18 @@ services:
     profiles: ["tools"]
     stdin_open: true
     tty: true
+    # A service-level `volumes:` REPLACES the one `*common` carries (YAML merge
+    # keys do not merge list values), so the cyclonedds mount is repeated here.
+    #
+    # docs/results is the only host path this container's documented workflow
+    # (scripts/exploration_trial.py's own docstring: `python3 - out.csv ...`
+    # with a repo-root-relative out_csv) ever writes to. Without this mount the
+    # recorder runs an entire HIL round in memory and then crashes on the final
+    # write with FileNotFoundError, losing every sample -- see
+    # docs/results/ml35-f5-exploration-r9.md §0.
+    volumes:
+      - ./cyclonedds/host.rendered.xml:/cfg/cyclonedds.xml:ro
+      - ../docs/results:/ws/docs/results
     # Must not exit — this service exists to be exec'd into (guia §9 uses
     # `compose exec tools`). The Dockerfile CMD already sleeps; stated here so
     # the behaviour is visible from the compose file.

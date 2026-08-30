@@ -31,6 +31,110 @@ uncertain result. The discarded alternatives are in "Decisions" below.
 | **F5** | Nav2 on legs + HIL mode | 🟡 **in progress** 29/08/2026 | **PASSED:** TF (99.94%), global costmap window, map update, gait, **short stability gate**, the **perception gate on the Aquila** (60/60 detections, pose and timestamped TF), and autonomous exploration far enough to **detect the exit marker by itself** (round 2: 21.93 m, 8915 map cells, `homing_exit` at `sim_s` 403). **IMPLEMENTED, HIL PENDING:** timeouts are provisional, near-goal frontiers are skipped, and a provisional-only deadlock receives one bounded recovery attempt. **FAILED:** `escaped` is still false in every run. **NOT REACHED:** crossing performance gate and three cold starts. See “Session 29/08”, `docs/results/ml35-f5-exploration-r{1,2,3,4,4a}.md` and `ml35-f5-perception-aquila.md`. |
 | **F6** | Selectable Fallback and Tests | **Completed** 24/08/2026 | cold start + goal `SUCCEEDED` on both robots |
 
+### 29/08 (R9) — recorder data-loss fixed, full 660 s run captured, wall-clearance suspect diagnosed
+
+R9 was run twice. The first attempt lost all time-series data to a `tools` container
+missing a `docs/results` bind mount (a service-level `volumes:` key silently replacing
+rather than merging the `*common` anchor's mount list); fixed in `compose.host.yml`. The
+re-run is real and complete: 1320 samples over the full 660 s budget, no fall
+(`tilt_deg` max 1.53°), `escaped` stayed false, final state `failed` /
+"nenhuma fronteira segura alcancavel" at 48.6 % map coverage. 9 of 14 goals (64 %) ended
+in the 45 s per-goal timeout rather than arrival, including the same frontier
+`(-2.15, 3.12)` timing out twice in a row. Full analysis in
+`docs/results/ml35-f5-exploration-r9.md`.
+
+Live feedback while this run was in progress: the robot appears to abandon a forward path
+too early on encountering a wall ahead, missing openings and side corridors. Diagnosed
+(not yet HIL-tested): `frontier.py`'s `extract_frontiers` required every frontier goal to
+clear 0.45 m from any occupied cell (`clearance_m`, `has_clearance`) — larger than the
+robot's own footprint half-length (0.37 m). Added `frontier_wall_clearance_m` as a
+declared parameter on `maze_explorer.py`, default lowered to 0.38 m, threaded into the
+`extract_frontiers` call. Single isolated variable; the next round must run with this and
+nothing else changed before drawing any conclusion. Not yet rebuilt into the `nav`
+container or deployed to the module.
+
+**Follow-up (R10, same day):** rebuilt `nav`/`perception` natively on the module,
+redeployed, parameter confirmed live at 0.38. R10 died at `wall_s` 28.5 s — the robot
+never moved (`path_m` 0.06 m, zero goals dispatched) because only one frontier cluster
+ever existed and its sole candidate was refused.
+
+**Corrected after an offline A/B diagnostic against R10's own frozen map** (no new HIL
+run needed — the robot never moved, so `/map` was unchanged): a real `ComputePathToPose`
+call with `maze_explorer.py`'s exact `planner_id='ExplorationGrid'` returns the
+**identical candidate and the identical ABORTED result at both `clearance_m=0.38` and
+0.45**. `frontier_wall_clearance_m` is **ruled out** as R10's cause — this is the
+"ambos recusam" branch of the decision table: a startup/single-candidate fragility, not
+a clearance effect. No reason to revert to 0.45. A separate check confirmed only one
+raw frontier cluster genuinely existed (not several eaten by filters), and the planner
+works normally on a closer, different goal on the same map — so the open question is why
+that one candidate's region was unreachable (likely map coverage, not clearance), not
+resolved here. Full diagnostic in `docs/results/ml35-f5-exploration-r10.md`.
+
+**Follow-up (same day) — structural fixes from the R10/R9 diagnosis, implemented in code,
+HIL pending (no R11 run yet):**
+
+- **Per-cluster multi-candidate retry.** `frontier.py`'s `extract_frontiers` now returns
+  up to `frontier_max_alternates` (default 2) extra candidate points per cluster
+  (`Frontier.alternates`), spaced >= `frontier_alternate_spacing_m` (default 0.25 m) apart,
+  found by widening the existing inward BFS search depth. `maze_explorer.py`'s
+  `_validate_next`/`_on_path_accepted`/`_on_path_result` now try every point of a cluster
+  (primary, then alternates) via `ComputePathToPose` before retiring the whole cluster to
+  `_refused` — a cluster is no longer lost over a single unreachable point. This would
+  **not** have saved R10 itself (its one cluster's whole region was unreachable, not just
+  one point within it — see the diagnostic above) but directly targets R9's distinct
+  goals-7/8 pattern (same coordinate re-selected and re-refused).
+- **Recessed navigation endpoint along the validated plan.** After a `ComputePathToPose`
+  success, `_setback_point()` walks back `frontier_endpoint_setback_m` (default 0.40 m)
+  from the path's end, along the path itself, and that point — not the raw frontier
+  endpoint — is what gets commanded to `NavigateToPose`. The original endpoint is kept
+  only for `frontier_score`/information-gain. Preferred over further lowering
+  `frontier_wall_clearance_m` for R9's near-wall timeout pattern, per explicit direction.
+- **Map-generation-gated provisional recovery.** `_last_provisional_map_seq` now gates the
+  `_refused`/`_timed_out` release in `_begin_selection`: a suppression can only be lifted
+  in a LATER map generation than the one that produced it, closing the R9 goals-7/8 hole
+  where an identical just-expired coordinate got retried in the same cycle.
+- **Telemetry added to `/demo/exploration/status`:** `frontier_clusters_raw` (raw cluster
+  count before the clearance/standoff filter, vs. `frontier_clusters` after — tells apart
+  "only one ever existed" from "several existed and the filter ate the rest"),
+  `candidate_point_x/y` + `last_path_status`/`last_path_error_code`/`last_path_error_msg`
+  (the most recent `ComputePathToPose` attempt and exactly how the planner answered — no
+  more reconstructing a refusal offline after the fact, as R10 required),
+  `last_path_planner_id`, and `nav_original_x/y` vs `nav_target_x/y` (frontier endpoint vs.
+  the point actually commanded, which differ only when a setback point was used).
+- Tests: `test_frontier.py` gained 3 new tests (alternates spacing, thin-cluster
+  no-crash, raw-vs-filtered stats), `test_maze_explorer.py`'s existing tests updated for
+  the new `_on_path_result(..., point)` signature. 81/81 passing
+  (`test_frontier.py` + `test_maze_explorer.py`), flake8/pydocstyle clean relative to this
+  change (only pre-existing baseline warnings remain, none touching the new code).
+**Follow-up (R11, 29-30/08) — rebuilt, deployed, HIL round run; one regression found and
+fixed mid-round; healthiest round so far, exit still not found:**
+
+The first deploy attempt stalled completely — robot motionless for minutes on an
+unchanging map. Root cause: a setback point recessed 0.40 m from a short path landed only
+~0.23 m from the robot's own current pose, inside Nav2's 0.25 m `xy_goal_tolerance`, so
+`SimpleGoalChecker` called the goal reached without any real motion — the same failure
+class R4 already fixed once for a frontier's own endpoint, reintroduced through the new
+setback point. Fixed with a `min_travel_m` floor on `_setback_point()`
+(`nav_goal_tolerance_m + 0.10`): a setback candidate that close to the path's start is
+discarded and the caller falls back to the original endpoint. 6 new unit tests added
+(88/88 passing). Rebuilt and redeployed a second time; the clean rerun that followed:
+
+- **`path_m` 30.91 m, map coverage 51.6 %, 14/19 goals (74 %) succeeded** — vs R9's
+  34.78 m / 48.6 % / 36 % and R10's 0.06 m / 9.13 % / 0 goals. `navigating` occupied 523
+  of 554 active seconds (94 % duty cycle). No fall (`tilt_deg` max 1.46°).
+- Final state `failed` / "nenhuma fronteira segura alcancavel" (barren-out, not a
+  timeout or a stall) after 10 barren cycles, 1 provisional-recovery use.
+- Exit marker never seen. **Repeats R9's pattern**: the robot explored heavily northward
+  (`y` up to 9.3-10.0) and never got near R9's reported opening at `(-4.90, -0.90)`,
+  southwest of spawn (this round's trajectory only reached `x ∈ [-3.66, 0.28]`,
+  `y ∈ [-0.36, 9.99]`). Two consecutive rounds with the same directional bias — a real
+  pattern now, cause not yet isolated (candidate distribution vs. `frontier_score`'s
+  distance term vs. genuine map topology, not distinguished by this round).
+- Full record in `docs/results/ml35-f5-exploration-r11.md`.
+
+**Still not done:** item 6 of the earlier review (AprilTag positioned HIL validation,
+explicitly non-acceptance-counted), and diagnosing the northward exploration bias itself.
+
 ### 29/08 (fiducial) — the exit marker gets a printed AprilTag, magenta stays as fallback
 
 **Implemented in code, HIL pending.** The magenta-panel range estimate is unbiased but

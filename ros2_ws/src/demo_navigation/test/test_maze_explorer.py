@@ -187,7 +187,12 @@ class _Wrapped:
 
     def __init__(self, status: int) -> None:
         self.status = status
-        self.result = None
+        # Nav2 action servers populate `.result` even for an aborted goal
+        # (error_code/error_msg plus an empty path) -- `None` here would be a
+        # test-double gap, not a real possibility, so default to the shape a
+        # real ComputePathToPose result actually has.
+        self.result = SimpleNamespace(
+            error_code=0, error_msg='', path=SimpleNamespace(poses=[]))
 
 
 class _Future:
@@ -214,11 +219,12 @@ def test_a_frontier_the_planner_refuses_is_retired(node) -> None:
     node._state = 'selecting'
     frontier = Frontier(x=-3.06, y=0.28, cells=70, information_gain_m=0.9)
     node._candidates = [frontier]
-    node._candidate_index = 1
+    node._candidate_index = 0
+    node._candidate_alt_index = 1
     node._best = None
 
     node._on_path_result(_Future(_Wrapped(GoalStatus.STATUS_ABORTED)),
-                         node._epoch, frontier)
+                         node._epoch, frontier, (frontier.x, frontier.y))
 
     assert _is_suppressed(node, frontier) is True, (
         'fronteira reprovada pelo planejador continua sendo oferecida')
@@ -239,10 +245,11 @@ def test_retiring_a_refused_frontier_does_not_retire_the_epoch(node) -> None:
     frontier = Frontier(x=1.0, y=1.0, cells=10, information_gain_m=0.5)
     node._candidates = [frontier]
     node._candidate_index = 1
+    node._candidate_alt_index = 1
     epoch = node._epoch
 
     node._on_path_result(_Future(_Wrapped(GoalStatus.STATUS_ABORTED)),
-                         node._epoch, frontier)
+                         node._epoch, frontier, (frontier.x, frontier.y))
 
     assert node._epoch == epoch
 
@@ -255,10 +262,13 @@ def test_a_frontier_the_planner_accepts_is_not_retired(node) -> None:
     node._candidates = [frontier]
     node._candidate_index = 1
 
-    path = SimpleNamespace(path=SimpleNamespace(poses=[]))
+    path = SimpleNamespace(path=SimpleNamespace(poses=[]),
+                           error_code=0, error_msg='')
     wrapped = _Wrapped(GoalStatus.STATUS_SUCCEEDED)
     wrapped.result = path
-    node._on_path_result(_Future(wrapped), node._epoch, frontier)
+    node._candidate_index = 0
+    node._on_path_result(_Future(wrapped), node._epoch, frontier,
+                         (frontier.x, frontier.y))
 
     assert node._blacklist == [] and node._refused == []
 
@@ -283,10 +293,11 @@ def test_a_planner_refusal_is_provisional_and_lifts_when_the_map_grows(
     node._state = 'selecting'
     far = Frontier(x=-2.93, y=0.15, cells=80, information_gain_m=1.2)
     node._candidates = [far]
-    node._candidate_index = 1
+    node._candidate_index = 0
+    node._candidate_alt_index = 1
 
     node._on_path_result(_Future(_Wrapped(GoalStatus.STATUS_ABORTED)),
-                         node._epoch, far)
+                         node._epoch, far, (far.x, far.y))
     assert _is_suppressed(node, far) is True
 
     node._current = Frontier(x=0.0, y=0.5, cells=10, information_gain_m=0.5)
@@ -468,7 +479,7 @@ def _run_selection(node, monkeypatch, frontiers, robot=(0.0, 0.0, 0.0)):
     monkeypatch.setattr(node, '_robot_pose', lambda: robot)
     monkeypatch.setattr(node, '_validate_next', lambda: None)
     monkeypatch.setattr(maze_explorer_module, 'extract_frontiers',
-                        lambda grid: list(frontiers))
+                        lambda grid, **_kwargs: list(frontiers))
     node._begin_selection()
 
 
@@ -558,6 +569,71 @@ def test_status_reports_how_many_near_frontiers_were_skipped(
     assert node.published[-1]['near_frontiers_skipped'] == 1
 
 
+def _pose_at(x: float, y: float) -> PoseStamped:
+    pose = PoseStamped()
+    pose.pose.position.x = x
+    pose.pose.position.y = y
+    return pose
+
+
+def test_setback_point_walks_back_from_the_path_end() -> None:
+    """A straight 1 m path recessed by 0.4 m lands 0.6 m from the start."""
+    path = [_pose_at(0.0, 0.0), _pose_at(1.0, 0.0)]
+    point = maze_explorer_module._setback_point(path, setback_m=0.4)
+    assert point == pytest.approx((0.6, 0.0))
+
+
+def test_setback_point_discarded_when_it_would_fall_inside_goal_tolerance(
+) -> None:
+    """
+    R11 (29/08): the robot never moved, for minutes, on an unchanging map.
+
+    A short path (candidate close to the robot) recessed by the default
+    0.40 m setback landed ~0.23 m from the robot's own current pose --
+    inside Nav2's 0.25 m `xy_goal_tolerance`. `SimpleGoalChecker` called the
+    goal reached without the robot moving at all, so the map never grew and
+    the identical frontier kept getting re-selected forever. The fix is a
+    `min_travel_m` floor: a setback point this close to the path's start is
+    discarded (`None`) instead of returned, so the caller falls back to the
+    original, already-validated endpoint.
+    """
+    path = [_pose_at(0.0, 0.0), _pose_at(0.6, 0.0)]
+    point = maze_explorer_module._setback_point(
+        path, setback_m=0.4, min_travel_m=0.35)
+    assert point is None
+
+
+def test_setback_point_kept_when_it_clears_the_travel_floor() -> None:
+    """The same geometry with a floor it actually clears is kept, not dropped."""
+    path = [_pose_at(0.0, 0.0), _pose_at(0.6, 0.0)]
+    point = maze_explorer_module._setback_point(
+        path, setback_m=0.4, min_travel_m=0.15)
+    assert point == pytest.approx((0.2, 0.0))
+
+
+def test_setback_point_on_a_path_shorter_than_the_setback_is_discarded(
+) -> None:
+    """
+    A too-short path is discarded, not collapsed to the robot's own pose.
+
+    It used to fall back to the path's own start point -- the robot's
+    current pose, an even more degenerate target than the R11 stall.
+    `min_travel_m` defaults to 0.0, but the start point is by definition
+    zero distance from itself, so it is always discarded.
+    """
+    path = [_pose_at(0.0, 0.0), _pose_at(0.1, 0.0)]
+    assert maze_explorer_module._setback_point(path, setback_m=0.4) is None
+
+
+def test_setback_point_handles_empty_and_single_pose_paths() -> None:
+    assert maze_explorer_module._setback_point([], setback_m=0.4) is None
+    single = [_pose_at(2.0, 3.0)]
+    assert maze_explorer_module._setback_point(
+        single, setback_m=0.4) == pytest.approx((2.0, 3.0))
+    assert maze_explorer_module._setback_point(
+        single, setback_m=0.4, min_travel_m=5.0) is None
+
+
 def test_r4a_leaves_the_r4_timeout_policy_alone(node) -> None:
     """Uma variavel por rodada: a permanencia do timeout nao se mexe aqui."""
     frontier = _timed_out_frontier(node)
@@ -575,7 +651,7 @@ def _run_provisionally_suppressed_selection(
     monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
     monkeypatch.setattr(node, '_validate_next', lambda: None)
     monkeypatch.setattr(maze_explorer_module, 'extract_frontiers',
-                        lambda grid: list(frontiers))
+                        lambda grid, **_kwargs: list(frontiers))
     targets = node._blacklist if hard else node._refused
     targets.extend((item.x, item.y) for item in frontiers)
     node._begin_selection()

@@ -74,6 +74,83 @@ def test_rejects_frontier_without_robot_clearance():
     assert extract_frontiers(grid) == []
 
 
+def test_a_large_open_cluster_offers_spaced_out_alternates():
+    """
+    A wide room gives room for backup points, not just one dead end.
+
+    R10 (29/08) lost its only cluster over one unreachable point because
+    `extract_frontiers` only ever offered one. On a room big enough to have
+    real interior space, alternates should exist and sit apart from each
+    other and from the primary point by at least `alternate_spacing_m`.
+
+    The 40x24 room used by the other tests here is too tight for this: with
+    the default clearance_m/standoff_m both needing a 9-cell margin, only a
+    1-col x 2-row sliver of cells satisfies both at once (confirmed by
+    direct inspection of extract_frontiers' internal candidate list), which
+    is by construction too small to hold a second point 0.25 m away. This
+    needs a room with real interior depth, not just any cluster.
+    """
+    width, height = 80, 60
+    data = [-1] * (width * height)
+    for row in range(5, 55):
+        for col in range(5, 75):
+            data[row * width + col] = 0
+    grid = Grid(width, height, 0.05, 0.0, 0.0, 0.0, data)
+    frontiers = extract_frontiers(
+        grid, max_alternates=2, alternate_spacing_m=0.25)
+    assert len(frontiers) == 1
+    candidate = frontiers[0]
+    assert len(candidate.alternates) >= 1
+    points = [(candidate.x, candidate.y), *candidate.alternates]
+    for i, (x0, y0) in enumerate(points):
+        for x1, y1 in points[i + 1:]:
+            assert ((x0 - x1) ** 2 + (y0 - y1) ** 2) ** 0.5 >= 0.25 - 1e-9
+
+
+def test_a_thin_cluster_offers_no_alternates_without_crashing():
+    """A room with only one candidate cell still returns cleanly."""
+    width, height = 40, 24
+    data = [-1] * (width * height)
+    for row in range(2, 22):
+        for col in range(2, 21):
+            data[row * width + col] = 0
+    grid = Grid(width, height, 0.05, 0.0, 0.0, 0.0, data)
+    frontiers = extract_frontiers(
+        grid, max_alternates=2, alternate_spacing_m=100.0)
+    assert len(frontiers) == 1
+    # No spacing this large can be satisfied twice in a room this size, so no
+    # alternate qualifies -- the important part is this does not crash.
+    assert frontiers[0].alternates == ()
+
+
+def test_stats_reports_raw_clusters_separately_from_filtered_candidates():
+    """
+    Distinguish "only one cluster ever existed" from "the filter ate them".
+
+    `frontier_clusters` alone cannot tell "only one existed" from "several
+    existed and the candidate filters ate the rest" -- they look identical.
+    `stats` exists so a caller can tell them apart.
+    """
+    width, height = 40, 24
+    data = [-1] * (width * height)
+    for row in range(2, 22):
+        for col in range(2, 21):
+            data[row * width + col] = 0
+    grid = Grid(width, height, 0.05, 0.0, 0.0, 0.0, data)
+    stats: dict = {}
+    frontiers = extract_frontiers(grid, stats=stats)
+    assert len(frontiers) == 1
+    assert stats['raw_clusters'] == 1
+    assert stats['clusters_with_candidate'] == 1
+
+    # An impossible clearance eats the only candidate; the raw cluster count
+    # must still show it existed before the filter ran.
+    stats = {}
+    assert extract_frontiers(grid, clearance_m=5.0, stats=stats) == []
+    assert stats['raw_clusters'] == 1
+    assert stats['clusters_with_candidate'] == 0
+
+
 def test_frontier_score_trades_information_for_route_length():
     rich = Frontier(0.0, 0.0, 30, 1.5)
     small = Frontier(0.0, 0.0, 10, 0.5)
