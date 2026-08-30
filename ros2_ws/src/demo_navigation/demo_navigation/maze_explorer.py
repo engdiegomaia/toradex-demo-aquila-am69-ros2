@@ -31,6 +31,56 @@ STATES = {
 }
 
 
+def _setback_point(
+    poses, setback_m: float, min_travel_m: float = 0.0,
+) -> tuple[float, float] | None:
+    """
+    Return a point `setback_m` back from a path's end, along the path itself.
+
+    Walking backward along an already-validated plan keeps the result on a
+    route the planner proved reachable -- unlike moving the frontier's own
+    goal closer to a wall, which does not make Nav2's controller any more
+    willing to track a path that close. Falls back to the path's own start
+    point if the whole path is shorter than `setback_m`, and to `None` for an
+    empty path (the caller already has the original point to fall back on).
+
+    `min_travel_m` is the floor below which the result is discarded (`None`)
+    instead of returned: on a short path, walking back `setback_m` from the
+    end can land within Nav2's own `xy_goal_tolerance` of the robot's CURRENT
+    pose, so `SimpleGoalChecker` calls the goal reached without the robot
+    moving at all -- R11 (29/08) stalled exactly this way, motionless for
+    minutes on an identical unchanging map. The caller falls back to the
+    original (un-recessed) endpoint when this returns `None`.
+    """
+    if not poses:
+        return None
+    points = [(p.pose.position.x, p.pose.position.y) for p in poses]
+    start = points[0]
+
+    def far_enough(point: tuple[float, float]) -> bool:
+        return math.hypot(point[0] - start[0], point[1] - start[1]) \
+            >= min_travel_m
+
+    if len(points) == 1:
+        return points[0] if far_enough(points[0]) else None
+
+    remaining = setback_m
+    for i in range(len(points) - 1, 0, -1):
+        x1, y1 = points[i]
+        x0, y0 = points[i - 1]
+        segment = math.hypot(x1 - x0, y1 - y0)
+        if segment >= remaining:
+            ratio = remaining / segment if segment > 0.0 else 0.0
+            candidate = (x1 - (x1 - x0) * ratio, y1 - (y1 - y0) * ratio)
+            return candidate if far_enough(candidate) else None
+        remaining -= segment
+    # The whole path is shorter than `setback_m`: there is no point on it
+    # that is actually `setback_m` from the end. Falling back to `start`
+    # here would hand back the robot's own current pose -- degenerate
+    # regardless of `min_travel_m`, so this is always discarded.
+    return None
+
+
 class MazeExplorer(Node):
     """Choose reachable map frontiers and hand them to Nav2 one at a time."""
 
@@ -97,6 +147,39 @@ class MazeExplorer(Node):
         # anotacao, nao entra em nenhuma das tres listas de supressao, e andar
         # alguns centimetros devolve a fronteira a disputa sozinho.
         self.declare_parameter('min_frontier_distance_m', 0.35)
+        # Raio, em `extract_frontiers`, que uma celula-alvo precisa manter
+        # livre de qualquer celula ocupada para virar candidata (`has_clearance`
+        # em frontier.py). O default anterior, 0,45 m, e maior que o meio-
+        # comprimento do footprint (0,37 m, `nav2_params_go2.yaml`) e reprovava
+        # celulas perto de vaos e cantos -- exatamente onde uma fronteira
+        # estreita encontra a parede. 0,38 m mantem uma folga real sobre o
+        # footprint (nao sobre `robot_radius`, que ja foi substituido) e deixa
+        # o robo se aproximar mais da parede a frente antes de a fronteira
+        # daquele lado ser descartada. Feedback de 29/08: o robo desistia cedo
+        # demais perto de paredes e perdia aberturas.
+        self.declare_parameter('frontier_wall_clearance_m', 0.38)
+        # Alternates per cluster, and how far apart they must sit. R10
+        # (29/08) died in 28.5 s because its one frontier cluster had exactly
+        # one candidate point, that point was refused by the planner
+        # (NO_VALID_PATH), and there was nothing else in the SAME cluster to
+        # retry -- the whole cluster was lost over one unreachable point.
+        # These let `extract_frontiers` hand back backup points from the same
+        # cluster so a single bad point no longer costs the whole region.
+        self.declare_parameter('frontier_max_alternates', 2)
+        self.declare_parameter('frontier_alternate_spacing_m', 0.25)
+        # After ComputePathToPose validates a candidate, navigate to a point
+        # this far back from the endpoint ALONG THE RETURNED PATH, not to the
+        # endpoint itself. Feedback 29/08: the robot gave up on a corridor
+        # too early on meeting a wall ahead, missing the openings beside it --
+        # but pulling the frontier's own goal placement closer to the wall
+        # (see `frontier_wall_clearance_m` above) does not, on its own, make
+        # Nav2's controller willing to track a path that close. A point set
+        # back along a path the planner already proved reachable does not
+        # have that problem: it is still on a validated route, just short of
+        # its far end. The original endpoint is kept for scoring only
+        # (`frontier_score`/`information_gain_m`) so scoring still reflects
+        # the real frontier, not the shortened approach.
+        self.declare_parameter('frontier_endpoint_setback_m', 0.40)
 
         transient = QoSProfile(
             depth=1,
@@ -136,6 +219,7 @@ class MazeExplorer(Node):
         self._frontier_extract_ms = 0.0
         self._frontier_cells = 0
         self._frontier_clusters = 0
+        self._frontier_clusters_raw = 0
         self._path_requests = 0
         self._selection_cycle = 0
         self._near_skipped = 0
@@ -165,6 +249,13 @@ class MazeExplorer(Node):
         # centroide do cluster.
         self._refused: list[tuple[float, float]] = []
         self._timed_out: list[tuple[float, float]] = []
+        # Guards the provisional-recovery release below: a fresh entry must
+        # not be released in the very same map generation that produced it.
+        # R9 (29/08) re-selected and re-timed-out the identical coordinate
+        # twice in a row (goals 7-8) because a recovery fired between them
+        # with no map change in between -- releasing a suppression the map
+        # has not yet had a chance to disprove.
+        self._last_provisional_map_seq = -1
         # If provisional suppression covers every otherwise usable frontier,
         # release it once. A second dead end before real navigation progress
         # must count as barren instead of creating a refuse/release livelock.
@@ -185,7 +276,26 @@ class MazeExplorer(Node):
         self._goal_handle = None
         self._candidates: list[Frontier] = []
         self._candidate_index = 0
-        self._best: tuple[float, Frontier] | None = None
+        # Which point of the CURRENT candidate frontier is under test: 0 is
+        # its primary (x, y), 1..N its `alternates`. Reset whenever
+        # `_candidate_index` moves to a new cluster.
+        self._candidate_alt_index = 0
+        self._best: tuple[float, Frontier, tuple[float, float]] | None = None
+        # Telemetry of the most recent ComputePathToPose attempt, for the
+        # status message -- without this, a refusal like R10's could only be
+        # explained by reconstructing it offline after the fact.
+        self._last_candidate_point: tuple[float, float] | None = None
+        self._last_path_status: int | None = None
+        self._last_path_error_code: int | None = None
+        self._last_path_error_msg: str = ''
+        self._last_path_planner_id: str = ''
+        # The frontier's own endpoint vs. the point actually commanded to
+        # Nav2 -- normally identical, but a setback point (see
+        # `_setback_point`) makes them differ for exploration goals. Kept
+        # separate so a HIL report can tell which one was used without
+        # reconstructing it from the path afterwards.
+        self._last_nav_original: tuple[float, float] | None = None
+        self._last_nav_target: tuple[float, float] | None = None
         self._exit_candidate_pose_map: tuple[float, float] | None = None
         self._exit_pose_map: tuple[float, float] | None = None
         self._exit_seen_s = 0.0
@@ -210,8 +320,17 @@ class MazeExplorer(Node):
         self._blacklist.clear()
         self._refused.clear()
         self._timed_out.clear()
+        self._last_provisional_map_seq = -1
         self._provisional_recovery_used = False
         self._provisional_recoveries = 0
+        self._candidate_alt_index = 0
+        self._last_candidate_point = None
+        self._last_path_status = None
+        self._last_path_error_code = None
+        self._last_path_error_msg = ''
+        self._last_path_planner_id = ''
+        self._last_nav_original = None
+        self._last_nav_target = None
         self._marker_distance_m = None
         self._homing_entry_distance_m = None
         self._exit_candidate_pose_map = None
@@ -408,10 +527,21 @@ class MazeExplorer(Node):
         self._selection_key = key
 
         started = time.monotonic()
-        frontiers = extract_frontiers(grid)
+        extract_stats: dict = {}
+        frontiers = extract_frontiers(
+            grid,
+            clearance_m=float(
+                self.get_parameter('frontier_wall_clearance_m').value),
+            max_alternates=int(
+                self.get_parameter('frontier_max_alternates').value),
+            alternate_spacing_m=float(
+                self.get_parameter('frontier_alternate_spacing_m').value),
+            stats=extract_stats,
+        )
         self._frontier_extract_ms = round((time.monotonic() - started) * 1e3, 1)
         self._selection_cycle += 1
         self._frontier_clusters = len(frontiers)
+        self._frontier_clusters_raw = extract_stats.get('raw_clusters', 0)
         self._frontier_cells = sum(item.cells for item in frontiers)
 
         # Apply permanent and geometric exclusions first. This intermediate
@@ -440,7 +570,8 @@ class MazeExplorer(Node):
         # If the retried frontiers fail again before a successful arrival, the
         # normal barren limit terminates the run instead of clearing forever.
         if reachable and not frontiers and provisional \
-                and not self._provisional_recovery_used:
+                and not self._provisional_recovery_used \
+                and self._map_seq > self._last_provisional_map_seq:
             self._refused.clear()
             self._timed_out.clear()
             self._provisional_recovery_used = True
@@ -452,6 +583,7 @@ class MazeExplorer(Node):
         self._frontier_count = len(frontiers)
         self._candidates = frontiers[:8]
         self._candidate_index = 0
+        self._candidate_alt_index = 0
         self._best = None
         if not self._candidates:
             self._message = ('todas as fronteiras estao dentro da '
@@ -468,23 +600,50 @@ class MazeExplorer(Node):
                 self._message = 'planner rejeitou todas as fronteiras'
                 self._pending = False
                 return
-            _, frontier = self._best
-            self._send_navigation(frontier, exploration=True)
+            _, frontier, target = self._best
+            self._send_navigation(frontier, exploration=True, target=target)
             return
         frontier = self._candidates[self._candidate_index]
-        self._candidate_index += 1
+        points = ((frontier.x, frontier.y),) + frontier.alternates
+        if self._candidate_alt_index >= len(points):
+            # Every point of this cluster (primary and alternates) was
+            # refused. O planejador REPROVOU esta fronteira. Sem aposenta-la,
+            # ela volta identica no proximo ciclo, para sempre: foi o que
+            # consumiu 459 s dos 600 s da fumaca de 28/08, com o mapa
+            # congelado e um `ComputePathToPose` por segundo sobre a mesma
+            # coordenada morta.
+            #
+            # Anotada pelo ponto PRIMARIO (o que identifica o cluster para as
+            # supressoes por raio), nao pelo ultimo ponto tentado -- as
+            # supressoes suprimem a REGIAO, nao um ponto especifico dentro
+            # dela. `len(self._blacklist)`/`_refused` ja fazem parte da chave
+            # de `_begin_selection`, entao o append sozinho ja forca uma
+            # extracao nova no proximo ciclo.
+            self._refused.append((frontier.x, frontier.y))
+            self._last_provisional_map_seq = self._map_seq
+            self._candidate_index += 1
+            self._candidate_alt_index = 0
+            self._validate_next()
+            return
+        point = points[self._candidate_alt_index]
+        self._candidate_alt_index += 1
         goal = ComputePathToPose.Goal()
-        goal.goal = self._pose(frontier.x, frontier.y, 0.0)
+        goal.goal = self._pose(point[0], point[1], 0.0)
         goal.planner_id = 'ExplorationGrid'
         goal.use_start = False
         self._pending = True
         self._path_requests += 1
+        self._last_candidate_point = point
+        self._last_path_planner_id = goal.planner_id
         epoch = self._epoch
         future = self._path_client.send_goal_async(goal)
         future.add_done_callback(
-            lambda done: self._on_path_accepted(done, epoch, frontier))
+            lambda done: self._on_path_accepted(done, epoch, frontier, point))
 
-    def _on_path_accepted(self, future, epoch: int, frontier: Frontier) -> None:
+    def _on_path_accepted(
+        self, future, epoch: int, frontier: Frontier,
+        point: tuple[float, float],
+    ) -> None:
         if epoch != self._epoch:
             return
         handle = future.result()
@@ -493,42 +652,66 @@ class MazeExplorer(Node):
             self._validate_next()
             return
         handle.get_result_async().add_done_callback(
-            lambda done: self._on_path_result(done, epoch, frontier))
+            lambda done: self._on_path_result(done, epoch, frontier, point))
 
-    def _on_path_result(self, future, epoch: int, frontier: Frontier) -> None:
+    def _on_path_result(
+        self, future, epoch: int, frontier: Frontier,
+        point: tuple[float, float],
+    ) -> None:
         if epoch != self._epoch:
             return
         wrapped = future.result()
+        self._last_path_status = wrapped.status
+        self._last_path_error_code = wrapped.result.error_code
+        self._last_path_error_msg = wrapped.result.error_msg
         if wrapped.status == GoalStatus.STATUS_SUCCEEDED:
             route_m = path_length(wrapped.result.path.poses)
             score = frontier_score(frontier, route_m)
             if self._best is None or score > self._best[0]:
-                self._best = score, frontier
-        else:
-            # O planejador REPROVOU esta fronteira. Sem aposenta-la, ela volta
-            # identica no proximo ciclo, para sempre: foi o que consumiu 459 s
-            # dos 600 s da fumaca de 28/08, com o mapa congelado e um
-            # `ComputePathToPose` por segundo sobre a mesma coordenada morta.
-            #
-            # Nao usa `_blacklist_current`: aquele incrementa `_epoch` para
-            # matar a meta em voo, e aqui ha uma rodada de validacao em
-            # andamento cujos callbacks seguintes seriam descartados. So a
-            # anotacao, sem trocar de epoca. `len(self._blacklist)` ja faz parte
-            # da chave de `_begin_selection`, entao o append sozinho ja forca
-            # uma extracao nova no proximo ciclo.
-            self._refused.append((frontier.x, frontier.y))
+                # Floor: xy_goal_tolerance plus a margin, so the setback point
+                # can never fall inside the radius Nav2's own goal checker
+                # already treats as "arrived" -- see `_setback_point`'s
+                # docstring for the R11 stall this guards against.
+                setback = _setback_point(
+                    wrapped.result.path.poses,
+                    float(self.get_parameter(
+                        'frontier_endpoint_setback_m').value),
+                    min_travel_m=float(self.get_parameter(
+                        'nav_goal_tolerance_m').value) + 0.10,
+                )
+                self._best = score, frontier, (setback or point)
+            # This cluster already has a validated point; its remaining
+            # alternates would only re-check the same region. Move on to the
+            # next cluster instead of retrying them.
+            self._candidate_index += 1
+            self._candidate_alt_index = 0
+        # A refusal here does NOT advance `_candidate_index`/append to
+        # `_refused` -- `_validate_next` retries the next alternate of this
+        # SAME frontier first, and only gives up on the whole cluster once
+        # every point (primary and alternates) has been tried.
         self._pending = False
         self._validate_next()
 
-    def _send_navigation(self, frontier: Frontier, exploration: bool) -> None:
+    def _send_navigation(
+        self, frontier: Frontier, exploration: bool,
+        target: tuple[float, float] | None = None,
+    ) -> None:
         robot = self._robot_pose()
         if robot is None:
             self._state = 'waiting_map'
             self._pending = False
             return
-        yaw = math.atan2(frontier.y - robot[1], frontier.x - robot[0])
+        # `target` is the point actually commanded -- normally the frontier's
+        # own (x, y), but exploration goals may carry a setback point along
+        # an already-validated path instead (see `_on_path_result`). Scoring
+        # and suppression radii still key off `frontier.x/y`; only the
+        # commanded pose changes.
+        nav_x, nav_y = target if target is not None else (frontier.x, frontier.y)
+        self._last_nav_original = (frontier.x, frontier.y)
+        self._last_nav_target = (nav_x, nav_y)
+        yaw = math.atan2(nav_y - robot[1], nav_x - robot[0])
         goal = NavigateToPose.Goal()
-        goal.pose = self._pose(frontier.x, frontier.y, yaw)
+        goal.pose = self._pose(nav_x, nav_y, yaw)
         if exploration:
             goal.behavior_tree = str(self.get_parameter('exploration_bt_xml').value)
         self._current = frontier
@@ -573,6 +756,7 @@ class MazeExplorer(Node):
                 # blacklist dura fica.
                 self._refused.clear()
                 self._timed_out.clear()
+                self._last_provisional_map_seq = -1
                 self._provisional_recovery_used = False
                 self._state = 'selecting'
                 self._message = 'fronteira alcancada; atualizando mapa'
@@ -635,6 +819,7 @@ class MazeExplorer(Node):
         """Meta estourou o teto: suprime a fronteira, mas nao para sempre."""
         if self._current is not None:
             self._timed_out.append((self._current.x, self._current.y))
+            self._last_provisional_map_seq = self._map_seq
         self._epoch += 1
         self._cancel_goal()
         self._state = 'selecting'
@@ -706,10 +891,44 @@ class MazeExplorer(Node):
             'frontier_extract_ms': self._frontier_extract_ms,
             'frontier_cells': self._frontier_cells,
             'frontier_clusters': self._frontier_clusters,
+            # Raw cluster count, before the clearance/standoff candidate
+            # search. Distinguishes "only one cluster ever existed" from
+            # "several existed and the candidate filters ate the rest" --
+            # the two look identical in `frontier_clusters` alone.
+            'frontier_clusters_raw': self._frontier_clusters_raw,
             'candidates_checked': self._candidate_index,
             'path_requests': self._path_requests,
             'selection_cycle': self._selection_cycle,
             'near_frontiers_skipped': self._near_skipped,
+            # The most recent ComputePathToPose attempt: which point, and
+            # exactly how the planner answered. Without this, a refusal like
+            # R10's (29/08) can only be explained by reconstructing it
+            # offline against the frozen map after the fact.
+            'candidate_point_x': (
+                None if self._last_candidate_point is None
+                else round(self._last_candidate_point[0], 3)),
+            'candidate_point_y': (
+                None if self._last_candidate_point is None
+                else round(self._last_candidate_point[1], 3)),
+            'last_path_status': self._last_path_status,
+            'last_path_error_code': self._last_path_error_code,
+            'last_path_error_msg': self._last_path_error_msg,
+            'last_path_planner_id': self._last_path_planner_id,
+            # Original frontier endpoint (scoring/information-gain) vs. the
+            # point actually commanded to Nav2 -- differ only when a setback
+            # point along an already-validated plan was used instead.
+            'nav_original_x': (
+                None if self._last_nav_original is None
+                else round(self._last_nav_original[0], 3)),
+            'nav_original_y': (
+                None if self._last_nav_original is None
+                else round(self._last_nav_original[1], 3)),
+            'nav_target_x': (
+                None if self._last_nav_target is None
+                else round(self._last_nav_target[0], 3)),
+            'nav_target_y': (
+                None if self._last_nav_target is None
+                else round(self._last_nav_target[1], 3)),
             'provisional_recoveries': self._provisional_recoveries,
             'barren_cycles': self._barren_cycles,
             'marker_visible': (

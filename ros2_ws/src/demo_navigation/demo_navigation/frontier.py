@@ -30,6 +30,12 @@ class Frontier:
     y: float
     cells: int
     information_gain_m: float
+    # Extra candidate points from the SAME cluster, ordered by preference,
+    # spaced >= alternate_spacing_m apart. A cluster with a genuinely
+    # unreachable primary point does not have to be abandoned outright: the
+    # caller can retry these before giving up on the whole cluster. Empty by
+    # default so every existing construction (tests included) is unaffected.
+    alternates: tuple[tuple[float, float], ...] = ()
 
 
 def cell_to_world(grid: Grid, col: int, row: int) -> tuple[float, float]:
@@ -115,11 +121,28 @@ def extract_frontiers(
     min_cells: int = 8,
     clearance_m: float = 0.45,
     standoff_m: float = 0.45,
+    max_alternates: int = 2,
+    alternate_spacing_m: float = 0.25,
+    stats: dict | None = None,
 ) -> list[Frontier]:
-    """Cluster free cells touching unknown and return safe inward goals."""
+    """
+    Cluster free cells touching unknown and return safe inward goals.
+
+    `stats`, when given a dict, is filled with `raw_clusters` (cluster count
+    before the clearance/standoff candidate search) and `clusters_with_candidate`
+    (how many of those actually produced a usable goal point) — telemetry to
+    tell "only one cluster ever existed" apart from "several existed and the
+    filters ate the rest", which look identical from the returned list alone.
+    """
     if grid.width <= 0 or grid.height <= 0 or grid.resolution <= 0.0:
+        if stats is not None:
+            stats['raw_clusters'] = 0
+            stats['clusters_with_candidate'] = 0
         return []
     if len(grid.data) != grid.width * grid.height:
+        if stats is not None:
+            stats['raw_clusters'] = 0
+            stats['clusters_with_candidate'] = 0
         return []
 
     def index(col: int, row: int) -> int:
@@ -152,8 +175,16 @@ def extract_frontiers(
         if len(cluster) >= min_cells:
             clusters.append(cluster)
 
+    if stats is not None:
+        stats['raw_clusters'] = len(clusters)
+
     clearance_cells = max(1, math.ceil(clearance_m / grid.resolution))
     standoff_cells = max(1, round(standoff_m / grid.resolution))
+    # Extra BFS depth past the standoff band so there is room for alternates
+    # at a genuinely different depth, not just the same ring as the primary
+    # point. Bounded, not unlimited: deep alternates would drift the goal
+    # away from the frontier's actual information gain.
+    alt_depth_cells = max(2, round(2.0 * alternate_spacing_m / grid.resolution))
 
     def has_clearance(col: int, row: int) -> bool:
         for dr in range(-clearance_cells, clearance_cells + 1):
@@ -179,7 +210,7 @@ def extract_frontiers(
             if distance >= standoff_cells and has_clearance(col, row):
                 candidates.append((col, row))
                 continue
-            if distance >= standoff_cells + 2:
+            if distance >= standoff_cells + 2 + alt_depth_cells:
                 continue
             for nc, nr in neighbours(col, row):
                 if (nc, nr) in visited:
@@ -198,12 +229,39 @@ def extract_frontiers(
             ),
         )
         x, y = cell_to_world(grid, goal_col, goal_row)
+
+        # Alternates: the remaining candidates, nearest-to-centroid first,
+        # greedily kept only if they sit >= alternate_spacing_m from the
+        # primary point AND from every alternate already chosen. Spacing
+        # matters more than raw proximity here -- three points crammed into
+        # the same corner are one retry, not three.
+        alternates: list[tuple[float, float]] = []
+        chosen_points = [(x, y)]
+        remaining_cells = sorted(
+            (cell for cell in candidates if cell != (goal_col, goal_row)),
+            key=lambda cell: (
+                (cell[0] - centre_col) ** 2 + (cell[1] - centre_row) ** 2,
+                cell[1], cell[0],
+            ),
+        )
+        for cell in remaining_cells:
+            if len(alternates) >= max_alternates:
+                break
+            wx, wy = cell_to_world(grid, *cell)
+            if all(math.hypot(wx - px, wy - py) >= alternate_spacing_m
+                   for px, py in chosen_points):
+                alternates.append((wx, wy))
+                chosen_points.append((wx, wy))
+
         result.append(Frontier(
             x=x,
             y=y,
             cells=len(cluster),
             information_gain_m=len(cluster) * grid.resolution,
+            alternates=tuple(alternates),
         ))
+    if stats is not None:
+        stats['clusters_with_candidate'] = len(result)
     return sorted(result, key=lambda item: (-item.cells, item.y, item.x))
 
 
