@@ -6,11 +6,12 @@ from dataclasses import asdict
 import json
 import math
 import time
+import zlib
 
 from action_msgs.msg import GoalStatus
 from action_msgs.srv import CancelGoal
 from geometry_msgs.msg import PoseStamped
-from nav2_msgs.action import ComputePathToPose, NavigateToPose
+from nav2_msgs.action import ComputePathToPose, NavigateToPose, Spin
 from nav_msgs.msg import OccupancyGrid
 import rclpy
 from rclpy.action import ActionClient
@@ -180,6 +181,29 @@ class MazeExplorer(Node):
         # (`frontier_score`/`information_gain_m`) so scoring still reflects
         # the real frontier, not the shortened approach.
         self.declare_parameter('frontier_endpoint_setback_m', 0.40)
+        # R15 (30/08/2026). Vigia de movimento durante `navigating`: comando
+        # despachado mas o robo nao anda. Medido em R13
+        # (docs/results/ml35-f5-exploration-r13.md): 5 janelas reais de
+        # imobilidade com comando, 10,2-24,2 s de duracao, e 4 das 7 metas
+        # com timeout (45 s) tinham uma dessas janelas dentro. 15 s fica
+        # abaixo da mais curta das 5 (10,2 s) com margem para nao disparar
+        # sobre uma pausa de replanejamento normal, e ainda sobra folga
+        # grande contra os 45 s de `goal_timeout_s` -- o objetivo e agir
+        # ANTES de esgotar o prazo da meta, nao substitui-lo.
+        self.declare_parameter('stall_window_s', 15.0)
+        # Mesmo limiar de deslocamento que `find_stalled_navigating_windows`
+        # em `scripts/exploration_trial.py` ja usa contra dado real de R13 --
+        # os dois tem de concordar, ou o watchdog em campo e o diagnostico
+        # offline classificariam a mesma corrida de jeitos diferentes.
+        self.declare_parameter('stall_move_threshold_m', 0.05)
+        # Varredura de observacao quando NENHUM cluster de fronteira bruto
+        # existe (nao quando existe mas foi filtrado -- girar nao revela
+        # nada de novo nesse caso). ~60 graus: uma volta completa a
+        # max_rotational_vel 0.12 rad/s (behavior_server, nav2_params_go2.yaml)
+        # leva ~52 s, quase o orcamento de uma meta inteira; uma fatia menor,
+        # repetida a cada versao de mapa que continuar sem cluster algum,
+        # cobre o entorno progressivamente sem monopolizar o orcamento total.
+        self.declare_parameter('recovery_spin_rad', 1.047)
 
         transient = QoSProfile(
             depth=1,
@@ -203,6 +227,7 @@ class MazeExplorer(Node):
             self, NavigateToPose, 'navigate_to_pose')
         self._nav_cancel_client = self.create_client(
             CancelGoal, '/navigate_to_pose/_action/cancel_goal')
+        self._spin_client = ActionClient(self, Spin, 'spin')
 
         self._state = 'idle'
         self._message = ''
@@ -210,7 +235,18 @@ class MazeExplorer(Node):
         # Sequencia do mapa, e nao o proprio mapa, como chave de cache: comparar
         # duas OccupancyGrid celula a celula custaria mais que a extracao que o
         # cache existe para evitar.
+        #
+        # R15 (30/08/2026): so avanca quando o CONTEUDO muda (`_on_map` compara
+        # um checksum, nao apenas conta mensagens). `slam_toolbox` republica
+        # `/map` periodicamente mesmo sem mudanca real, e antes desta correcao
+        # cada republicacao contava como "mapa novo" para
+        # `map_seq > last_provisional_map_seq` em `_begin_selection` --
+        # liberando uma supressao provisoria que nenhuma observacao nova
+        # desmentiu. O teste
+        # `test_map_republication_does_not_release_a_provisional_recovery`
+        # cobre exatamente este caso.
         self._map_seq = 0
+        self._map_content_hash: int | None = None
         self._selection_key: tuple[int, int, int] | None = None
         self._frontier_count = 0
         # Instrumentacao. Medida com relogio MONOTONICO, nunca com /clock: sob
@@ -305,6 +341,15 @@ class MazeExplorer(Node):
         self._marker_far_ignored = 0
         self._near_marker_streak = 0
         self._homing_abandons = 0
+        # Vigia de movimento (R15): ultima pose e instante em que o robo
+        # realmente se deslocou desde o inicio da meta ATUAL de `navigating`.
+        self._nav_last_pose: tuple[float, float] | None = None
+        self._nav_last_progress_s = 0.0
+        # Varredura de observacao (R15) quando nenhum cluster bruto existe.
+        self._recovery_pending = False
+        self._recovery_handle = None
+        self._recovery_map_seq = -1
+        self._recovery_attempts = 0
         self.create_timer(1.0, self._tick)
         self._publish_status()
 
@@ -344,6 +389,12 @@ class MazeExplorer(Node):
         self._marker_far_ignored = 0
         self._near_marker_streak = 0
         self._homing_abandons = 0
+        self._nav_last_pose = None
+        self._nav_last_progress_s = 0.0
+        self._recovery_pending = False
+        self._recovery_handle = None
+        self._recovery_map_seq = -1
+        self._recovery_attempts = 0
         self._release_goal()
         if self._nav_cancel_client.service_is_ready():
             # Empty goal_info means every active NavigateToPose goal.  Starting
@@ -369,8 +420,14 @@ class MazeExplorer(Node):
         # decide seleção é `_tick`, e ele só chama `_begin_selection` no estado
         # `selecting`. Reagir aqui faria o robô abandonar a fronteira a cada
         # publicação do SLAM.
+        #
+        # `_map_seq` só avança quando o CONTEÚDO muda -- ver o comentário
+        # junto da declaração do campo em `__init__`.
         self._map = message
-        self._map_seq += 1
+        content_hash = zlib.crc32(bytes(message.data))
+        if content_hash != self._map_content_hash:
+            self._map_content_hash = content_hash
+            self._map_seq += 1
 
     def _on_exit_pose(self, message: PoseStamped) -> None:
         try:
@@ -470,6 +527,9 @@ class MazeExplorer(Node):
             if now - self._goal_started_s >= float(
                     self.get_parameter('goal_timeout_s').value):
                 self._timeout_current('meta de fronteira expirou')
+            elif self._navigation_stalled(now):
+                self._timeout_current(
+                    'vigia de movimento: comando sem deslocamento real')
         elif self._state == 'homing_exit' and not self._pending \
                 and self._goal_handle is None:
             if marker_fresh:
@@ -487,6 +547,32 @@ class MazeExplorer(Node):
                 self._near_marker_streak = 0
         self._publish_status()
 
+    def _navigation_stalled(self, now: float) -> bool:
+        """
+        Return True when `navigating` dispatched a command but nothing moved.
+
+        Janela deslizante: qualquer deslocamento real acima de
+        `stall_move_threshold_m` reinicia o relogio. So dispara depois de
+        `stall_window_s` sem esse deslocamento -- ver a justificativa com os
+        numeros de R13 junto da declaracao dos parametros em `__init__`.
+        """
+        robot = self._robot_pose()
+        if robot is None:
+            return False
+        x, y, _ = robot
+        if self._nav_last_pose is None:
+            self._nav_last_pose = (x, y)
+            self._nav_last_progress_s = now
+            return False
+        moved = math.hypot(
+            x - self._nav_last_pose[0], y - self._nav_last_pose[1])
+        if moved >= float(self.get_parameter('stall_move_threshold_m').value):
+            self._nav_last_pose = (x, y)
+            self._nav_last_progress_s = now
+            return False
+        return now - self._nav_last_progress_s >= float(
+            self.get_parameter('stall_window_s').value)
+
     def _grid(self) -> Grid | None:
         if self._map is None:
             return None
@@ -501,6 +587,11 @@ class MazeExplorer(Node):
         )
 
     def _begin_selection(self) -> None:
+        if self._recovery_pending:
+            # Varredura de observacao em voo -- ver
+            # `_start_observation_recovery`. Reextrair agora correria sobre o
+            # mesmo mapa que a justificou.
+            return
         grid = self._grid()
         robot = self._robot_pose()
         if grid is None or robot is None:
@@ -586,13 +677,71 @@ class MazeExplorer(Node):
         self._candidate_alt_index = 0
         self._best = None
         if not self._candidates:
-            self._message = ('todas as fronteiras estao dentro da '
-                             'tolerancia de chegada') \
-                if self._near_skipped else \
-                'nenhuma fronteira segura alcancavel'
-            self._note_barren_selection()
+            # R15: classificacao honesta de por que nao ha candidato, em vez
+            # de um unico rotulo 'nenhuma fronteira segura alcancavel' para
+            # tres causas distintas -- ver `classify_stop_reason` em
+            # `scripts/exploration_trial.py`, que ja separa estas contagens.
+            if self._near_skipped:
+                self._message = ('todas as fronteiras estao dentro da '
+                                 'tolerancia de chegada')
+                self._note_barren_selection()
+            elif self._frontier_clusters_raw == 0:
+                self._message = 'nenhum cluster de fronteira bruto'
+                # Varredura de observacao: no maximo uma tentativa por
+                # versao de mapa (`_map_seq`, que so avanca com conteudo
+                # novo). Sem isto o robo giraria sem parar sobre a MESMA
+                # leitura, que nenhuma varredura anterior mudou.
+                if self._map_seq > self._recovery_map_seq:
+                    self._recovery_map_seq = self._map_seq
+                    self._start_observation_recovery()
+                else:
+                    self._note_barren_selection()
+            else:
+                self._message = 'fronteiras existem mas foram filtradas'
+                self._note_barren_selection()
             return
         self._validate_next()
+
+    def _start_observation_recovery(self) -> None:
+        """
+        Spin in place, within the limits `behavior_server` already validated.
+
+        Gira dentro de `max_rotational_vel: 0.12` (`nav2_params_go2.yaml`),
+        medido para nao derrubar o robo em recuperacao. So chamada quando
+        nenhum cluster de fronteira bruto existe -- ver `_begin_selection`.
+        """
+        self._recovery_pending = True
+        self._recovery_attempts += 1
+        goal = Spin.Goal()
+        goal.target_yaw = float(self.get_parameter('recovery_spin_rad').value)
+        epoch = self._epoch
+        future = self._spin_client.send_goal_async(goal)
+        future.add_done_callback(
+            lambda done: self._on_recovery_accepted(done, epoch))
+
+    def _on_recovery_accepted(self, future, epoch: int) -> None:
+        if epoch != self._epoch:
+            return
+        handle = future.result()
+        if not handle.accepted:
+            self._recovery_pending = False
+            self._note_barren_selection()
+            return
+        self._recovery_handle = handle
+        handle.get_result_async().add_done_callback(
+            lambda done: self._on_recovery_result(done, epoch))
+
+    def _on_recovery_result(self, future, epoch: int) -> None:
+        del future
+        if epoch != self._epoch:
+            return
+        self._recovery_pending = False
+        self._recovery_handle = None
+        # A varredura em si nao decide nada; o proximo /map com conteudo
+        # novo e que conta como progresso (`_map_seq`). Sem mapa novo, este
+        # ciclo barren avanca em direcao ao limite normal -- uma varredura
+        # que nao revelou nada nao pode girar para sempre.
+        self._note_barren_selection()
 
     def _validate_next(self) -> None:
         if self._candidate_index >= len(self._candidates):
@@ -718,6 +867,8 @@ class MazeExplorer(Node):
         self._pending = True
         self._barren_cycles = 0
         self._goal_started_s = self._now_s()
+        self._nav_last_pose = None
+        self._nav_last_progress_s = 0.0
         self._state = 'navigating' if exploration else 'homing_exit'
         self._message = 'navegando para fronteira' if exploration \
             else 'aproximando marcador da saida'
@@ -836,6 +987,10 @@ class MazeExplorer(Node):
     def _cancel_goal(self) -> None:
         if self._goal_handle is not None:
             self._goal_handle.cancel_goal_async()
+        if self._recovery_handle is not None:
+            self._recovery_handle.cancel_goal_async()
+            self._recovery_handle = None
+            self._recovery_pending = False
         self._release_goal()
 
     def _release_goal(self) -> None:
@@ -931,6 +1086,7 @@ class MazeExplorer(Node):
                 else round(self._last_nav_target[1], 3)),
             'provisional_recoveries': self._provisional_recoveries,
             'barren_cycles': self._barren_cycles,
+            'recovery_attempts': self._recovery_attempts,
             'marker_visible': (
                 self._exit_candidate_pose_map is not None
                 and now - self._exit_seen_s <= float(

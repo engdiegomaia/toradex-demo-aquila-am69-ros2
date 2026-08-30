@@ -650,8 +650,18 @@ def _run_provisionally_suppressed_selection(
     monkeypatch.setattr(node, '_grid', lambda: object())
     monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
     monkeypatch.setattr(node, '_validate_next', lambda: None)
-    monkeypatch.setattr(maze_explorer_module, 'extract_frontiers',
-                        lambda grid, **_kwargs: list(frontiers))
+
+    def fake_extract(grid, stats=None, **_kwargs):
+        # Real `extract_frontiers` always reports `raw_clusters` -- a
+        # provisional/hard dead end here means a cluster WAS observed and
+        # then suppressed, not that none existed (see
+        # `test_a_zero_raw_cluster_selection_starts_an_observation_recovery`
+        # for that other case).
+        if stats is not None:
+            stats['raw_clusters'] = len(frontiers)
+        return list(frontiers)
+    monkeypatch.setattr(
+        maze_explorer_module, 'extract_frontiers', fake_extract)
     targets = node._blacklist if hard else node._refused
     targets.extend((item.x, item.y) for item in frontiers)
     node._begin_selection()
@@ -749,6 +759,236 @@ def test_dispatching_a_goal_clears_the_barren_streak(node) -> None:
     node._note_barren_selection()
     assert node._barren_cycles == 1
     assert node._state == 'selecting'
+
+
+def test_a_zero_raw_cluster_selection_starts_an_observation_recovery(
+        node, monkeypatch) -> None:
+    """
+    Nenhum cluster bruto e diferente de cluster filtrado.
+
+    Girar pode revelar geometria nova quando o SLAM simplesmente nao viu
+    nenhuma fronteira ainda; nao adianta nada quando a fronteira existe e foi
+    suprimida (ver `test_all_provisional_suppressions_are_released_once`,
+    onde `raw_clusters` e nao-zero e o caminho e outro).
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    node._map_seq += 1
+    monkeypatch.setattr(node, '_grid', lambda: object())
+    monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
+
+    def fake_extract(grid, stats=None, **_kwargs):
+        if stats is not None:
+            stats['raw_clusters'] = 0
+        return []
+    monkeypatch.setattr(
+        maze_explorer_module, 'extract_frontiers', fake_extract)
+
+    spins: list[int] = []
+    monkeypatch.setattr(
+        node, '_start_observation_recovery',
+        lambda: spins.append(node._map_seq))
+
+    node._begin_selection()
+
+    assert spins == [node._map_seq]
+    assert node._recovery_map_seq == node._map_seq
+    assert node._message == 'nenhum cluster de fronteira bruto'
+    assert node._barren_cycles == 0, (
+        'a varredura ainda nao aconteceu; nao pode contar como ciclo baldio')
+
+
+def test_a_repeated_zero_raw_cluster_map_does_not_spin_twice(
+        node, monkeypatch) -> None:
+    """Uma tentativa por versao de mapa -- ver o comentario em `__init__`."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    node._map_seq += 1
+    monkeypatch.setattr(node, '_grid', lambda: object())
+    monkeypatch.setattr(node, '_robot_pose', lambda: (0.0, 0.0, 0.0))
+
+    def fake_extract(grid, stats=None, **_kwargs):
+        if stats is not None:
+            stats['raw_clusters'] = 0
+        return []
+    monkeypatch.setattr(
+        maze_explorer_module, 'extract_frontiers', fake_extract)
+
+    spins: list[int] = []
+    monkeypatch.setattr(
+        node, '_start_observation_recovery',
+        lambda: spins.append(node._map_seq))
+
+    node._begin_selection()
+    # Forca nova extracao sem mapa novo, mesma tecnica das outras
+    # invalidacoes de cache neste arquivo.
+    node._epoch += 1
+    node._begin_selection()
+
+    assert spins == [node._map_seq], (
+        'a segunda tentativa caiu sobre o MESMO mapa; nao pode repetir')
+
+
+class _PendingSend:
+    """Como `send_goal_async` devolve de verdade: Future ainda em voo."""
+
+    def __init__(self) -> None:
+        self.callback = None
+
+    def add_done_callback(self, cb) -> None:
+        self.callback = cb
+
+
+class _AutoFireFuture:
+    """Uma Future ja resolvida: dispara o callback registrado na hora."""
+
+    def __init__(self, value) -> None:
+        self._value = value
+
+    def result(self):
+        return self._value
+
+    def add_done_callback(self, cb) -> None:
+        cb(self)
+
+
+class _SpinHandle:
+    """O handle que `Spin.send_goal_async` aceita entrega ao callback."""
+
+    def __init__(self, accepted: bool,
+                 status: int = GoalStatus.STATUS_SUCCEEDED) -> None:
+        self.accepted = accepted
+        self._status = status
+
+    def get_result_async(self):
+        return _AutoFireFuture(SimpleNamespace(status=self._status))
+
+    def cancel_goal_async(self) -> None:
+        pass
+
+
+def test_observation_recovery_round_trip_clears_pending_and_counts_barren(
+        node, monkeypatch) -> None:
+    """A varredura em si nao decide nada; so o proximo mapa novo decide."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    pending = _PendingSend()
+    monkeypatch.setattr(
+        node._spin_client, 'send_goal_async', lambda goal: pending)
+
+    node._start_observation_recovery()
+    assert node._recovery_pending is True
+    assert node._recovery_attempts == 1
+
+    pending.callback(_Future(_SpinHandle(accepted=True)))
+
+    assert node._recovery_pending is False
+    assert node._recovery_handle is None
+    assert node._barren_cycles == 1
+
+
+def test_a_refused_observation_recovery_counts_barren_at_once(
+        node, monkeypatch) -> None:
+    """O behavior_server pode recusar o giro (ex.: colisao iminente)."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    pending = _PendingSend()
+    monkeypatch.setattr(
+        node._spin_client, 'send_goal_async', lambda goal: pending)
+
+    node._start_observation_recovery()
+    pending.callback(_Future(_SpinHandle(accepted=False)))
+
+    assert node._recovery_pending is False
+    assert node._barren_cycles == 1
+
+
+def test_cancel_stops_a_pending_observation_recovery(
+        node, monkeypatch) -> None:
+    """Cancelar a busca tem de parar o giro em voo, nao so a navegacao."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    pending = _PendingSend()
+    monkeypatch.setattr(
+        node._spin_client, 'send_goal_async', lambda goal: pending)
+    node._start_observation_recovery()
+    handle = _SpinHandle(accepted=True)
+    cancelled: list[bool] = []
+    handle.cancel_goal_async = lambda: cancelled.append(True)
+    node._recovery_handle = handle
+    node._recovery_pending = True
+
+    node._cancel(None, trigger(node))
+
+    assert cancelled == [True]
+    assert node._recovery_pending is False
+    assert node._recovery_handle is None
+
+
+def test_a_stale_recovery_callback_is_ignored_after_cancel(
+        node, monkeypatch) -> None:
+    """Callback de uma rodada ja cancelada nao pode contar para a nova."""
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    pending = _PendingSend()
+    monkeypatch.setattr(
+        node._spin_client, 'send_goal_async', lambda goal: pending)
+    node._start_observation_recovery()
+    node._cancel(None, trigger(node))
+    barren_before = node._barren_cycles
+
+    pending.callback(_Future(_SpinHandle(accepted=True)))
+
+    assert node._barren_cycles == barren_before
+
+
+def test_navigation_watchdog_fires_after_the_stall_window(node) -> None:
+    """Comando despachado, robo parado -- corta antes do prazo de 45 s."""
+    clock = {'t': 0.0}
+    node._now_s = lambda: clock['t']
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._current = Frontier(x=5.0, y=5.0, cells=10, information_gain_m=1.0)
+    node._goal_started_s = clock['t']
+    node._robot_pose = lambda: (0.0, 0.0, 0.0)
+    window = float(node.get_parameter('stall_window_s').value)
+
+    node._tick()  # arma o relogio do vigia na primeira leitura
+    assert node._state == 'navigating'
+
+    clock['t'] = window - 1.0
+    node._tick()
+    assert node._state == 'navigating', 'ainda dentro da janela'
+
+    clock['t'] = window + 1.0
+    node._tick()
+    assert node._state == 'selecting'
+    assert 'vigia de movimento' in node._message
+    assert (5.0, 5.0) in node._timed_out
+
+
+def test_navigation_watchdog_resets_on_real_displacement(node) -> None:
+    """Deslocamento real reinicia a janela -- nao e prazo fixo desde a meta."""
+    clock = {'t': 0.0}
+    node._now_s = lambda: clock['t']
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._current = Frontier(x=5.0, y=5.0, cells=10, information_gain_m=1.0)
+    node._goal_started_s = clock['t']
+    window = float(node.get_parameter('stall_window_s').value)
+    pose = {'p': (0.0, 0.0, 0.0)}
+    node._robot_pose = lambda: pose['p']
+
+    node._tick()
+    clock['t'] = window - 1.0
+    pose['p'] = (0.2, 0.0, 0.0)  # acima de stall_move_threshold_m (0.05 m)
+    node._tick()
+    assert node._state == 'navigating'
+
+    clock['t'] = (window - 1.0) + (window - 1.0)
+    node._tick()
+    assert node._state == 'navigating', (
+        'o relogio reiniciou no deslocamento; ainda nao pode ter estourado')
 
 
 def test_homing_returns_to_exploration_after_three_failures(node) -> None:
@@ -865,13 +1105,19 @@ def selecting(node, monkeypatch):
     """Um nó pronto para selecionar, com a extração contada em vez de corrida."""
     calls: list[int] = []
 
-    def counted(grid, **kwargs):
+    def counted(grid, stats=None, **kwargs):
         calls.append(1)
+        # Real `extract_frontiers` sempre relata `raw_clusters`. Um valor
+        # nao-zero aqui mantem estes testes de CACHE isolados do caminho de
+        # recuperacao por varredura (R15), que tem os proprios testes
+        # dedicados para o caso raw_clusters == 0.
+        if stats is not None:
+            stats['raw_clusters'] = 1
         return []
 
     monkeypatch.setattr(
         'demo_navigation.maze_explorer.extract_frontiers', counted)
-    node._robot_pose = lambda: (0.0, 0.0)
+    node._robot_pose = lambda: (0.0, 0.0, 0.0)
     node._on_map(_map_message())
     node._state = 'selecting'
     node.extract_calls = calls
@@ -889,12 +1135,99 @@ def test_selection_is_not_recomputed_while_map_and_blacklist_stand(selecting):
 
 
 def test_a_new_map_invalidates_the_selection_cache(selecting):
-    """Mapa novo é informação nova: aí sim vale reextrair."""
+    """
+    Mapa novo é informação nova: aí sim vale reextrair.
+
+    O conteúdo tem de mudar de fato (R15) -- repetir a mesma grade não conta
+    como mapa novo, ver `test_map_republication_does_not_invalidate_the_cache`
+    logo abaixo.
+    """
+    changed = _map_message()
+    changed.data[0] = 100
+    selecting._begin_selection()
+    selecting._on_map(changed)
+    selecting._begin_selection()
+
+    assert len(selecting.extract_calls) == 2
+
+
+def test_map_republication_does_not_invalidate_the_cache(selecting):
+    """
+    `slam_toolbox` republica `/map` mesmo sem mudanca -- isso nao e mapa novo.
+
+    Complementa o teste acima: aqui o CONTEUDO e identico ao que a fixture
+    `selecting` ja usou para popular o cache, entao reextrair de novo custaria
+    um core por nada.
+    """
     selecting._begin_selection()
     selecting._on_map(_map_message())
     selecting._begin_selection()
 
-    assert len(selecting.extract_calls) == 2
+    assert len(selecting.extract_calls) == 1
+
+
+def test_on_map_only_advances_map_seq_on_real_content_change(node) -> None:
+    """
+    R15: `_map_seq` e contagem de CONTEUDO, nao de mensagem.
+
+    Antes desta correcao, republicar um mapa identico ainda incrementava
+    `_map_seq`, o que fazia `self._map_seq > self._last_provisional_map_seq`
+    em `_begin_selection` liberar uma supressao provisoria sem nenhuma
+    observacao nova ter chegado.
+    """
+    node._on_map(_map_message())
+    seq_after_first = node._map_seq
+
+    for _ in range(5):
+        node._on_map(_map_message())
+    assert node._map_seq == seq_after_first, (
+        'republicacao identica nao pode avancar _map_seq')
+
+    changed = _map_message()
+    changed.data[0] = 100
+    node._on_map(changed)
+    assert node._map_seq == seq_after_first + 1, (
+        'conteudo genuinamente novo tem de avancar _map_seq'
+    )
+
+
+def test_map_republication_does_not_release_a_provisional_recovery(
+        node, monkeypatch) -> None:
+    """
+    O teste que o plano original pediu por nome.
+
+    Mesmo conteudo, nova mensagem, nenhuma recuperacao.
+
+    Sem a correcao de `_map_seq`, republicar `/map` 5 vezes (mesmo conteudo)
+    bastava para `self._map_seq > self._last_provisional_map_seq` ficar
+    verdadeiro e liberar a supressao provisoria -- exatamente o livelock que
+    `_last_provisional_map_seq` foi criado para evitar, só que por mensagem
+    em vez de por conteúdo.
+    """
+    frontier = Frontier(x=1.0, y=0.0, cells=20, information_gain_m=1.0)
+    _run_provisionally_suppressed_selection(node, monkeypatch, [frontier])
+    assert node._provisional_recovery_used is True
+
+    # Uma observacao real de mapa, para sair do estado "nunca vi /map" do
+    # rastreador de conteudo -- sem isto a PRIMEIRA chamada de `_on_map` do
+    # teste sempre contaria como mudanca, mascarando o que se quer medir.
+    node._on_map(_map_message())
+
+    # Rearma a recuperacao (como uma chegada real faria, ver
+    # `test_successful_motion_rearms_provisional_recovery`) e simula uma
+    # NOVA recusa na mesma versao de mapa -- a precondicao real que
+    # `_last_provisional_map_seq` existe para proteger.
+    node._provisional_recovery_used = False
+    node._refused.append((frontier.x, frontier.y))
+    node._last_provisional_map_seq = node._map_seq
+
+    for _ in range(5):
+        node._on_map(_map_message())  # mesmo conteudo, mensagens novas
+    node._begin_selection()
+
+    assert node._refused == [(frontier.x, frontier.y)], (
+        'republicacao identica nao pode liberar a supressao provisoria')
+    assert node._candidates == []
 
 
 def test_a_new_blacklist_entry_invalidates_the_selection_cache(selecting):
