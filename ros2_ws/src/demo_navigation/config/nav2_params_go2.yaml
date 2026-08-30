@@ -561,30 +561,30 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        # 14.0. TENTADO 7.0 em R14b (30/08/2026) e REVERTIDO -- medido, nao
-        # ajudou, e a rodada saiu confundida por um erro de processo (ver
-        # abaixo). Mesma hipotese de fundo de R14
-        # (docs/results/ml35-f5-exploration-r14.md): o critico dominante
-        # corrige rumo com forca demais. Contra o mesmo subconjunto "corredor
-        # reto genuino" de R13/R14
-        # (docs/results/ml35-f5-exploration-r14b.md): `cmd_wz` mediano ficou
-        # igual a R14 (0.078 rad/s, ainda acima do baseline 0.056),
-        # `plan_straightness` piorou mais ainda (fracao abaixo de 0.9:
-        # 57,2%, pior que R13 e R14), e a assimetria de parede TRIPLICOU em
-        # magnitude (mediana 0.65 m contra 0.25 m nas duas rodadas
-        # anteriores), so que trocando de vies fixo esquerdo (R14) para vies
-        # fixo direito -- nenhum sinal de menos oscilacao.
+        # 14.0. TENTADO 7.0 em R14b (30/08/2026, confundido por processo) E
+        # em R14c (30/08/2026, retest isolado contra o codigo pre-R15) --
+        # REVERTIDO nas duas. R14c e a leitura que conta (variavel unica de
+        # verdade): contra o mesmo subconjunto "corredor reto genuino"
+        # (docs/results/ml35-f5-exploration-r14c.md), `cmd_wz` mediano
+        # (0.048 rad/s) e amplitude de guinada/5s (mediana 10.2 graus) ficaram
+        # levemente MELHORES que o baseline R13 (0.056 rad/s, 10.7 graus), e a
+        # assimetria de parede voltou ao patamar de R13 (mediana 0.25 m, 45%
+        # esq/31% dir/25% centro -- distribuicao quase identica a de R13, nao
+        # o vies fixo de 57% que R14b mediu sob o erro de processo). Isso
+        # confirma que o vies severo de R14b era o codigo de R15 junto, nao
+        # cost_weight.
         #
-        # ERRO DE PROCESSO NESTA RODADA: o `module.sh sync` antes do HIL
-        # levou junto as mudancas de R15 (vigia de movimento, recuperacao por
-        # varredura) que ja estavam commitadas na arvore -- confirmado pela
-        # mensagem `vigia de movimento: comando sem deslocamento real` em 3
-        # das 15 metas desta rodada, que nao existia em R13/R14. Esta rodada
-        # NAO isolou cost_weight sozinho; comparar com R13/R14 e valido para
-        # tendencia geral mas nao e um A/B limpo. Licao para as proximas
-        # rodadas de config: sincronizar so o arquivo de config, ou congelar
-        # o resto da arvore, antes de um HIL que se pretende de variavel
-        # unica.
+        # Mas `plan_straightness` piorou (fracao abaixo de 0.9: 12,4% -> 31,7%),
+        # a rodada teve MAIS janelas de imobilidade que qualquer rodada
+        # anterior (7 contra 5 em R13), e a taxa de metas concluidas caiu
+        # (70% -> 52%, 11/21). Resultado misto: melhora marginal nas metricas
+        # de suavidade, piora nos indicadores de missao. Nao e uma vitoria
+        # clara o suficiente para justificar desviar do baseline com n=1 por
+        # configuracao -- revertido pelo mesmo motivo de R14/R14b: nao
+        # empilhar mudanca nao demonstrada. Duas tentativas no mesmo critico
+        # dominante (offset_from_furthest, cost_weight) sem ganho liquido
+        # claro; proximo passo nao e um terceiro peso de MPPI, ver
+        # recomendacao em docs/results/ml35-f5-exploration-r14c.md.
         cost_weight: 14.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4

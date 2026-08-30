@@ -331,6 +331,37 @@ two remaining candidates), the process gap needs fixing first (sync only the con
 or freeze the rest of the tree, for any HIL round meant to isolate one variable) — flagged
 back to the user rather than silently continuing.
 
+**Update (30/08, R14c) — clean retest of `cost_weight` isolated from R15, mixed result,
+MPPI-critic-weight branch closed for now.** User chose to fix the process and retest
+`cost_weight=7.0` in true isolation rather than guess a third variable. `maze_explorer.py`
+was temporarily swapped in the module for its pre-R15 content (config-only change),
+confirmed no `vigia de movimento` messages this round, then restored to R15's real content
+afterward — no permanent effect on R15's code.
+
+Result is genuinely mixed, not uniformly negative like R14b. On the same "genuine straight
+corridor" subset: `cmd_wz` median actually improved past R13's own baseline (0.048 vs
+0.056 rad/s), yaw peak-to-peak amplitude per ~5s improved slightly (10.2° vs 10.7°), and
+wall-clearance asymmetry returned to R13's magnitude and near-identical left/right/center
+split (0.25 m, ~45/31/25 vs R13's ~41/33/26) — confirming R14b's severe fixed-bias
+asymmetry (0.65 m, 57% one-sided) was the R15-confound artifact, not `cost_weight` itself.
+But `plan_straightness` still worsened (31.7% of samples below 0.9 vs R13's 12.4%, though
+much better than R14b's 57.2%), stall-window count was the worst of any round so far (7 vs
+R13's 5), and goal completion stayed below baseline (52% vs 70%). The round did end by
+`total_timeout` — the healthy pattern, unlike R14/R14b's early `barren_other` stops. Zero
+falls (tilt max 1.73°). Full numbers: `docs/results/ml35-f5-exploration-r14c.md`.
+`cost_weight` reverted to 14.0 in the same commit round: smoothness metrics improved
+marginally, mission metrics (goals completed, stall windows) got worse, not a clear enough
+net win to justify n=1 evidence overriding baseline.
+
+Two MPPI-side attempts on the dominant critic (`offset_from_furthest`, `cost_weight`) have
+now both failed to show an unambiguous improvement, the second even when measured cleanly
+in isolation. Rather than open a third MPPI-side guess (PathAngleCritic weight, replan
+frequency), the recommendation going forward is to treat the zigzag as mitigated-not-
+eliminated by controller tuning and rely on R15's four software fixes (movement watchdog,
+sweep-recovery, content-based `_map_seq`, honest terminal-state classification — implemented
+and unit-tested, not yet HIL-validated) to handle the practical consequences. R16 (integrated
+validation, R15's code + baseline `cost_weight=14.0`) is the next real HIL round.
+
 **Update (30/08) — item 6, AprilTag positioned HIL validation, done (explicitly
 non-acceptance-counted, no exploration ran):** robot teleported directly to vantage
 points in front of the exit marker (safe hold-gait/set_entity_pose/resume-gait sequence,
