@@ -60,6 +60,7 @@ import math
 import re
 import sys
 import time
+from dataclasses import dataclass
 
 
 # The explorer folds the Nav2 GoalStatus into its status message. Parsing a
@@ -89,14 +90,28 @@ ROW_FIELDS = [
     'sim_s', 'wall_s', 'state', 'x', 'y', 'z', 'yaw_deg', 'tilt_deg',
     'cmd_vx', 'cmd_wz', 'path_m', 'map_known_pct', 'map_known_cells',
     'frontier_count', 'frontier_cells', 'frontier_clusters',
-    'frontier_extract_ms', 'candidates_checked', 'path_requests',
-    'selection_cycle', 'blacklisted', 'refused', 'timed_out',
-    'near_frontiers_skipped', 'provisional_recoveries', 'barren_cycles',
+    'frontier_clusters_raw', 'frontier_extract_ms', 'candidates_checked',
+    'path_requests', 'selection_cycle', 'blacklisted', 'refused',
+    'timed_out', 'near_frontiers_skipped', 'provisional_recoveries',
+    'barren_cycles',
+    # The most recent ComputePathToPose attempt and the setback-vs-endpoint
+    # pair (R12's own telemetry addition, see maze_explorer.py
+    # `_publish_status`) -- required to distinguish "candidate accepted but
+    # unreachable" from "candidate never offered" without an offline replay.
+    'candidate_point_x', 'candidate_point_y', 'last_path_status',
+    'last_path_error_code', 'last_path_error_msg', 'last_path_planner_id',
+    'nav_original_x', 'nav_original_y', 'nav_target_x', 'nav_target_y',
     'marker_visible', 'marker_distance_m', 'marker_observations',
     'marker_confirmations', 'marker_candidate_x', 'marker_candidate_y',
     'marker_accepted_x', 'marker_accepted_y', 'homing_entry_distance_m',
     'homing_entries', 'homing_abandons', 'marker_far_ignored', 'detections_n',
-    'exit_pose_seen', 'escaped', 'message',
+    'exit_pose_seen', 'escaped',
+    # R13's own additions: does the global plan itself zigzag (possibility 1
+    # of the zigzag decision tree), and how much lateral room the local
+    # costmap -- not /demo/scan, see `lateral_wall_clearance_m` -- reports on
+    # each side of the robot.
+    'plan_length_m', 'plan_straightness', 'wall_left_m', 'wall_right_m',
+    'message',
 ]
 
 GOAL_FIELDS = [
@@ -190,6 +205,222 @@ def _vx_stats(rows: list) -> tuple:
     work_ratio = round(sum(1 for value in values if value > 0.01) / len(values), 4)
     mean_abs = round(sum(values) / len(values), 4)
     return work_ratio, mean_abs
+
+
+# Exact strings `maze_explorer.py`'s `_fail`/`_cancel` publish as `message`.
+# Confirmed exhaustive: `self._fail(` has exactly two call sites in that file
+# (total timeout, barren-cycle exhaustion) plus `_cancel`'s own message, so a
+# `failed`/`cancelled` terminal state's message is always one of these three
+# -- classification below does not need a catch-all "maybe" bucket for them.
+# Copied as a literal contract, same idiom as `SUCCESS_MESSAGES` above: a
+# wording change there must be a deliberate, visible edit here too.
+TOTAL_TIMEOUT_MESSAGE = 'prazo total de exploracao excedido'
+BARREN_EXHAUSTED_MESSAGE = 'nenhuma fronteira segura alcancavel'
+CANCELLED_MESSAGE = 'busca cancelada pelo operador'
+
+
+def classify_stop_reason(final_state: str, final_message: str,
+                         frontier_clusters_raw, frontier_clusters) -> str:
+    """Bucket a run's end into one of the R13 stop-reason categories.
+
+    A per-goal timeout (`meta de fronteira expirou`) is deliberately NOT a
+    category here: it never ends the run by itself (the explorer returns to
+    `selecting`), it is already recorded per-goal in `GOAL_FIELDS`, and
+    folding it in here would double-count the same event under two labels.
+    This function answers only "why did the run stop", not "what happened
+    during it".
+    """
+    if final_state not in ('failed', 'cancelled'):
+        return 'open'
+    message = final_message or ''
+    if final_state == 'cancelled' or CANCELLED_MESSAGE in message:
+        return 'cancelled'
+    if TOTAL_TIMEOUT_MESSAGE in message:
+        return 'total_timeout'
+    if BARREN_EXHAUSTED_MESSAGE in message:
+        # Split the barren-out itself: a raw cluster count of zero means no
+        # candidate ever existed to filter; a nonzero raw count with zero
+        # filtered means the clearance/standoff filters ate every one of
+        # them. These look identical as `nenhuma fronteira segura
+        # alcancavel` alone -- the split is the entire point of R12's own
+        # `frontier_clusters_raw` telemetry addition.
+        raw = frontier_clusters_raw
+        filtered = frontier_clusters
+        if raw in (None, '', 0):
+            return 'barren_no_raw_frontiers'
+        if filtered in (None, '', 0):
+            return 'barren_frontiers_filtered'
+        return 'barren_other'
+    return 'unknown'
+
+
+def find_stalled_navigating_windows(rows: list, min_stall_s: float = 10.0,
+                                    move_threshold_m: float = 0.05) -> list:
+    """Return windows of `navigating` with a command but no real motion.
+
+    A window is `state == 'navigating'` with a nonzero command where the
+    robot's own odometry barely moved, for at least `min_stall_s` seconds.
+    This is the 'navigating com comando mas sem movimento' branch of the
+    R13 stop classification -- distinct from a goal timeout (which fires
+    regardless of whether the robot was actually stuck) and from a barren
+    selection cycle (no goal was ever sent, `state` is `selecting`). A
+    window returned here is direct, measured evidence that R15's proposed
+    movement watchdog would have something real to catch, before that
+    watchdog exists.
+
+    Net displacement from each window's own start is what is compared
+    against `move_threshold_m`, not step-to-step deltas, so a slow but
+    steady crawl correctly closes the window instead of never triggering.
+    """
+    windows: list = []
+    run: list = []
+
+    def flush_run() -> None:
+        i = 0
+        while i < len(run):
+            j = i
+            while (j + 1 < len(run)
+                   and math.dist((run[j + 1]['x'], run[j + 1]['y']),
+                                 (run[i]['x'], run[i]['y']))
+                   <= move_threshold_m):
+                j += 1
+            duration = run[j]['sim_s'] - run[i]['sim_s']
+            commanded = any(
+                abs(sample['cmd_vx']) > 0.01 or abs(sample['cmd_wz']) > 0.01
+                for sample in run[i:j + 1])
+            if duration >= min_stall_s and commanded:
+                windows.append({
+                    'start_sim_s': round(run[i]['sim_s'], 1),
+                    'end_sim_s': round(run[j]['sim_s'], 1),
+                    'duration_s': round(duration, 1),
+                })
+            i = j + 1
+        run.clear()
+
+    for row in rows:
+        if (row.get('state') == 'navigating'
+                and row.get('x') not in ('', None)
+                and row.get('y') not in ('', None)):
+            run.append({
+                'sim_s': float(row['sim_s']),
+                'x': float(row['x']), 'y': float(row['y']),
+                'cmd_vx': float(row.get('cmd_vx') or 0.0),
+                'cmd_wz': float(row.get('cmd_wz') or 0.0),
+            })
+        else:
+            flush_run()
+    flush_run()
+    return windows
+
+
+def _selecting_no_candidate_s(rows: list) -> float:
+    """Sim-time spent in `selecting` with zero candidate frontiers.
+
+    Directly answers the 'selecting sem candidato' stop-classification
+    branch; `frontier_count`/`frontier_clusters_raw` on the same row already
+    say whether that emptiness was "no raw cluster" or "filtered away", so
+    this is deliberately just the duration, not a further split.
+    """
+    total = 0.0
+    for current, following in zip(rows, rows[1:]):
+        if (current.get('state') == 'selecting'
+                and current.get('frontier_count') in (0, '0', None, '')):
+            dt = float(following['sim_s']) - float(current['sim_s'])
+            if dt > 0:
+                total += dt
+    return round(total, 3)
+
+
+def path_metrics(points: list) -> dict:
+    """Return ``{'length_m', 'straightness'}`` for a raw or smoothed plan.
+
+    `points` is a plain list of ``(x, y)`` tuples, not a ROS `Path` message,
+    so this is reusable both live (the global plan on `/plan`) and offline
+    (a smoothed plan replayed against a frozen snapshot). `straightness` is
+    endpoint straight-line distance over actual path length, in ``(0, 1]``
+    -- 1.0 is dead straight; a lower value is the plan itself weaving
+    (possibility 1 of the R13 zigzag decision tree), as opposed to a
+    straight plan the controller or gait drifts off (possibilities 2/3).
+    """
+    if len(points) < 2:
+        return {'length_m': None, 'straightness': None}
+    length = sum(math.dist(a, b) for a, b in zip(points, points[1:]))
+    if length == 0:
+        return {'length_m': 0.0, 'straightness': None}
+    straight = math.dist(points[0], points[-1])
+    return {
+        'length_m': round(length, 3),
+        'straightness': round(straight / length, 4),
+    }
+
+
+@dataclass(frozen=True)
+class OccupancyGridInfo:
+    """The geometry half of a `nav_msgs/OccupancyGrid`, without its data.
+
+    Kept separate from the `data` array so `lateral_wall_clearance_m` can be
+    called with a plain list in tests, without constructing a fake ROS
+    message.
+    """
+
+    width: int
+    height: int
+    resolution: float
+    origin_x: float
+    origin_y: float
+    origin_yaw: float
+
+
+def lateral_wall_clearance_m(grid: OccupancyGridInfo, data, robot_x: float,
+                             robot_y: float, robot_yaw_deg: float,
+                             max_probe_m: float = 1.5,
+                             lethal_threshold: int = 90) -> tuple:
+    """Return ``(left_m, right_m)`` clearance from the LOCAL costmap.
+
+    Deliberately reads the local costmap, not `/demo/scan`: the bridge
+    config (`bridge_quadruped.yaml`) documents that the one lidar ring
+    exposed as a 2D `LaserScan` sees a wall ring close to the body and floor
+    5-10 m out, and explicitly does NOT see what the robot needs to avoid --
+    "um costmap alimentado por ele nao veria justamente o que o robo precisa
+    desviar". The local costmap is built from the full point cloud Nav2
+    itself trusts for obstacle avoidance, so probing it answers "is the
+    robot near a wall from Nav2's own point of view", the same technique
+    already used for the footprint A/B experiment (own-cell cost reading).
+
+    Probes perpendicular to the robot's own heading (REP-103: +90 deg is
+    left, -90 deg is right) in `resolution`-sized steps out to
+    `max_probe_m`. A probe that never crosses `lethal_threshold` before
+    leaving the grid or reaching `max_probe_m` returns `max_probe_m`
+    (clear at least that far) rather than `None` -- a caller that must tell
+    "clear" apart from "left the grid before reaching a wall" needs a
+    separate signal, but for corridor-centering purposes both mean the same
+    thing: no wall within the probe radius.
+    """
+    yaw = math.radians(robot_yaw_deg)
+    cosine, sine = math.cos(grid.origin_yaw), math.sin(grid.origin_yaw)
+    steps = max(1, int(max_probe_m / grid.resolution))
+    results = []
+    for side_sign in (1.0, -1.0):  # left, then right
+        probe_yaw = yaw + side_sign * (math.pi / 2.0)
+        direction = (math.cos(probe_yaw), math.sin(probe_yaw))
+        found = None
+        for step in range(1, steps + 1):
+            distance = step * grid.resolution
+            probe_x = robot_x + direction[0] * distance
+            probe_y = robot_y + direction[1] * distance
+            local_x = probe_x - grid.origin_x
+            local_y = probe_y - grid.origin_y
+            grid_x = cosine * local_x + sine * local_y
+            grid_y = -sine * local_x + cosine * local_y
+            col = int(math.floor(grid_x / grid.resolution))
+            row = int(math.floor(grid_y / grid.resolution))
+            if not (0 <= col < grid.width and 0 <= row < grid.height):
+                break
+            if data[row * grid.width + col] >= lethal_threshold:
+                found = round(distance, 3)
+                break
+        results.append(found if found is not None else round(max_probe_m, 3))
+    return tuple(results)
 
 
 def _state_durations(rows: list) -> dict:
@@ -291,6 +522,15 @@ def summarise(rows: list, goals: list, marks: dict) -> dict:
         'first_exit_pose_sim_s': marks.get('first_exit_pose_sim_s'),
         'exit_pose_frame': marks.get('exit_pose_frame', ''),
         'homing_started_sim_s': marks.get('homing_started_sim_s'),
+        # R13's own additions: an automatic, no-guesswork answer to "why did
+        # this run stop" and "where was it stuck", computed from the same
+        # rows a human would otherwise have to scan by hand.
+        'stop_reason': classify_stop_reason(
+            rows[-1]['state'], rows[-1]['message'],
+            rows[-1].get('frontier_clusters_raw'),
+            rows[-1].get('frontier_clusters')),
+        'stall_windows': find_stalled_navigating_windows(rows),
+        'selecting_no_candidate_s': _selecting_no_candidate_s(rows),
     }
 
 
@@ -378,7 +618,7 @@ def build_recorder(period_s: float, snapshot_region: tuple | None = None,
     Jazzy environment.
     """
     from geometry_msgs.msg import PoseStamped, Twist
-    from nav_msgs.msg import OccupancyGrid, Odometry
+    from nav_msgs.msg import OccupancyGrid, Odometry, Path
     from rclpy.node import Node
     from rclpy.qos import (DurabilityPolicy, QoSPresetProfiles, QoSProfile,
                            ReliabilityPolicy)
@@ -406,6 +646,9 @@ def build_recorder(period_s: float, snapshot_region: tuple | None = None,
             self.snapshot_triggered_monotonic = None
             self.snapshot_written_path = None
             self._map_message = None
+            self._plan_points: list = []
+            self._plan_metrics = None
+            self._local_costmap_message = None
             self._cancel_client = (
                 self.create_client(Trigger, '/demo/exploration/cancel')
                 if snapshot_region is not None else None)
@@ -445,6 +688,10 @@ def build_recorder(period_s: float, snapshot_region: tuple | None = None,
             self.create_subscription(Odometry, '/demo/odom', self._on_odom, 20)
             self.create_subscription(Twist, '/demo/cmd_vel_si', self._on_cmd, 20)
             self.create_subscription(OccupancyGrid, '/map', self._on_map, latched)
+            self.create_subscription(Path, '/plan', self._on_plan, latched)
+            self.create_subscription(
+                OccupancyGrid, '/local_costmap/costmap',
+                self._on_local_costmap, latched)
             self.create_subscription(
                 Detection2DArray, '/demo/perception/maze_exit/detections',
                 self._on_detections, 10)
@@ -483,6 +730,36 @@ def build_recorder(period_s: float, snapshot_region: tuple | None = None,
             self.map_known = sum(1 for value in message.data if value >= 0)
             self._map_message = message
 
+        def _on_plan(self, message) -> None:
+            self._plan_points = [
+                (pose.pose.position.x, pose.pose.position.y)
+                for pose in message.poses]
+            self._plan_metrics = path_metrics(self._plan_points)
+
+        def _on_local_costmap(self, message) -> None:
+            self._local_costmap_message = message
+
+        def _lateral_clearance(self) -> tuple:
+            """Probe the local costmap for `(left_m, right_m)` at this pose."""
+            position = self.odom.pose.pose.position
+            orientation = self.odom.pose.pose.orientation
+            yaw_deg, _tilt = quat_to_yaw_tilt(
+                orientation.x, orientation.y, orientation.z, orientation.w)
+            info = self._local_costmap_message.info
+            origin = info.origin
+            q = origin.orientation
+            origin_yaw = math.atan2(
+                2.0 * (q.w * q.z + q.x * q.y),
+                1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            grid = OccupancyGridInfo(
+                width=info.width, height=info.height,
+                resolution=info.resolution,
+                origin_x=origin.position.x, origin_y=origin.position.y,
+                origin_yaw=origin_yaw)
+            return lateral_wall_clearance_m(
+                grid, self._local_costmap_message.data,
+                position.x, position.y, yaw_deg)
+
         def _on_detections(self, message) -> None:
             self.detections_n = len(message.detections)
             if message.detections and self.first_detection_sim_s is None:
@@ -513,6 +790,11 @@ def build_recorder(period_s: float, snapshot_region: tuple | None = None,
                 'pose_y': round(current[1], 4),
                 'status': dict(self.status),
                 'map': occupancy_grid_to_dict(self._map_message),
+                # The raw global plan active at capture time, so
+                # `simple_smoother` can be replayed offline against it and
+                # the frozen map without a second HIL round -- the same
+                # offline-replay technique already used for R10/R11.
+                'plan_points': list(self._plan_points),
             }
             write_json(self._snapshot_path, payload)
             self.snapshot_written_path = self._snapshot_path
@@ -616,11 +898,17 @@ def build_recorder(period_s: float, snapshot_region: tuple | None = None,
             # live topic and from log windows because they were published but
             # never sampled; the handoff asks for all of them per round.
             for name in ('frontier_count', 'frontier_cells',
-                         'frontier_clusters', 'frontier_extract_ms',
+                         'frontier_clusters', 'frontier_clusters_raw',
+                         'frontier_extract_ms',
                          'candidates_checked', 'path_requests',
                          'selection_cycle', 'blacklisted', 'refused',
                          'timed_out', 'near_frontiers_skipped',
                          'provisional_recoveries', 'barren_cycles',
+                         'candidate_point_x', 'candidate_point_y',
+                         'last_path_status', 'last_path_error_code',
+                         'last_path_error_msg', 'last_path_planner_id',
+                         'nav_original_x', 'nav_original_y',
+                         'nav_target_x', 'nav_target_y',
                          'marker_visible', 'marker_distance_m',
                          'homing_entry_distance_m', 'homing_entries',
                          'homing_abandons', 'marker_far_ignored',
@@ -629,6 +917,14 @@ def build_recorder(period_s: float, snapshot_region: tuple | None = None,
                          'marker_accepted_x', 'marker_accepted_y'):
                 if name in self.status:
                     row[name] = self.status[name]
+
+            if self._plan_metrics is not None:
+                row['plan_length_m'] = self._plan_metrics['length_m']
+                row['plan_straightness'] = self._plan_metrics['straightness']
+            if (self.odom is not None
+                    and self._local_costmap_message is not None):
+                row['wall_left_m'], row['wall_right_m'] = \
+                    self._lateral_clearance()
 
             row['detections_n'] = self.detections_n
             row['exit_pose_seen'] = int(self.exit_pose is not None)

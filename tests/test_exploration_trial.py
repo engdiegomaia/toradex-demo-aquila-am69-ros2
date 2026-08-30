@@ -21,10 +21,15 @@ sys.path.insert(0, str(SCRIPTS))
 from exploration_trial import (  # noqa: E402
     GOAL_FIELDS,
     GOAL_STATUS_SUCCEEDED,
+    OccupancyGridInfo,
     ROW_FIELDS,
+    classify_stop_reason,
+    find_stalled_navigating_windows,
     goals_csv_path,
+    lateral_wall_clearance_m,
     occupancy_grid_to_dict,
     parse_goal_outcome,
+    path_metrics,
     percentile,
     pose_entered_region,
     quat_to_yaw_tilt,
@@ -376,3 +381,170 @@ def test_occupancy_grid_to_dict_data_is_a_plain_list() -> None:
     payload = occupancy_grid_to_dict(_fake_occupancy_grid(data=(1, 2, 3)))
 
     assert isinstance(payload['data'], list)
+
+
+# --- R13 zigzag/stall diagnostics -------------------------------------------
+
+def test_classify_stop_reason_is_open_while_still_running() -> None:
+    assert classify_stop_reason('navigating', '', None, None) == 'open'
+
+
+def test_classify_stop_reason_recognises_total_timeout() -> None:
+    result = classify_stop_reason(
+        'failed', 'prazo total de exploracao excedido', 3, 2)
+    assert result == 'total_timeout'
+
+
+def test_classify_stop_reason_recognises_cancellation() -> None:
+    assert classify_stop_reason(
+        'cancelled', 'busca cancelada pelo operador', 3, 2) == 'cancelled'
+
+
+def test_classify_stop_reason_splits_barren_by_raw_cluster_count() -> None:
+    """R12's whole point: 'no cluster ever existed' vs 'all were filtered'."""
+    message = 'nenhuma fronteira segura alcancavel'
+
+    assert classify_stop_reason('failed', message, 0, 0) == \
+        'barren_no_raw_frontiers'
+    assert classify_stop_reason('failed', message, 4, 0) == \
+        'barren_frontiers_filtered'
+    assert classify_stop_reason('failed', message, 4, 2) == 'barren_other'
+
+
+def test_classify_stop_reason_does_not_special_case_a_goal_timeout() -> None:
+    """A per-goal timeout never ends the run by itself (see GOAL_FIELDS)."""
+    assert classify_stop_reason(
+        'failed', 'meta de fronteira expirou', 3, 2) == 'unknown'
+
+
+def _navigating_row(sim_s, x, y, cmd_vx=0.2, cmd_wz=0.0) -> dict:
+    return _row(state='navigating', sim_s=sim_s, x=x, y=y,
+                cmd_vx=cmd_vx, cmd_wz=cmd_wz)
+
+
+def _seconds(n: int) -> range:
+    return range(0, n, 1)
+
+
+def test_stall_windows_flags_a_command_with_no_motion() -> None:
+    rows = [_navigating_row(t, 0.0, 0.0) for t in _seconds(15)]
+
+    windows = find_stalled_navigating_windows(rows, min_stall_s=10.0)
+
+    assert len(windows) == 1
+    assert windows[0]['duration_s'] >= 10.0
+
+
+def test_stall_windows_ignores_real_progress() -> None:
+    """Steady net displacement must not read as a stall."""
+    rows = [_navigating_row(t, 0.05 * t, 0.0) for t in _seconds(15)]
+
+    assert find_stalled_navigating_windows(rows, min_stall_s=10.0) == []
+
+
+def test_stall_windows_ignores_a_short_pause() -> None:
+    rows = [_navigating_row(t, 0.0, 0.0) for t in _seconds(5)]
+
+    assert find_stalled_navigating_windows(rows, min_stall_s=10.0) == []
+
+
+def test_stall_windows_require_a_nonzero_command() -> None:
+    """A goal-less pause (no command at all) is not the watchdog's target."""
+    rows = [_navigating_row(t, 0.0, 0.0, cmd_vx=0.0, cmd_wz=0.0)
+            for t in _seconds(15)]
+
+    assert find_stalled_navigating_windows(rows, min_stall_s=10.0) == []
+
+
+def test_stall_windows_only_count_the_navigating_state() -> None:
+    rows = [_row(state='selecting', sim_s=t, x=0.0, y=0.0, cmd_vx=0.2)
+            for t in _seconds(15)]
+
+    assert find_stalled_navigating_windows(rows, min_stall_s=10.0) == []
+
+
+def test_path_metrics_of_a_straight_path_is_one() -> None:
+    metrics = path_metrics([(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)])
+
+    assert metrics['length_m'] == 2.0
+    assert metrics['straightness'] == 1.0
+
+
+def test_path_metrics_of_a_zigzag_path_is_below_one() -> None:
+    metrics = path_metrics([(0.0, 0.0), (1.0, 0.3), (2.0, -0.3), (3.0, 0.0)])
+
+    assert 0.0 < metrics['straightness'] < 1.0
+    assert metrics['length_m'] > 3.0
+
+
+def test_path_metrics_of_too_short_a_path_is_none() -> None:
+    expected = {'length_m': None, 'straightness': None}
+    assert path_metrics([(0.0, 0.0)]) == expected
+
+
+def _flat_grid(width, height, resolution=0.1) -> OccupancyGridInfo:
+    return OccupancyGridInfo(
+        width=width, height=height, resolution=resolution,
+        origin_x=-width * resolution / 2, origin_y=-height * resolution / 2,
+        origin_yaw=0.0)
+
+
+def test_lateral_wall_clearance_finds_walls_on_both_sides() -> None:
+    """A robot driving along a north-south corridor, walls 0.5 m either side.
+
+    The wall cells are two lines at fixed x = +/-0.5 m spanning every row
+    (i.e. a corridor running along y). Facing 90 deg (+y, along the
+    corridor) puts those walls to the robot's own left/right; facing 0 deg
+    would put them straight ahead instead (see the heading-rotation test
+    below), which is exactly the distinction this helper exists to make.
+    """
+    width, height, resolution = 40, 40, 0.05
+    grid = _flat_grid(width, height, resolution)
+    data = [0] * (width * height)
+    centre_col = width // 2
+    for row in range(height):
+        data[row * width + centre_col - 10] = 100
+        data[row * width + centre_col + 10] = 100
+
+    left_m, right_m = lateral_wall_clearance_m(
+        grid, data, robot_x=0.0, robot_y=0.0, robot_yaw_deg=90.0,
+        max_probe_m=1.0)
+
+    assert left_m == pytest.approx(0.5, abs=resolution)
+    assert right_m == pytest.approx(0.5, abs=resolution)
+
+
+def test_lateral_wall_clearance_reports_max_probe_when_clear() -> None:
+    grid = _flat_grid(40, 40, 0.05)
+    data = [0] * (40 * 40)
+
+    left_m, right_m = lateral_wall_clearance_m(
+        grid, data, robot_x=0.0, robot_y=0.0, robot_yaw_deg=0.0,
+        max_probe_m=1.0)
+
+    assert left_m == 1.0
+    assert right_m == 1.0
+
+
+def test_lateral_wall_clearance_rotates_with_robot_heading() -> None:
+    """A 90 deg-rotated robot swaps which world direction is 'left'."""
+    width, height, resolution = 40, 40, 0.05
+    grid = _flat_grid(width, height, resolution)
+    data = [0] * (width * height)
+    centre_col = width // 2
+    # A wall only to the world's +x side (straight ahead of a 0 deg robot).
+    for row in range(height):
+        data[row * width + centre_col + 10] = 100
+
+    facing_east = lateral_wall_clearance_m(
+        grid, data, robot_x=0.0, robot_y=0.0, robot_yaw_deg=0.0,
+        max_probe_m=1.0)
+    facing_north = lateral_wall_clearance_m(
+        grid, data, robot_x=0.0, robot_y=0.0, robot_yaw_deg=90.0,
+        max_probe_m=1.0)
+
+    # Facing +x, the +x wall is neither left nor right -- both clear.
+    assert facing_east == (1.0, 1.0)
+    # Facing +y (90 deg), the +x wall is now to the robot's right.
+    assert facing_north[1] < 1.0
+    assert facing_north != facing_east
