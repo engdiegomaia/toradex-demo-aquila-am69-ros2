@@ -688,7 +688,13 @@ def build_recorder(period_s: float, snapshot_region: tuple | None = None,
             self.create_subscription(Odometry, '/demo/odom', self._on_odom, 20)
             self.create_subscription(Twist, '/demo/cmd_vel_si', self._on_cmd, 20)
             self.create_subscription(OccupancyGrid, '/map', self._on_map, latched)
-            self.create_subscription(Path, '/plan', self._on_plan, latched)
+            # nav2_planner's `/plan` publisher is RELIABLE/VOLATILE, not
+            # TRANSIENT_LOCAL like `/map` -- `latched` here silently receives
+            # zero messages for the whole run (confirmed live, R13 30/08:
+            # 'incompatible QoS ... DURABILITY' with the recorder otherwise
+            # healthy). Matches the plain-depth style already used for
+            # Odometry/Twist below, not the latched profile used for /map.
+            self.create_subscription(Path, '/plan', self._on_plan, 5)
             self.create_subscription(
                 OccupancyGrid, '/local_costmap/costmap',
                 self._on_local_costmap, latched)
