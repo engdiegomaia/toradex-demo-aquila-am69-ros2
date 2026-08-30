@@ -308,9 +308,70 @@ def goals_csv_path(out_csv: str) -> str:
     return f'{out_csv}-goals.csv'
 
 
+def snapshot_json_path(out_csv: str) -> str:
+    """Companion path for the R13-style full-map snapshot, beside the CSVs."""
+    if out_csv.endswith('.csv'):
+        return f'{out_csv[:-4]}-map-snapshot.json'
+    return f'{out_csv}-map-snapshot.json'
+
+
+def pose_entered_region(x: float, y: float,
+                        x_max: float, y_max: float) -> bool:
+    """Return whether ``(x, y)`` is inside the diagnostic capture region.
+
+    Strict ``<`` on both bounds, matching the tolerance-boundary convention
+    used elsewhere in this project (see `nav-goal-tolerance-trap` in the
+    handoff notes): a pose sitting exactly on the boundary has not yet
+    arrived, so the trigger only fires once the robot is genuinely past it.
+    """
+    return x < x_max and y < y_max
+
+
+def occupancy_grid_to_dict(message) -> dict:
+    """Serialise a full `nav_msgs/OccupancyGrid` losslessly to a JSON dict.
+
+    R13's purpose is to let an offline diagnostic re-run `extract_frontiers`
+    against the exact grid the explorer saw at capture time. A coverage
+    percentage or cell count (already recorded per-row) cannot do that — only
+    the full `data` array can.
+    """
+    info = message.info
+    origin = info.origin
+    return {
+        'header': {
+            'stamp_sec': message.header.stamp.sec,
+            'stamp_nanosec': message.header.stamp.nanosec,
+            'frame_id': message.header.frame_id,
+        },
+        'info': {
+            'resolution': info.resolution,
+            'width': info.width,
+            'height': info.height,
+            'origin': {
+                'x': origin.position.x,
+                'y': origin.position.y,
+                'z': origin.position.z,
+                'qx': origin.orientation.x,
+                'qy': origin.orientation.y,
+                'qz': origin.orientation.z,
+                'qw': origin.orientation.w,
+            },
+        },
+        'data': list(message.data),
+    }
+
+
+def write_json(path: str, payload: dict) -> None:
+    """Write `payload` as indented JSON, tolerant of non-JSON-native values."""
+    with open(path, 'w') as handle:
+        json.dump(payload, handle, indent=2, default=str)
+
+
 # --- ROS recorder ----------------------------------------------------------
 
-def build_recorder(period_s: float):
+def build_recorder(period_s: float, snapshot_region: tuple | None = None,
+                   snapshot_path: str | None = None,
+                   cancel_after_snapshot: bool = False):
     """Import ROS and return an ``ExplorationRecorder`` instance.
 
     Imports live here so the pure helpers above can be tested without a sourced
@@ -323,13 +384,31 @@ def build_recorder(period_s: float):
                            ReliabilityPolicy)
     from rosgraph_msgs.msg import Clock
     from std_msgs.msg import Bool, String
+    from std_srvs.srv import Trigger
     from vision_msgs.msg import Detection2DArray
 
     class ExplorationRecorder(Node):
-        """One row per sample, one row per explorer goal. Publishes nothing."""
+        """One row per sample, one row per explorer goal. Publishes nothing.
+
+        `snapshot_region`, when set, is a strict `(x_max, y_max)` diagnostic
+        trigger (see `pose_entered_region`): the first time odometry crosses
+        into it, the recorder dumps the current full `/map` message plus pose
+        and status to `snapshot_path`, and — only if `cancel_after_snapshot`
+        — calls `/demo/exploration/cancel` once. This is R13's own capture
+        mechanism; it does nothing when `snapshot_region` is `None`.
+        """
 
         def __init__(self) -> None:
             super().__init__('exploration_trial')
+            self._snapshot_region = snapshot_region
+            self._snapshot_path = snapshot_path
+            self._cancel_after_snapshot = cancel_after_snapshot
+            self.snapshot_triggered_monotonic = None
+            self.snapshot_written_path = None
+            self._map_message = None
+            self._cancel_client = (
+                self.create_client(Trigger, '/demo/exploration/cancel')
+                if snapshot_region is not None else None)
             latched = QoSProfile(
                 depth=1,
                 reliability=ReliabilityPolicy.RELIABLE,
@@ -390,6 +469,11 @@ def build_recorder(period_s: float):
             if self._last_xy is not None:
                 self.path_m += math.dist(self._last_xy, current)
             self._last_xy = current
+            if (self._snapshot_region is not None
+                    and self.snapshot_triggered_monotonic is None
+                    and pose_entered_region(current[0], current[1],
+                                            *self._snapshot_region)):
+                self._capture_snapshot(current)
 
         def _on_cmd(self, message) -> None:
             self.cmd = message
@@ -397,6 +481,7 @@ def build_recorder(period_s: float):
         def _on_map(self, message) -> None:
             self.map_total = len(message.data)
             self.map_known = sum(1 for value in message.data if value >= 0)
+            self._map_message = message
 
         def _on_detections(self, message) -> None:
             self.detections_n = len(message.detections)
@@ -408,6 +493,32 @@ def build_recorder(period_s: float):
             self.exit_pose_frame = message.header.frame_id
             if self.first_exit_pose_sim_s is None:
                 self.first_exit_pose_sim_s = self.sim_s
+
+        def _capture_snapshot(self, current: tuple) -> None:
+            """Dump map/pose/status once, then optionally cancel the run.
+
+            No-ops until a real `/map` message has arrived — an empty grid
+            would defeat R13's own purpose (inspecting the grid the frontier
+            search actually saw) without giving any signal that it happened,
+            so this deliberately waits rather than writing an empty snapshot.
+            """
+            if self._map_message is None:
+                return
+            self.snapshot_triggered_monotonic = time.monotonic()
+            payload = {
+                'triggered_sim_s': round(self.sim_s, 3),
+                'triggered_wall_s': round(
+                    self.snapshot_triggered_monotonic - self._wall0, 3),
+                'pose_x': round(current[0], 4),
+                'pose_y': round(current[1], 4),
+                'status': dict(self.status),
+                'map': occupancy_grid_to_dict(self._map_message),
+            }
+            write_json(self._snapshot_path, payload)
+            self.snapshot_written_path = self._snapshot_path
+            if self._cancel_after_snapshot and self._cancel_client is not None:
+                if self._cancel_client.service_is_ready():
+                    self._cancel_client.call_async(Trigger.Request())
 
         def _on_escaped(self, message) -> None:
             if message.data and not self.escaped:
@@ -532,6 +643,7 @@ def build_recorder(period_s: float):
                 'first_exit_pose_sim_s': self.first_exit_pose_sim_s,
                 'exit_pose_frame': self.exit_pose_frame,
                 'homing_started_sim_s': self.homing_started_sim_s,
+                'snapshot_written_path': self.snapshot_written_path,
             }
 
     return ExplorationRecorder()
@@ -546,18 +658,47 @@ def main(argv: list | None = None) -> int:
                         help='sample rate of the per-row CSV')
     parser.add_argument('--stop-on-escape', action='store_true',
                         help='end as soon as /demo/maze/escaped latches true')
+    parser.add_argument('--snapshot-x-lt', type=float, default=None,
+                        help='R13 diagnostic trigger: capture a full /map '
+                             'snapshot once odom x drops below this value '
+                             '(requires --snapshot-y-lt too)')
+    parser.add_argument('--snapshot-y-lt', type=float, default=None,
+                        help='paired bound for --snapshot-x-lt')
+    parser.add_argument('--cancel-after-snapshot', action='store_true',
+                        help='call /demo/exploration/cancel once the '
+                             'snapshot region is entered')
+    parser.add_argument('--post-snapshot-seconds', type=float, default=5.0,
+                        help='keep recording this long after the snapshot, '
+                             'so the cancellation itself lands in the CSV, '
+                             'then stop')
     arguments = parser.parse_args(argv)
+
+    if (arguments.snapshot_x_lt is None) != (arguments.snapshot_y_lt is None):
+        parser.error(
+            '--snapshot-x-lt and --snapshot-y-lt must be given together')
+
+    snapshot_region = None
+    snapshot_path = None
+    if arguments.snapshot_x_lt is not None:
+        snapshot_region = (arguments.snapshot_x_lt, arguments.snapshot_y_lt)
+        snapshot_path = snapshot_json_path(arguments.out_csv)
 
     import rclpy
 
     rclpy.init()
-    node = build_recorder(1.0 / arguments.hz)
+    node = build_recorder(1.0 / arguments.hz, snapshot_region, snapshot_path,
+                          arguments.cancel_after_snapshot)
     deadline = time.monotonic() + arguments.seconds
     try:
         while rclpy.ok() and time.monotonic() < deadline:
             rclpy.spin_once(node, timeout_sec=0.2)
             if arguments.stop_on_escape and node.escaped:
                 node.sample()  # one more row, so the escape is in the CSV
+                break
+            if (node.snapshot_triggered_monotonic is not None
+                    and time.monotonic() - node.snapshot_triggered_monotonic
+                    >= arguments.post_snapshot_seconds):
+                node.sample()  # one more row, so the cancel lands in the CSV
                 break
     except KeyboardInterrupt:
         pass
@@ -571,6 +712,8 @@ def main(argv: list | None = None) -> int:
                      indent=2, default=str))
     print(f'rows  -> {arguments.out_csv}', file=sys.stderr)
     print(f'goals -> {goals_path}', file=sys.stderr)
+    if node.snapshot_written_path:
+        print(f'snap  -> {node.snapshot_written_path}', file=sys.stderr)
 
     node.destroy_node()
     rclpy.shutdown()
