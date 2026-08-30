@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import json
 import math
+import struct
 import time
 import zlib
 
@@ -80,6 +81,28 @@ def _setback_point(
     # here would hand back the robot's own current pose -- degenerate
     # regardless of `min_travel_m`, so this is always discarded.
     return None
+
+
+def _map_fingerprint(message: OccupancyGrid) -> int:
+    """
+    Return a CRC32 over the map's geometry and cell contents together.
+
+    R15 hashed only `message.data`, so a resolution/size/origin change (a
+    SLAM re-anchor or a resize with identical cell values, for instance)
+    would not advance `_map_seq` -- a real map change silently treated as a
+    republication of the same one. Folding width, height, resolution and the
+    full origin pose into the hash closes that gap.
+    """
+    info = message.info
+    origin = info.origin
+    header = struct.pack(
+        '<IIfddddddd',
+        info.width, info.height, info.resolution,
+        origin.position.x, origin.position.y, origin.position.z,
+        origin.orientation.x, origin.orientation.y,
+        origin.orientation.z, origin.orientation.w,
+    )
+    return zlib.crc32(header + bytes(message.data))
 
 
 class MazeExplorer(Node):
@@ -181,21 +204,38 @@ class MazeExplorer(Node):
         # (`frontier_score`/`information_gain_m`) so scoring still reflects
         # the real frontier, not the shortened approach.
         self.declare_parameter('frontier_endpoint_setback_m', 0.40)
-        # R15 (30/08/2026). Vigia de movimento durante `navigating`: comando
-        # despachado mas o robo nao anda. Medido em R13
-        # (docs/results/ml35-f5-exploration-r13.md): 5 janelas reais de
+        # R15 (30/08/2026). Vigia de movimento durante `navigating`: meta
+        # aceita mas o robo nao progride (nem translacao nem rotacao). Medido
+        # em R13 (docs/results/ml35-f5-exploration-r13.md): 5 janelas reais de
         # imobilidade com comando, 10,2-24,2 s de duracao, e 4 das 7 metas
-        # com timeout (45 s) tinham uma dessas janelas dentro. 15 s fica
-        # abaixo da mais curta das 5 (10,2 s) com margem para nao disparar
-        # sobre uma pausa de replanejamento normal, e ainda sobra folga
-        # grande contra os 45 s de `goal_timeout_s` -- o objetivo e agir
-        # ANTES de esgotar o prazo da meta, nao substitui-lo.
+        # com timeout (45 s) tinham uma dessas janelas dentro.
+        #
+        # CORRECAO (revisao de codigo pos-R14c): a versao original deste
+        # comentario dizia "15 s fica abaixo da mais curta das 5" -- errado,
+        # 15 > 10,2. Na verdade 15 s so captura 2 das 5 janelas medidas em
+        # R13 (15,1 e 24,2 s); as outras tres (11,7, 10,7 e 10,2 s) ficam
+        # abaixo do limiar e NAO disparariam o vigia. Isto e uma escolha
+        # deliberada (nao capturar toda pausa curta de replanejamento normal
+        # como travamento), nao uma alegacao de cobertura total -- mas o
+        # comentario anterior alegava cobertura total por engano. Ainda sobra
+        # folga grande contra os 45 s de `goal_timeout_s`; o objetivo e agir
+        # ANTES de esgotar o prazo da meta nas janelas mais longas, nao
+        # substitui-lo nem capturar cada caso.
         self.declare_parameter('stall_window_s', 15.0)
         # Mesmo limiar de deslocamento que `find_stalled_navigating_windows`
         # em `scripts/exploration_trial.py` ja usa contra dado real de R13 --
         # os dois tem de concordar, ou o watchdog em campo e o diagnostico
         # offline classificariam a mesma corrida de jeitos diferentes.
         self.declare_parameter('stall_move_threshold_m', 0.05)
+        # R15a (30/08/2026). Progresso ANGULAR equivalente ao de translacao
+        # acima -- sem isto, uma rotacao legitima em pé (por exemplo, virar
+        # para encarar um corredor) sem deslocamento xy seria classificada
+        # como travamento. 0.05 rad (~2,9 graus) fica acima do ruido tipico
+        # de localizacao com o robo parado e bem abaixo de qualquer rotacao
+        # deliberada -- julgamento de codigo, ainda sem dado de HIL dedicado
+        # a travamentos rotacionais (CLAUDE.md regra 7: nao alegar validacao
+        # de hardware que nao foi feita).
+        self.declare_parameter('stall_rotate_threshold_rad', 0.05)
         # Varredura de observacao quando NENHUM cluster de fronteira bruto
         # existe (nao quando existe mas foi filtrado -- girar nao revela
         # nada de novo nesse caso). ~60 graus: uma volta completa a
@@ -341,9 +381,11 @@ class MazeExplorer(Node):
         self._marker_far_ignored = 0
         self._near_marker_streak = 0
         self._homing_abandons = 0
-        # Vigia de movimento (R15): ultima pose e instante em que o robo
-        # realmente se deslocou desde o inicio da meta ATUAL de `navigating`.
-        self._nav_last_pose: tuple[float, float] | None = None
+        # Vigia de movimento (R15/R15a): ultima pose (x, y, yaw) e instante em
+        # que o robo realmente progrediu (xy ou angular) desde a ACEITACAO da
+        # meta ATUAL de `navigating` -- setado em `_on_nav_accepted`, nao no
+        # despacho, para nao contar tempo de resposta do Nav2 como travamento.
+        self._nav_last_pose: tuple[float, float, float] | None = None
         self._nav_last_progress_s = 0.0
         # Varredura de observacao (R15) quando nenhum cluster bruto existe.
         self._recovery_pending = False
@@ -421,10 +463,11 @@ class MazeExplorer(Node):
         # `selecting`. Reagir aqui faria o robô abandonar a fronteira a cada
         # publicação do SLAM.
         #
-        # `_map_seq` só avança quando o CONTEÚDO muda -- ver o comentário
-        # junto da declaração do campo em `__init__`.
+        # `_map_seq` só avança quando o mapa muda de verdade -- geometria OU
+        # celulas, ver `_map_fingerprint` -- comentário junto da declaração
+        # do campo em `__init__`.
         self._map = message
-        content_hash = zlib.crc32(bytes(message.data))
+        content_hash = _map_fingerprint(message)
         if content_hash != self._map_content_hash:
             self._map_content_hash = content_hash
             self._map_seq += 1
@@ -529,7 +572,7 @@ class MazeExplorer(Node):
                 self._timeout_current('meta de fronteira expirou')
             elif self._navigation_stalled(now):
                 self._timeout_current(
-                    'vigia de movimento: comando sem deslocamento real')
+                    'vigia de movimento: robo parado (sem progresso xy/angular)')
         elif self._state == 'homing_exit' and not self._pending \
                 and self._goal_handle is None:
             if marker_fresh:
@@ -549,25 +592,37 @@ class MazeExplorer(Node):
 
     def _navigation_stalled(self, now: float) -> bool:
         """
-        Return True when `navigating` dispatched a command but nothing moved.
+        Return True when an accepted goal has produced no real progress.
 
-        Janela deslizante: qualquer deslocamento real acima de
-        `stall_move_threshold_m` reinicia o relogio. So dispara depois de
-        `stall_window_s` sem esse deslocamento -- ver a justificativa com os
+        Janela deslizante: deslocamento xy acima de `stall_move_threshold_m`
+        OU rotacao acima de `stall_rotate_threshold_rad` reinicia o relogio
+        -- uma rotacao legitima em pé (virar para encarar um corredor) nao e
+        travamento so por nao andar em linha reta. So dispara depois de
+        `stall_window_s` sem nenhum dos dois -- ver a justificativa com os
         numeros de R13 junto da declaracao dos parametros em `__init__`.
+
+        So avalia depois que Nav2 aceitou a meta (`_goal_handle` setado em
+        `_on_nav_accepted`) -- antes disso nao ha comando em execucao para
+        travar, so uma chamada de servico ainda em voo.
         """
+        if self._goal_handle is None:
+            return False
         robot = self._robot_pose()
         if robot is None:
             return False
-        x, y, _ = robot
+        x, y, yaw = robot
         if self._nav_last_pose is None:
-            self._nav_last_pose = (x, y)
+            self._nav_last_pose = (x, y, yaw)
             self._nav_last_progress_s = now
             return False
-        moved = math.hypot(
-            x - self._nav_last_pose[0], y - self._nav_last_pose[1])
-        if moved >= float(self.get_parameter('stall_move_threshold_m').value):
-            self._nav_last_pose = (x, y)
+        last_x, last_y, last_yaw = self._nav_last_pose
+        moved = math.hypot(x - last_x, y - last_y)
+        turned = abs(math.atan2(
+            math.sin(yaw - last_yaw), math.cos(yaw - last_yaw)))
+        if moved >= float(self.get_parameter('stall_move_threshold_m').value) \
+                or turned >= float(
+                    self.get_parameter('stall_rotate_threshold_rad').value):
+            self._nav_last_pose = (x, y, yaw)
             self._nav_last_progress_s = now
             return False
         return now - self._nav_last_progress_s >= float(
@@ -867,8 +922,9 @@ class MazeExplorer(Node):
         self._pending = True
         self._barren_cycles = 0
         self._goal_started_s = self._now_s()
-        self._nav_last_pose = None
-        self._nav_last_progress_s = 0.0
+        # Vigia de movimento: NAO armar aqui. `send_goal_async` ainda esta em
+        # voo -- armar so em `_on_nav_accepted`, quando Nav2 de fato aceitou a
+        # meta, para nao contar o tempo de resposta da acao como travamento.
         self._state = 'navigating' if exploration else 'homing_exit'
         self._message = 'navegando para fronteira' if exploration \
             else 'aproximando marcador da saida'
@@ -889,6 +945,12 @@ class MazeExplorer(Node):
                 self._homing_failed('Nav2 recusou aproximacao')
             return
         self._goal_handle = handle
+        # Vigia de movimento: arma agora, no aceite -- nao no despacho (ver
+        # `_send_navigation`). `None` descarta a pose da meta anterior, se
+        # houver; o primeiro `_navigation_stalled` desta meta inicializa a
+        # baseline.
+        self._nav_last_pose = None
+        self._nav_last_progress_s = self._now_s()
         handle.get_result_async().add_done_callback(
             lambda done: self._on_nav_result(done, epoch, exploration))
 

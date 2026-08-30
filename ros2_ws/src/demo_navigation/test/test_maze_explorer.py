@@ -942,14 +942,27 @@ def test_a_stale_recovery_callback_is_ignored_after_cancel(
     assert node._barren_cycles == barren_before
 
 
-def test_navigation_watchdog_fires_after_the_stall_window(node) -> None:
-    """Comando despachado, robo parado -- corta antes do prazo de 45 s."""
-    clock = {'t': 0.0}
-    node._now_s = lambda: clock['t']
+class _StubGoalHandle:
+    """Handle de meta minimo -- so o suficiente para `_cancel_goal` funcionar."""
+
+    def cancel_goal_async(self):
+        return None
+
+
+def _armed_for_navigating(node, clock) -> None:
+    """Coloca `node` num estado 'navigating' com meta ja aceita por Nav2."""
     node._start(None, trigger(node))
     node._state = 'navigating'
     node._current = Frontier(x=5.0, y=5.0, cells=10, information_gain_m=1.0)
     node._goal_started_s = clock['t']
+    node._goal_handle = _StubGoalHandle()  # meta ja aceita -- ver _on_nav_accepted
+
+
+def test_navigation_watchdog_fires_after_the_stall_window(node) -> None:
+    """Comando despachado, robo parado -- corta antes do prazo de 45 s."""
+    clock = {'t': 0.0}
+    node._now_s = lambda: clock['t']
+    _armed_for_navigating(node, clock)
     node._robot_pose = lambda: (0.0, 0.0, 0.0)
     window = float(node.get_parameter('stall_window_s').value)
 
@@ -971,10 +984,7 @@ def test_navigation_watchdog_resets_on_real_displacement(node) -> None:
     """Deslocamento real reinicia a janela -- nao e prazo fixo desde a meta."""
     clock = {'t': 0.0}
     node._now_s = lambda: clock['t']
-    node._start(None, trigger(node))
-    node._state = 'navigating'
-    node._current = Frontier(x=5.0, y=5.0, cells=10, information_gain_m=1.0)
-    node._goal_started_s = clock['t']
+    _armed_for_navigating(node, clock)
     window = float(node.get_parameter('stall_window_s').value)
     pose = {'p': (0.0, 0.0, 0.0)}
     node._robot_pose = lambda: pose['p']
@@ -989,6 +999,93 @@ def test_navigation_watchdog_resets_on_real_displacement(node) -> None:
     node._tick()
     assert node._state == 'navigating', (
         'o relogio reiniciou no deslocamento; ainda nao pode ter estourado')
+
+
+def test_navigation_watchdog_does_not_fire_on_legitimate_rotation(node) -> None:
+    """
+    R15a: girar em pé para encarar um corredor nao e travamento.
+
+    So checar xy classificaria esta rotacao legitima (sem deslocamento) como
+    o robo parado, cancelando uma meta que estava progredindo de verdade.
+    """
+    clock = {'t': 0.0}
+    node._now_s = lambda: clock['t']
+    _armed_for_navigating(node, clock)
+    window = float(node.get_parameter('stall_window_s').value)
+    pose = {'p': (0.0, 0.0, 0.0)}
+    node._robot_pose = lambda: pose['p']
+
+    node._tick()
+    clock['t'] = window - 1.0
+    pose['p'] = (0.0, 0.0, 0.3)  # gira 0.3 rad, xy parado
+    node._tick()
+    assert node._state == 'navigating'
+
+    clock['t'] = (window - 1.0) + (window - 1.0)
+    node._tick()
+    assert node._state == 'navigating', (
+        'rotacao real acima do limiar tem de reiniciar o relogio tambem')
+
+
+def test_navigation_watchdog_handles_the_minus_pi_pi_wraparound(node) -> None:
+    """Guinada cruzando de +pi para -pi e uma rotacao pequena, nao enorme."""
+    clock = {'t': 0.0}
+    node._now_s = lambda: clock['t']
+    _armed_for_navigating(node, clock)
+    window = float(node.get_parameter('stall_window_s').value)
+    pose = {'p': (0.0, 0.0, math.pi - 0.01)}
+    node._robot_pose = lambda: pose['p']
+
+    node._tick()  # arma a baseline em (pi - 0.01)
+    clock['t'] = window - 1.0
+    pose['p'] = (0.0, 0.0, -math.pi + 0.01)  # cruzou o wraparound, diff real = 0.02
+    node._tick()
+    clock['t'] = window + 1.0
+    node._tick()
+    assert node._state == 'selecting', (
+        'diff real de guinada (0.02 rad) fica abaixo do limiar -- '
+        'sem o wraparound normalizado o vigia calcularia ~2*pi e nunca dispararia')
+    assert 'vigia de movimento' in node._message
+
+
+def test_navigation_watchdog_does_not_fire_before_goal_acceptance(node) -> None:
+    """
+    R15a: sem meta aceita (`_goal_handle is None`), nao ha o que travar.
+
+    Antes desta correcao o relogio armava no despacho da meta (`_send_navigation`),
+    contando a latencia de resposta do Nav2 -- ainda em voo -- como imobilidade.
+    """
+    clock = {'t': 0.0}
+    node._now_s = lambda: clock['t']
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._current = Frontier(x=5.0, y=5.0, cells=10, information_gain_m=1.0)
+    node._goal_started_s = clock['t']
+    node._goal_handle = None  # Nav2 ainda nao aceitou
+    node._robot_pose = lambda: (0.0, 0.0, 0.0)
+    window = float(node.get_parameter('stall_window_s').value)
+
+    node._tick()
+    clock['t'] = window + 1.0
+    node._tick()
+    assert node._state == 'navigating', (
+        'sem meta aceita o vigia nao pode disparar')
+    assert 'vigia de movimento' not in node._message
+
+
+def test_navigation_watchdog_fires_when_accepted_goal_is_truly_still(node) -> None:
+    """Meta aceita (`_goal_handle` setado) e robo genuinamente parado -- dispara."""
+    clock = {'t': 0.0}
+    node._now_s = lambda: clock['t']
+    _armed_for_navigating(node, clock)
+    node._robot_pose = lambda: (1.0, 2.0, 0.5)  # pose fixa, sem xy nem guinada
+    window = float(node.get_parameter('stall_window_s').value)
+
+    node._tick()
+    clock['t'] = window + 1.0
+    node._tick()
+    assert node._state == 'selecting'
+    assert 'vigia de movimento' in node._message
 
 
 def test_homing_returns_to_exploration_after_three_failures(node) -> None:
@@ -1188,6 +1285,34 @@ def test_on_map_only_advances_map_seq_on_real_content_change(node) -> None:
     node._on_map(changed)
     assert node._map_seq == seq_after_first + 1, (
         'conteudo genuinamente novo tem de avancar _map_seq'
+    )
+
+
+def test_a_geometry_only_change_advances_map_seq(node) -> None:
+    """
+    R15a: um re-ancoramento do SLAM muda geometria, mesmo com celulas iguais.
+
+    R15 hasheava so `message.data` -- um mapa com a mesma grade de celulas
+    mas origem ou resolucao diferentes (por exemplo, apos um re-ancoramento)
+    seria tratado como republicacao identica, perdendo a mudanca real.
+    """
+    node._on_map(_map_message())
+    seq_after_first = node._map_seq
+
+    moved_origin = _map_message()
+    moved_origin.info.origin.position.x = 1.0
+    node._on_map(moved_origin)
+    assert node._map_seq == seq_after_first + 1, (
+        'origem diferente, mesmas celulas, ainda e um mapa novo'
+    )
+
+    seq_after_origin = node._map_seq
+    different_resolution = _map_message()
+    different_resolution.info.origin.position.x = 1.0
+    different_resolution.info.resolution = 0.10
+    node._on_map(different_resolution)
+    assert node._map_seq == seq_after_origin + 1, (
+        'resolucao diferente, mesmas celulas, ainda e um mapa novo'
     )
 
 

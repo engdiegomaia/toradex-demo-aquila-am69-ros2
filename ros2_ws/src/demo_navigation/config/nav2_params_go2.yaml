@@ -571,8 +571,11 @@ controller_server:
         # assimetria de parede voltou ao patamar de R13 (mediana 0.25 m, 45%
         # esq/31% dir/25% centro -- distribuicao quase identica a de R13, nao
         # o vies fixo de 57% que R14b mediu sob o erro de processo). Isso
-        # confirma que o vies severo de R14b era o codigo de R15 junto, nao
-        # cost_weight.
+        # indica que o vies severo de R14b nao era efeito isolado de
+        # cost_weight -- nao prova que a causa era especificamente o codigo
+        # de R15 junto (geometria de labirinto diferente a cada rodada,
+        # n=1 por configuracao); a contribuicao real de R15 fica em aberto
+        # ate a validacao integrada em R16.
         #
         # Mas `plan_straightness` piorou (fracao abaixo de 0.9: 12,4% -> 31,7%),
         # a rodada teve MAIS janelas de imobilidade que qualquer rodada
