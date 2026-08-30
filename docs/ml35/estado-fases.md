@@ -298,6 +298,39 @@ config R14's decision lands on); which MPPI-side variable to try next; the homin
 investigation near the exit opening (still untouched, no round this far has approached
 that area).
 
+**Update (30/08, R14b) — second MPPI-side A/B (`PathAlignCritic.cost_weight` 14.0→7.0,
+offset back to R13's 20), also negative, and confounded by a process error.** User picked
+this variable from three MPPI-side candidates after R14's result. `./scripts/module.sh
+sync` before this HIL round carried R15's already-committed software changes to the
+module along with the config change — confirmed by 3 of 15 goals ending with `vigia de
+movimento: comando sem deslocamento real`, a message that does not exist in R13/R14's
+code. So this round tested `cost_weight=7.0` together with R15, not isolated — a real
+process mistake, declared honestly rather than hidden.
+
+Even so, no metric improved. On the same "genuine straight corridor" subset (recomputed
+for all three rounds with one consistent script this time): wall-clearance asymmetry
+**tripled** in magnitude (median 0.65 m vs 0.25 m in both R13 and R14) and flipped from
+R14's fixed-left bias to a fixed-right bias — still not the ~50/50 oscillation R13's
+original hypothesis described. `plan_straightness` was the worst of the three rounds
+(57.2% of samples below 0.9, vs 12.4% in R13). Goal completion kept falling (70%→56%→47%)
+and the round ended earliest yet (402 s, `barren_other` again). Zero falls (tilt max
+1.19°). Notably, the exit marker was actually sighted 24 times this round (always beyond
+`homing_max_distance_m`, so never entered homing) — the furthest this exploration has
+reached toward the exit region so far. Full numbers:
+`docs/results/ml35-f5-exploration-r14b.md`. `cost_weight` reverted to 14.0 in the same
+commit round, same reasoning as R14.
+
+Two consecutive MPPI-side attempts (offset_from_furthest, cost_weight) have now measured
+negative-to-neutral on nearly every available criterion, never a clean improvement — and
+the second is confounded on top of that. This raises a possibility neither round alone
+suggested: n=1-per-configuration comparisons across different explored maze geometry each
+run may lack the power to detect these effects at all, or R13's single-dominant-critic
+framing may be incomplete. Neither alternative has been tested. Before spending more real
+bancada time on a third MPPI-side guess (PathAngleCritic weight or replan frequency, the
+two remaining candidates), the process gap needs fixing first (sync only the config file,
+or freeze the rest of the tree, for any HIL round meant to isolate one variable) — flagged
+back to the user rather than silently continuing.
+
 **Update (30/08) — item 6, AprilTag positioned HIL validation, done (explicitly
 non-acceptance-counted, no exploration ran):** robot teleported directly to vantage
 points in front of the exit marker (safe hold-gait/set_entity_pose/resume-gait sequence,
