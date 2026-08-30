@@ -132,8 +132,39 @@ discarded and the caller falls back to the original endpoint. 6 new unit tests a
   distance term vs. genuine map topology, not distinguished by this round).
 - Full record in `docs/results/ml35-f5-exploration-r11.md`.
 
+**Follow-up (R12, 29-30/08) — northward bias diagnosed and fixed, exit still not found:**
+
+Diagnosed offline against R11's own frozen final map (no new HIL round needed for the
+diagnosis): the two clusters closest to the reported exit direction scored -3.4 against
+the northern rooms' +0.9 to +1.3 on `frontier_score`, purely because a linear
+`-0.5*route_m` route penalty compounds "smaller" and "farther" into permanent
+uncompetitiveness. Fixed by changing the penalty to `-0.5*sqrt(route_m)` (sub-linear) —
+1 new unit test, 89/89 passing.
+
+**A second, unrelated bug surfaced before the reported run**: recreating the `nav`
+container while the robot was still sitting wherever R11 left it (`y≈9.3`) let
+`slam_toolbox` anchor its first scan there before `/demo/sim/reset` ran, corrupting the
+map with an orphaned patch disconnected from spawn — died in 43.3 s, not counted. Fix is
+**operational**: `/demo/sim/reset` must run *before* recreating `nav`, never after. Not
+yet folded into `scripts/module.sh` or `docs/guia-completo.md` — currently only
+documented in `docs/results/ml35-f5-exploration-r12.md`.
+
+The corrected re-run: `path_m` 33.6 m, no fall, and — the real result — **goal 13
+reached `(-5.077, 1.469)` successfully**, west of the reported exit's own `x=-4.90` and
+the farthest any round has gotten. Final state `failed` / "prazo total de exploracao
+excedido" (the 600 s `total_timeout_s` firing while still actively finding frontiers,
+**not** a barren-out like every prior round) — a genuinely different, healthier failure
+mode. After reaching the far west, the robot swung back to explore remaining northern
+frontiers instead of continuing south; whether that's because more real unexplored area
+was north, or because the corridor south of there is clearance-filtered like R11's walled
+cluster, is not distinguished by this round. Full record in
+`docs/results/ml35-f5-exploration-r12.md`.
+
 **Still not done:** item 6 of the earlier review (AprilTag positioned HIL validation,
-explicitly non-acceptance-counted), and diagnosing the northward exploration bias itself.
+explicitly non-acceptance-counted); folding the reset-before-restart sequencing fix into
+`scripts/module.sh`/the runbook; and determining whether continuing south of
+`(-5.08, 1.47)` needs a clearance fix or is simply not yet where the map's largest
+remaining frontier is.
 
 ### 29/08 (fiducial) — the exit marker gets a printed AprilTag, magenta stays as fallback
 

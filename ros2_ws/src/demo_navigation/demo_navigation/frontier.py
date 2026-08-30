@@ -272,5 +272,19 @@ def path_length(poses) -> float:
 
 
 def frontier_score(frontier: Frontier, route_m: float) -> float:
-    """Higher is better; route cost dominates tiny/noisy frontier clusters."""
-    return frontier.information_gain_m - 0.5 * route_m
+    """
+    Higher is better; route cost still dominates tiny/noisy frontier clusters.
+
+    The route penalty is `sqrt(route_m)`, not `route_m` itself. A linear
+    penalty makes anything past a few meters permanently uncompetitive
+    against any closer cluster regardless of its own size, which starves
+    real exploration progress once the near, already-partly-explored rooms
+    are gone: R9/R11 (29/08) both got pulled the same direction repeatedly
+    and never pushed further down the one corridor that led toward the
+    actual exit, because its clusters were both smaller AND farther and a
+    linear penalty compounds those two disadvantages instead of just adding
+    them. A sub-linear penalty keeps the same ordering for comparable
+    distances (closer still wins, all else equal) while letting a distant
+    cluster's own size matter again once the cheap options run out.
+    """
+    return frontier.information_gain_m - 0.5 * math.sqrt(route_m)
