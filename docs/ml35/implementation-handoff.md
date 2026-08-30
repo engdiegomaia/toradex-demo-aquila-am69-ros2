@@ -4,6 +4,55 @@ This is the authoritative execution handoff for the next session. Read
 `estado-fases.md` for history and the round reports under `docs/results/` for evidence.
 Do not restart the investigation from older F5 guides.
 
+## 0. Session closed 30/08/2026 — read this before anything below
+
+Everything through R12, the `module.sh` spawn guard and its independent-review fixes,
+and the positioned AprilTag validation is **committed** (tree clean, nothing uncommitted,
+nothing pushed — 25 commits ahead of `origin/feat/f5-percepcao-e-partidas-frias`).
+Sections 1–9 below predate this work and are kept for the older blocker narrative
+(footprint polygon, magenta range bias) — read `estado-fases.md`'s dated entries from
+29–30/08 for what actually happened this session; do not treat §2's "Repository
+checkpoint" numbers below as current, they describe an earlier point in the same branch.
+
+**What changed since §2 was last accurate, newest first:**
+
+- `docs/results/ml35-f5-apriltag-positioned.md` (commit `d18e399`) — positioned,
+  non-acceptance-counted HIL validation of the fiducial detector: PNG renders, id 0
+  detected reliably at ~2.5 m (marginal at ~3.6 m), TF resolves, adverse framing fails
+  closed, the 29/08 target-latch fix holds under real detections. **Unplanned finding:**
+  the quadruped tipped over near the exit opening during unattended blind homing — not
+  investigated further, see [[homing-cego-derruba-quadrupede]] and the memory it links.
+- `73f96d6`, `7f03df7` — `scripts/module.sh up` now refuses to recreate `nav`/
+  `perception` when the robot is more than 1 m from spawn (prevents a `slam_toolbox`
+  map-anchor corruption bug, most likely first seen in R10 and confirmed in R12).
+  Bypass is `--force-spawn`, independent of the pre-existing `--force` (cmd_vel
+  collision guard). Tested in `tests/test_module_spawn_guard.py`.
+- `7bc120e` — `frontier_score`'s route penalty changed from linear to
+  `-0.5*sqrt(route_m)`: fixed a real northward exploration bias (R9/R11), confirmed by
+  R12 physically reaching `(-5.077, 1.469)`, the farthest west/toward-exit any round had
+  gotten.
+- `63bf264` — R10/R11 fixes: per-cluster multi-candidate retry, a `min_travel_m` floor
+  on the recessed navigation endpoint (fixes a real Nav2-goal-tolerance false-arrival
+  stall), map-generation-gated provisional recovery, new telemetry fields.
+- R9–R12 exploration rounds (`docs/results/ml35-f5-exploration-r{9,10,11,12}.md`):
+  Gate B (`escaped == true`) is **still not reached**. R12 is the healthiest round so
+  far — ran out of its 600 s time budget while still actively finding frontiers
+  (`barren_cycles = 0`), rather than barren-out like every prior round.
+
+**Open question for the next session (R12's own "recommended next step", still
+unanswered):** take a `/map` snapshot right after a run reaches `x < -4.5, y < 2.0` and
+run the offline `extract_frontiers` diagnostic (same method used for R10/R11) to
+determine whether the region south of `(-5.08, 1.47)` toward the exit is a
+coverage/topology gap, a clearance-filtering gap, a scoring problem, or a
+controller/execution problem. Do not change `frontier_score`, clearance, timeout, or
+setback again before that diagnostic — R12 showed the current scoring already reaches
+the west corridor and stays active for the full budget; the next fix, if any, should be
+targeted from that diagnostic, not guessed.
+
+Before starting a new HIL round: `/demo/sim/reset`, confirm `/demo/odom` near `(0,0)`,
+**then** `scripts/module.sh up` (now enforced automatically; see above). The robot was
+left upright at spawn at the end of this session.
+
 ## 1. Objective and acceptance bar
 
 Finish the autonomous maze demonstration with one exploration start request, no
