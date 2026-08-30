@@ -485,12 +485,104 @@ EOF
     say "e dos sensores que o Gazebo publica; sem isso o Nav2 fica esperando."
   fi
 
+  check_robot_near_spawn_before_nav_restart "${2:-}"
+
   # The rendered CycloneDDS file is a bind mount whose PATH does not change
   # between syncs. Compose therefore considers an old container up to date even
   # when the peer/interface inside that file changed. CycloneDDS reads the XML
   # only at process start, so a normal `up -d` leaves the stale interface alive.
   remote "cd ${remote_dir} && docker compose -f compose.module.yml up -d --force-recreate"
   cmd_status
+}
+
+# Recreating 'nav' restarts slam_toolbox, which anchors its first scan(s) at
+# whatever pose the robot has RIGHT NOW. If that pose is far from spawn --
+# e.g. wherever a previous exploration round left the robot -- and
+# /demo/sim/reset is only called AFTER this restart, slam_toolbox anchors a
+# map patch at the stale pose before the reset teleport happens, leaving that
+# patch permanently disconnected from spawn. Symptom: the next exploration
+# round dies in well under a minute with ComputePathToPose returning
+# error_code=208 (NO_VALID_PATH) on every candidate, and /map's known cells
+# sit far from (0,0) even though `map`->`odom` reports identity -- the TF is
+# fine, the map itself was just built in the wrong place. Reproduced twice
+# (ML3.5 F5 R10 and R12's first attempt, 29-30/08/2026); see
+# docs/results/ml35-f5-exploration-r12.md.
+#
+# So: refuse by default when the robot is not near spawn, same shape as the
+# cmd_vel guard above. --force is for when a fresh /demo/sim/reset is about
+# to follow anyway, or the caller is not running an exploration round at all.
+check_robot_near_spawn_before_nav_restart() {
+  local force_flag="$1"
+
+  if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
+    return 0
+  fi
+
+  [[ -f "${host_cfg:-}" ]] || render_host_config
+
+  # `ros2 topic echo --once --field ...` prints the value on its own line,
+  # THEN a bare `---` YAML end-of-document marker on the next -- `head -1`
+  # keeps only the value. Without this, the raw two-line string fed straight
+  # into a python expression below is a syntax error, and under `set -e` a
+  # failing command substitution aborts the whole script silently (found by
+  # actually running this against the live module, not by inspection).
+  local pos_x pos_y
+  pos_x="$(CYCLONEDDS_URI="file://${host_cfg}" bash -c '
+    source /opt/ros/jazzy/setup.bash >/dev/null 2>&1
+    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    export ROS_DOMAIN_ID='"${ROS_DOMAIN_ID}"'
+    timeout 5 ros2 topic echo --once --field pose.pose.position.x /demo/odom 2>/dev/null
+  ' | head -1)"
+  pos_y="$(CYCLONEDDS_URI="file://${host_cfg}" bash -c '
+    source /opt/ros/jazzy/setup.bash >/dev/null 2>&1
+    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    export ROS_DOMAIN_ID='"${ROS_DOMAIN_ID}"'
+    timeout 5 ros2 topic echo --once --field pose.pose.position.y /demo/odom 2>/dev/null
+  ' | head -1)"
+
+  # No /demo/odom at all (sim not up yet, first-ever bring-up): nothing to
+  # compare against, and nothing this guard can usefully say. Let it through.
+  if [[ -z "${pos_x}" || -z "${pos_y}" ]]; then
+    return 0
+  fi
+
+  # 1.0 m: comfortably above spawn noise (a few cm in every round observed
+  # this session), comfortably below "a previous round actually explored".
+  # `|| true` keeps a malformed value (or python itself missing) from
+  # aborting the whole script under `set -e` -- this guard must never be the
+  # reason 'up' fails for a caller it has nothing useful to say to.
+  local verdict
+  verdict="$(python3 -c "
+import math
+distance = math.hypot(${pos_x}, ${pos_y})
+print('far' if distance > 1.0 else 'near', f'{distance:.2f}')
+" 2>/dev/null || true)"
+  if [[ -z "${verdict}" ]]; then
+    return 0
+  fi
+  local far_or_near distance
+  read -r far_or_near distance <<<"${verdict}"
+
+  if [[ "${far_or_near}" == "far" ]] && [[ "${force_flag}" != "--force" ]]; then
+    printf '\n[module.sh] RECUSADO: robo a %s m do spawn (x=%s y=%s).\n' \
+      "${distance}" "${pos_x}" "${pos_y}" >&2
+    cat >&2 <<EOF
+Recriar 'nav' agora ancora o slam_toolbox nessa pose, nao no spawn. Se um
+/demo/sim/reset rodar so DEPOIS deste restart, o mapa nasce com um pedaco
+orfao longe de (0,0) e a proxima exploracao morre em menos de um minuto
+com ComputePathToPose recusando tudo (error_code=208). Reproduzido em
+ML3.5 F5 R10 e R12 -- docs/results/ml35-f5-exploration-r12.md.
+
+Escolha uma saida:
+  1. Resete o sim primeiro, confirme o robo perto do spawn, so entao suba:
+       ros2 service call /demo/sim/reset std_srvs/srv/Trigger '{}'
+       scripts/module.sh up
+  2. Force, sabendo que vai resetar o sim de qualquer forma OU que este
+     'up' nao antecede uma rodada de exploracao:
+       scripts/module.sh up --force
+EOF
+    exit 1
+  fi
 }
 
 cmd_down() {
