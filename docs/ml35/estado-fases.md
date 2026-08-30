@@ -184,6 +184,62 @@ cluster, is not distinguished by this round. Full record in
 clearance fix or is simply not yet where the map's largest remaining frontier is. (The
 reset-before-restart sequencing fix is now done — see the 30/08 update above.)
 
+**Update (30/08, R13) — diagnostic-only round: the reported zigzag reads as MPPI
+oscillation around an essentially straight plan, not a bent plan or a runaway gait; 4 of
+7 goal-timeouts had the robot genuinely stuck, not just slow.** Same config as R12
+(nothing behavioural changed), new instrumentation only: `scripts/exploration_trial.py`
+gained a `/plan` subscription with `plan_straightness`/`plan_length_m`, a
+`/local_costmap/costmap` probe for `wall_left_m`/`wall_right_m`, an automatic
+`classify_stop_reason()` (total_timeout / two barren sub-types / cancelled), and
+`find_stalled_navigating_windows()` (command present, no real displacement, >= 10 s). A
+real bug was caught and fixed before the valid round: the new `/plan` subscription used
+`/map`'s TRANSIENT_LOCAL QoS, but `nav2_planner` publishes `/plan` RELIABLE/VOLATILE —
+the mismatch silently delivered zero messages (confirmed live by the
+`incompatible QoS ... DURABILITY` warning) until fixed to a plain-depth profile.
+
+Clean full run, no manual intervention beyond the mandated reset -> `module.sh up` ->
+single `/demo/exploration/start`: 642.2 s span, 34.55 m, 16/23 goals, tilt max 1.32°
+(**zero falls**), ended on `prazo total de exploracao excedido` (healthy, same pattern as
+R12 — never went barren). Full record: `docs/results/ml35-f5-exploration-r13.md` +
+CSVs.
+
+Zigzag decision tree, resolved with data instead of assumption: the global plan is
+mostly straight (median `plan_straightness` 0.96, only 0.7% of samples below 0.7 —
+possibility 1 weak). Isolating genuine straight-corridor samples (straightness > 0.97,
+both walls sensed), the MPPI still commands `|cmd_wz| > 0.02 rad/s` 82.0% of the time,
+and the left/right wall-clearance asymmetry there splits nearly 50/50 by direction
+(40.1% left-favoured, 36.0% right-favoured) rather than sitting on one fixed side —
+textbook oscillation-around-a-straight-reference, i.e. **possibility 2**. A field
+comparison of commanded `cmd_wz` against the body's own realised yaw rate (756 samples,
+`state=navigating`, meaningfully-commanded) gave a median ratio of **0.80** (mild
+under-execution), not the ~1.37 overshoot the `foot_placement.k_yaw=0.35` A/B hypothesis
+in the R14 plan expects — same direction 97.2% of the time, ratio > 1.15 in only 9.8% of
+samples. This does **not** disprove the k_yaw hypothesis (the measurement is a crude 2 Hz
+comparison with no lag compensation, explicitly not a substitute for R14's own controlled
+A/B), but it also does not corroborate it, which is why the report recommends R14 try the
+MPPI-critic branch (PathAlignCritic/PathAngleCritic weight, `offset_from_furthest`, replan
+rate) before the `k_yaw` A/B, as a evidence-weighted suggestion rather than an override of
+the plan's stated order.
+
+Stop classification: of the plan's seven categories, three were observed this round —
+per-goal timeout (7/23 goals), the eventual total-timeout (final state), and "navigating
+with a command but no real displacement" (5 windows found by
+`find_stalled_navigating_windows`, 10.2-24.2 s each). **4 of the 7 goal-timeouts (goals 2,
+6, 8, 11) contain one of these stall windows** — goal 11 alone shows the robot pinned
+against a wall at a constant 0.05 m right-side clearance for close to 20 s combined across
+two windows. This is real, measured evidence that R15's proposed movement watchdog (cancel
+before burning the full 45 s) has genuine work to do, not a hypothetical one. Goals 9 and
+21 also timed out but produced no detected stall window — open, not investigated further
+this round. `frontier_clusters_raw` exceeded `frontier_clusters` on every `selecting`
+sample with data (typical loss ~25-40%) but never reached zero — the clearance filter is
+demonstrably active but was not this round's stop cause (`barren_cycles_final = 0`
+throughout).
+
+**Does not close**: which R14 variable to change first (evidence-weighted suggestion
+only, not a controlled A/B); the two unexplained goal-9/21 timeouts; `_map_seq` counting
+messages instead of content (untouched — this round never depended on re-extracting over
+a republished-identical map).
+
 **Update (30/08) — item 6, AprilTag positioned HIL validation, done (explicitly
 non-acceptance-counted, no exploration ran):** robot teleported directly to vantage
 points in front of the exit marker (safe hold-gait/set_entity_pose/resume-gait sequence,

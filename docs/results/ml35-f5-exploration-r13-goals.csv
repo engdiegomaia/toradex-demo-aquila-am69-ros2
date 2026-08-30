@@ -1,0 +1,24 @@
+goal_index,goal_x,goal_y,phase,sent_sim_s,elapsed_s,outcome,nav2_status,message
+0,-0.233,0.644,exploration,2582.012,7.426,ok,4,fronteira alcancada; atualizando mapa
+1,0.113,2.186,exploration,2590.009,11.043,ok,4,fronteira alcancada; atualizando mapa
+2,-0.237,0.636,exploration,2602.009,45.006,failed,,meta de fronteira expirou
+3,-1.887,0.086,exploration,2649.004,22.065,ok,4,fronteira alcancada; atualizando mapa
+4,-3.272,0.386,exploration,2672.012,8.074,ok,4,fronteira alcancada; atualizando mapa
+5,-3.363,0.686,exploration,2681.012,5.326,ok,4,fronteira alcancada; atualizando mapa
+6,-3.113,0.936,exploration,2687.003,45.018,failed,,meta de fronteira expirou
+7,-2.913,1.886,exploration,2734.017,39.278,ok,4,fronteira alcancada; atualizando mapa
+8,-4.69,1.786,exploration,2774.007,45.004,failed,,meta de fronteira expirou
+9,-1.59,2.236,exploration,2821.008,45.007,failed,,meta de fronteira expirou
+10,-1.696,2.486,exploration,2869.011,7.161,ok,4,fronteira alcancada; atualizando mapa
+11,-1.646,3.186,exploration,2877.014,45.0,failed,,meta de fronteira expirou
+12,-1.696,5.186,exploration,2925.025,11.403,ok,4,fronteira alcancada; atualizando mapa
+13,-0.696,5.036,exploration,2937.009,24.196,ok,4,fronteira alcancada; atualizando mapa
+14,-0.196,5.586,exploration,2962.013,7.243,ok,4,fronteira alcancada; atualizando mapa
+15,-0.196,6.186,exploration,2970.017,17.404,ok,4,fronteira alcancada; atualizando mapa
+16,-0.646,7.936,exploration,2988.007,31.252,ok,4,fronteira alcancada; atualizando mapa
+17,-0.796,9.936,exploration,3020.012,12.188,ok,4,fronteira alcancada; atualizando mapa
+18,-1.094,10.036,exploration,3033.013,8.451,ok,4,fronteira alcancada; atualizando mapa
+19,-2.15,9.786,exploration,3042.005,36.363,ok,4,fronteira alcancada; atualizando mapa
+20,-5.486,9.636,exploration,3079.004,32.391,ok,4,fronteira alcancada; atualizando mapa
+21,-5.279,7.936,exploration,3112.007,45.002,failed,,meta de fronteira expirou
+22,-7.851,7.936,exploration,3159.012,21.001,failed,,prazo total de exploracao excedido
