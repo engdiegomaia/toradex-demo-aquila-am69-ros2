@@ -158,6 +158,29 @@ def test_frontier_score_trades_information_for_route_length():
     assert frontier_score(rich, 5.0) < frontier_score(rich, 1.0)
 
 
+def test_frontier_score_does_not_crush_a_small_but_far_cluster() -> None:
+    """
+    A linear route penalty used to starve the one real path to the exit.
+
+    R9/R11 (29/08): the corridor toward the actual exit had clusters that
+    were both smaller AND farther than the rooms back the way the robot
+    came. A linear penalty compounds those two disadvantages instead of
+    just adding them, so the far cluster never became competitive even
+    once the near ones were fully explored.
+
+    Reproduces R11's actual numbers: a 50-cell cluster 3.15 m away vs. a
+    16-cell cluster 8.46 m away. The old linear `-0.5*route_m` penalty
+    scored these 0.87 and -3.43 (a 4.3-point gap); the sub-linear penalty
+    still prefers the closer one, but by far less.
+    """
+    close_big = Frontier(0.0, 0.0, 50, 50 * 0.05)
+    far_small = Frontier(0.0, 0.0, 16, 16 * 0.05)
+    close_score = frontier_score(close_big, 3.152)
+    far_score = frontier_score(far_small, 8.455)
+    assert close_score > far_score
+    assert close_score - far_score < 2.5
+
+
 def test_fast_sweep_agrees_with_the_literal_definition_on_random_grids():
     """
     A varredura rapida so pode substituir a lenta se der o MESMO conjunto.
