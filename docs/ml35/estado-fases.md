@@ -240,6 +240,64 @@ only, not a controlled A/B); the two unexplained goal-9/21 timeouts; `_map_seq` 
 messages instead of content (untouched — this round never depended on re-extracting over
 a republished-identical map).
 
+**Update (30/08, R14) — first MPPI-side A/B (`PathAlignCritic.offset_from_furthest`
+20→10), measured negative/inconclusive and reverted.** Per R13's report, tried the
+MPPI-critic branch before `k_yaw`, single variable. Same real-HIL round, same
+precondition sequence, mandated. Result did **not** support the hypothesis: on the
+identical "genuine straight corridor" subset R13 defined, median `|cmd_wz|` rose
+(0.052→0.079 rad/s) instead of falling, `plan_straightness` got worse (fraction below 0.9:
+12.4%→39.1%), real-yaw peak-to-peak amplitude per ~5 s window got worse (median
+10.7°→16.9°), and the wall-clearance asymmetry changed character from "oscillates ~50/50"
+(R13's own signature for possibility 2) to "fixed left bias" (63% left) — not the pattern
+the hypothesis predicted if the shorter reference had helped. Goal completion also fell
+(70%→56%), and the run ended early via `barren_other` (500 s, barren-cycle limit) rather
+than reaching the healthy `total_timeout` R13 and R12 both hit. Zero falls in both rounds
+(tilt max 1.22° vs 1.32°); minimum wall clearance was actually better this round (0.10 m
+vs 0.05 m). All of this is **n=1 per side and confounded by different maze geometry
+explored each run** (R14 dispatched 16 goals vs R13's 23) — not a controlled repeat, so
+treat as a real but not fully clean negative result. Full numbers:
+`docs/results/ml35-f5-exploration-r14.md`. `offset_from_furthest` reverted to 20 in the
+same commit round, so the next MPPI-side attempt starts from R13's known baseline instead
+of stacking under an unproven change. Remaining untried MPPI-side candidates: PathAlignCritic
+weight, PathAngleCritic weight, replan/plan-substitution frequency — none attempted yet;
+which one to try next (or whether to fall back to the plan's original `k_yaw` A/B) is an
+open decision, not yet made.
+
+**Update (30/08, R15) — the four centralisation-adjacent software fixes, implemented and
+unit-tested, not yet HIL-validated.** All four land in `maze_explorer.py` together (no
+hardware run required to validate the logic itself, only to validate real-world behaviour
+in R16):
+
+1. `_map_seq` now advances on `/map` **content** change (crc32 of `.data`), not per
+   message — `slam_toolbox` republishing an identical map no longer satisfies
+   `map_seq > last_provisional_map_seq` and wrongly releases a provisional suppression
+   nothing actually disproved. New test:
+   `test_map_republication_does_not_release_a_provisional_recovery` (the exact test the
+   original plan asked for by name), plus a direct content-vs-message test on `_on_map`.
+2. Movement watchdog during `navigating`: cancels the goal as a provisional timeout after
+   `stall_window_s` (15 s) without `stall_move_threshold_m` (0.05 m, same threshold R13's
+   own offline `find_stalled_navigating_windows` already validated) of real displacement —
+   instead of waiting out the full `goal_timeout_s` (45 s). Sized directly off R13's 5
+   measured real stalls (10.2-24.2 s, all above the 15 s window with margin).
+3. Zero-raw-cluster observation recovery: when NO raw frontier cluster exists at all (not
+   "existed but got filtered" — that path is unchanged), dispatches Nav2's own `Spin`
+   behavior through `behavior_server`, which already runs at the hardware-validated
+   `max_rotational_vel: 0.12` (the value measured to not fall the robot in recovery).
+   Limited to one attempt per distinct (content-based) map version.
+4. Honest barren classification: the single "nenhuma fronteira segura alcancavel" message
+   split into three, matching the raw-vs-filtered distinction `classify_stop_reason`
+   (R13) already reads from the final row's counts.
+
+100/100 tests pass (`colcon test --packages-select demo_navigation`; 87 of them in
+`test_maze_explorer.py`, up from 65), flake8-clean relative to the prior commit on both
+touched files.
+
+**Does not close**: whether R15's watchdog/recovery actually help exploration reach the
+southwest exit region on real hardware (that is R16's job, integrated with whichever
+config R14's decision lands on); which MPPI-side variable to try next; the homing-fall
+investigation near the exit opening (still untouched, no round this far has approached
+that area).
+
 **Update (30/08) — item 6, AprilTag positioned HIL validation, done (explicitly
 non-acceptance-counted, no exploration ran):** robot teleported directly to vantage
 points in front of the exit marker (safe hold-gait/set_entity_pose/resume-gait sequence,

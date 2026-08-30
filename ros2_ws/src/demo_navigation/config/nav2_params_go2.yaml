@@ -565,30 +565,28 @@ controller_server:
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
-        # 10, baixado de 20 -- R14 (30/08/2026), UNICA variavel desta rodada.
+        # 20. TENTADO 10 em R14 (30/08/2026) e REVERTIDO -- medido, nao
+        # ajudou. A hipotese (R13,
+        # docs/results/ml35-f5-exploration-r13.md): oscilacao do critico
+        # dominante (peso 14, o maior) em torno de uma referencia LONGE
+        # (offset 20 ~ 1 m) faria sentido encurtar para ~0.5 m (offset 10).
         #
-        # R13 (docs/results/ml35-f5-exploration-r13.md) mediu, so em trechos de
-        # corredor genuinamente retos (plan_straightness > 0.97 E as duas
-        # paredes dentro de 1.5 m, 389/1320 amostras): cmd_wz != 0 em 82% dessas
-        # amostras, e a assimetria de folga parede-esquerda vs parede-direita
-        # trocando de lado quase 50/50 (nao um vies fixo). Isso e a assinatura
-        # de oscilacao do critico dominante (peso 14, o maior da lista) em
-        # torno de uma referencia LONGE (offset 20 pontos ~ 1 m): o robo corrige
-        # rumo para um alvo que ja mudou de lado relativo quando a correcao
-        # termina, e troca de lado de novo.
+        # Medido no HIL real (docs/results/ml35-f5-exploration-r14.md),
+        # mesmo subconjunto "corredor reto genuino" de R13: `cmd_wz` mediano
+        # SUBIU (0.052 -> 0.079 rad/s), `plan_straightness` piorou (fracao
+        # abaixo de 0.9: 12,4% -> 39,1%), amplitude de guinada real por
+        # janela de 5 s piorou (mediana 10,7 -> 16,9 graus), e a assimetria
+        # de parede trocou de "oscila 50/50" para "vies fixo pra esquerda"
+        # (63% esquerda) -- nao o padrao que a hipotese previa se tivesse
+        # funcionado. Taxa de metas concluidas tambem caiu (70% -> 56%),
+        # ainda que confundida com geometria de exploracao diferente entre
+        # as duas rodadas (n=1 de cada lado). Zero quedas nas duas.
         #
-        # A hipotese alternativa do plano original (k_yaw 0.35 sobre-executa
-        # ~137% do comando do MPPI) NAO foi corroborada pela mesma rodada
-        # (razao taxa-real/cmd_wz medida: mediana 0.80, sub-execucao) -- ver
-        # R13 secao 1, possibilidade 3. Por isso a ordem dos A/Bs de R14 foi
-        # invertida: este offset primeiro, k_yaw so se este nao resolver.
-        #
-        # 10 pontos ~ 0.5 m mantem o PESO e o HORIZONTE (time_steps/model_dt)
-        # intocados -- mudar so este numero, nao os tres. Se 10 nao bastar,
-        # o proximo A/B e o peso do proprio PathAlignCritic ou o do
-        # PathAngleCritic, nunca os dois nem junto com velocidade/inflacao/
-        # marcha (docs/ml35/estado-fases.md, R14).
-        offset_from_furthest: 10
+        # Revertido para nao empilhar uma mudanca nao demonstrada sob o
+        # proximo A/B do lado do MPPI -- ainda em aberto: peso do
+        # PathAlignCritic, peso do PathAngleCritic, ou frequencia de
+        # substituicao do plano ativo (docs/ml35/estado-fases.md, R14).
+        offset_from_furthest: 20
         use_path_orientations: false
 
       PathFollowCritic:
