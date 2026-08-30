@@ -58,9 +58,13 @@ Isolado de verdade do codigo de R15, `cost_weight=7.0` produz um quadro
   zigzag: `cmd_wz` mediano caiu abaixo do proprio baseline R13 (0.048 contra
   0.056 rad/s), a amplitude de guinada por janela de 5s tambem caiu levemente
   (10,2° contra 10,7°), e a assimetria de parede voltou ao patamar e a
-  distribuicao de R13 (mediana 0.25 m, ~45/31/25 contra ~41/33/26) -- **isto
-  confirma que o vies fixo severo de R14b (0.65 m, 57% para um lado) era
-  efeito do codigo de R15 junto, nao de `cost_weight`.**
+  distribuicao de R13 (mediana 0.25 m, ~45/31/25 contra ~41/33/26) -- isto
+  **indica que o vies fixo severo de R14b nao era efeito isolado de
+  `cost_weight`**; nao confirma que a causa era especificamente o codigo de
+  R15, ja que R13/R14b/R14c cada uma explorou uma geometria de labirinto
+  diferente com n=1 por configuracao. A contribuicao real de R15 (positiva,
+  negativa ou nula sobre este eixo) permanece em aberto ate a validacao
+  integrada em R16.
 - **Pior que o baseline** em `plan_straightness` (fracao abaixo de 0.9 subiu
   de 12,4% para 31,7%, embora bem melhor que os 57,2% de R14b) e sobretudo
   em indicadores de missao: menos janelas de imobilidade nunca -- pelo
