@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,9 +23,12 @@ from exploration_trial import (  # noqa: E402
     GOAL_STATUS_SUCCEEDED,
     ROW_FIELDS,
     goals_csv_path,
+    occupancy_grid_to_dict,
     parse_goal_outcome,
     percentile,
+    pose_entered_region,
     quat_to_yaw_tilt,
+    snapshot_json_path,
     summarise,
     write_csv,
 )
@@ -312,3 +316,63 @@ def test_write_csv_emits_the_declared_header_even_with_no_rows(tmp_path) -> None
 
     with open(target, newline='') as handle:
         assert next(csv.reader(handle)) == GOAL_FIELDS
+
+
+# --- R13 snapshot capture ----------------------------------------------------
+
+def test_snapshot_json_path_sits_next_to_the_row_csv() -> None:
+    assert snapshot_json_path('out.csv') == 'out-map-snapshot.json'
+
+
+def test_snapshot_json_path_handles_a_name_without_the_extension() -> None:
+    assert snapshot_json_path('out') == 'out-map-snapshot.json'
+
+
+def test_pose_entered_region_requires_both_bounds() -> None:
+    assert pose_entered_region(-5.0, 1.0, -4.5, 2.0) is True
+    assert pose_entered_region(-4.0, 1.0, -4.5, 2.0) is False  # x not past
+    assert pose_entered_region(-5.0, 3.0, -4.5, 2.0) is False  # y not past
+
+
+def test_pose_entered_region_is_false_exactly_on_the_boundary() -> None:
+    """A pose sitting on the boundary has not yet arrived (see nav-goal-tolerance-trap)."""
+    assert pose_entered_region(-4.5, 1.0, -4.5, 2.0) is False
+    assert pose_entered_region(-5.0, 2.0, -4.5, 2.0) is False
+
+
+def _fake_occupancy_grid(**overrides) -> SimpleNamespace:
+    grid = SimpleNamespace(
+        header=SimpleNamespace(
+            stamp=SimpleNamespace(sec=123, nanosec=456), frame_id='map'),
+        info=SimpleNamespace(
+            resolution=0.05, width=3, height=2,
+            origin=SimpleNamespace(
+                position=SimpleNamespace(x=-1.0, y=-2.0, z=0.0),
+                orientation=SimpleNamespace(x=0.0, y=0.0, z=0.0, w=1.0))),
+        data=[-1, 0, 100, -1, 50, 0],
+    )
+    for key, value in overrides.items():
+        setattr(grid, key, value)
+    return grid
+
+
+def test_occupancy_grid_to_dict_is_lossless() -> None:
+    """R13 needs the exact grid `extract_frontiers` saw, not a summary of it."""
+    payload = occupancy_grid_to_dict(_fake_occupancy_grid())
+
+    assert payload['header'] == {
+        'stamp_sec': 123, 'stamp_nanosec': 456, 'frame_id': 'map'}
+    assert payload['info']['width'] == 3
+    assert payload['info']['height'] == 2
+    assert payload['info']['resolution'] == 0.05
+    assert payload['info']['origin'] == {
+        'x': -1.0, 'y': -2.0, 'z': 0.0,
+        'qx': 0.0, 'qy': 0.0, 'qz': 0.0, 'qw': 1.0}
+    assert payload['data'] == [-1, 0, 100, -1, 50, 0]
+
+
+def test_occupancy_grid_to_dict_data_is_a_plain_list() -> None:
+    """`json.dumps` must not choke on the ROS message's own array type."""
+    payload = occupancy_grid_to_dict(_fake_occupancy_grid(data=(1, 2, 3)))
+
+    assert isinstance(payload['data'], list)
