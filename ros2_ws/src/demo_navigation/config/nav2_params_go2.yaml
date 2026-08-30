@@ -565,7 +565,30 @@ controller_server:
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
-        offset_from_furthest: 20
+        # 10, baixado de 20 -- R14 (30/08/2026), UNICA variavel desta rodada.
+        #
+        # R13 (docs/results/ml35-f5-exploration-r13.md) mediu, so em trechos de
+        # corredor genuinamente retos (plan_straightness > 0.97 E as duas
+        # paredes dentro de 1.5 m, 389/1320 amostras): cmd_wz != 0 em 82% dessas
+        # amostras, e a assimetria de folga parede-esquerda vs parede-direita
+        # trocando de lado quase 50/50 (nao um vies fixo). Isso e a assinatura
+        # de oscilacao do critico dominante (peso 14, o maior da lista) em
+        # torno de uma referencia LONGE (offset 20 pontos ~ 1 m): o robo corrige
+        # rumo para um alvo que ja mudou de lado relativo quando a correcao
+        # termina, e troca de lado de novo.
+        #
+        # A hipotese alternativa do plano original (k_yaw 0.35 sobre-executa
+        # ~137% do comando do MPPI) NAO foi corroborada pela mesma rodada
+        # (razao taxa-real/cmd_wz medida: mediana 0.80, sub-execucao) -- ver
+        # R13 secao 1, possibilidade 3. Por isso a ordem dos A/Bs de R14 foi
+        # invertida: este offset primeiro, k_yaw so se este nao resolver.
+        #
+        # 10 pontos ~ 0.5 m mantem o PESO e o HORIZONTE (time_steps/model_dt)
+        # intocados -- mudar so este numero, nao os tres. Se 10 nao bastar,
+        # o proximo A/B e o peso do proprio PathAlignCritic ou o do
+        # PathAngleCritic, nunca os dois nem junto com velocidade/inflacao/
+        # marcha (docs/ml35/estado-fases.md, R14).
+        offset_from_furthest: 10
         use_path_orientations: false
 
       PathFollowCritic:
