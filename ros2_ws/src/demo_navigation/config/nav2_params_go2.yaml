@@ -561,27 +561,31 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        # 7.0, baixado de 14.0 -- R14b (30/08/2026), UNICA variavel desta
-        # rodada, escolhida depois de R14 (offset_from_furthest) medir
-        # negativo e ser revertido (ver o comentario em offset_from_furthest
-        # abaixo e docs/results/ml35-f5-exploration-r14.md).
+        # 14.0. TENTADO 7.0 em R14b (30/08/2026) e REVERTIDO -- medido, nao
+        # ajudou, e a rodada saiu confundida por um erro de processo (ver
+        # abaixo). Mesma hipotese de fundo de R14
+        # (docs/results/ml35-f5-exploration-r14.md): o critico dominante
+        # corrige rumo com forca demais. Contra o mesmo subconjunto "corredor
+        # reto genuino" de R13/R14
+        # (docs/results/ml35-f5-exploration-r14b.md): `cmd_wz` mediano ficou
+        # igual a R14 (0.078 rad/s, ainda acima do baseline 0.056),
+        # `plan_straightness` piorou mais ainda (fracao abaixo de 0.9:
+        # 57,2%, pior que R13 e R14), e a assimetria de parede TRIPLICOU em
+        # magnitude (mediana 0.65 m contra 0.25 m nas duas rodadas
+        # anteriores), so que trocando de vies fixo esquerdo (R14) para vies
+        # fixo direito -- nenhum sinal de menos oscilacao.
         #
-        # Mesma hipotese de fundo (R13,
-        # docs/results/ml35-f5-exploration-r13.md): o critico dominante --
-        # 14.0 era o MAIOR peso entre todos os oito, acima de CostCritic
-        # (3.81), ConstraintCritic (4.0), GoalAngleCritic (3.0),
-        # GoalCritic/PreferForwardCritic/PathFollowCritic (5.0) -- corrige
-        # rumo com forca demais e sobre-corrige, trocando de lado. R14 atacou
-        # a DISTANCIA da referencia (offset_from_furthest) e nao ajudou; esta
-        # rodada ataca o GANHO em vez da distancia, com a distancia (offset
-        # 20, o valor original) de volta ao que R13 mediu como baseline.
-        #
-        # 7.0 (metade) mantem PathAlignCritic ainda entre os pesos mais altos
-        # (acima de PathAngleCritic 2.0 e GoalAngleCritic 3.0) -- ainda
-        # prioriza seguir o caminho, so com menos autoridade para forcar
-        # correcao imediata. Nao mexer no offset, no horizonte
-        # (time_steps/model_dt) nem em nenhum outro critico nesta rodada.
-        cost_weight: 7.0
+        # ERRO DE PROCESSO NESTA RODADA: o `module.sh sync` antes do HIL
+        # levou junto as mudancas de R15 (vigia de movimento, recuperacao por
+        # varredura) que ja estavam commitadas na arvore -- confirmado pela
+        # mensagem `vigia de movimento: comando sem deslocamento real` em 3
+        # das 15 metas desta rodada, que nao existia em R13/R14. Esta rodada
+        # NAO isolou cost_weight sozinho; comparar com R13/R14 e valido para
+        # tendencia geral mas nao e um A/B limpo. Licao para as proximas
+        # rodadas de config: sincronizar so o arquivo de config, ou congelar
+        # o resto da arvore, antes de um HIL que se pretende de variavel
+        # unica.
+        cost_weight: 14.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
