@@ -1083,6 +1083,40 @@ says `sem /demo/gait/hold (planta sem gait)`, and that is not a failure.
 
 Evidence: `docs/results/cockpit-reset-nao-destrutivo.md` §3.1.
 
+### 20. Recreating `nav` before `/demo/sim/reset` anchors the map away from spawn
+
+`scripts/module.sh up` recreates the `nav` container, which restarts
+`slam_toolbox`. `slam_toolbox` anchors its map coordinate frame at whatever
+pose the robot has when it takes its first scan(s) after starting. If the
+robot is still sitting wherever a previous exploration round left it (for
+example `y≈9` after a long run) when `nav` comes back up, the map is anchored
+there — and the teleport that a later `/demo/sim/reset` performs does not fix
+already-anchored map data, it just leaves that anchored patch disconnected
+from anything reachable from the real spawn.
+
+The symptom is a near-instant death of `maze_explorer` (well under a minute):
+very few frontier clusters, all of them walled off, `ComputePathToPose`
+refusing every candidate with `error_code=208 NO_VALID_PATH`. The `map`→`odom`
+transform still checks out as identity — the TF is fine, the map itself was
+just born anchored in the wrong place. Reproduced twice in ML3.5 F5 (R10 and
+the first attempt of R12); see `docs/results/ml35-f5-exploration-r12.md`.
+
+`scripts/module.sh up` now refuses to recreate `nav`/`perception` when it can
+see (via `/demo/odom` on the host) that the robot is more than 1 m from spawn,
+unless `--force` is passed. If it refuses, the fix is always the same order:
+
+```bash
+ros2 service call /demo/sim/reset std_srvs/srv/Trigger '{}'
+scripts/module.sh up
+```
+
+Never call `/demo/sim/reset` again after that `up` — the anchor is already
+correct once `nav`'s first scan lands at spawn, and resetting a second time
+does not undo an anchor from a container that has not been recreated since.
+If a caller genuinely does not care (the sim will be reset anyway, or this
+`up` does not precede an exploration round), `scripts/module.sh up --force`
+skips the check.
+
 ## 10. The Aquila AM69 module
 
 Everything here is `arm64` on Torizon OS, and **nothing graphical** (rule 1: the
@@ -1100,7 +1134,8 @@ scripts/module.sh inventory   # OS, Docker, disk, links — before anything else
 scripts/module.sh sync        # sources + rendered config to ~/demo on the module
 scripts/module.sh build       # builds the arm64 images ON the module
 scripts/module.sh verify      # 3 stages: UDP, module sees host, host receives module
-scripts/module.sh up          # nav + perception (refuses if sim is active on the host)
+scripts/module.sh up          # nav + perception (refuses if sim is active on the host,
+                               # or if the robot is far from spawn — see trap 20)
 scripts/module.sh shell       # shell in the tools container
 ```
 
