@@ -403,6 +403,49 @@ with a stub handle, matching the new acceptance-gated behaviour. Full suite:
 No HIL round attached to this update — it is a code-only correctness fix, not a measured
 result; R16 is still the next real HIL round, now with this fix included.
 
+**Update (30/08, R16) — integrated validation of R15a, run through the official
+Docker+cockpit path, mixed result, no code regression found.** Following an independent
+code review of R15/R15a (see the R15a update above), R16 ran with R15a's code (commit
+`26aba8f`) plus the R13 baseline MPPI config (`cost_weight=14.0`, `offset_from_furthest=20`
+— no other MPPI change), started via the cockpit's "iniciar busca" button rather than a
+direct `ros2 service call`, per `docs/guia-hil-go2-labirinto.md`'s official flow. A
+background safety guard polled exploration state throughout and would have cancelled
+the run immediately on reaching `homing_exit` (the blind-homing-fall risk from
+`docs/results/ml35-f5-homing-fall-analise.md` is still unmitigated) — never needed to
+act, since the marker was never sighted this round.
+
+Result: `cmd_wz` median and yaw peak-to-peak amplitude were the **best of all five
+measured rounds** (0.031 rad/s, 8.8°), consistent with the watchdog cutting short two
+genuinely-stalled goals before they wasted the full 45 s. Both watchdog firings were
+independently verified against raw telemetry: yaw frozen solid (23.40° and 41.13°, not
+drifting) for the full stall window in both, confirming real immobility, not a
+false-positive rotation cancellation — though no legitimate in-place rotation occurred
+this round to test that side of the R15a fix. But wall-clearance asymmetry worsened
+(median 0.5 m, 60% one-sided vs R13's ~41/33/26 split), `plan_straightness` also
+worsened, and the round ended earlier (431 s) via `barren_other` — 10 consecutive
+sterile selection cycles hit `barren_selections_limit` and correctly triggered `_fail`,
+exactly the honest terminal classification R15 was built to produce. Goal completion:
+60% (9/15), below R13's 70%, second-best of the five rounds. The robot's actual traveled
+position never got past x=-3.52 (the two goals aiming further west/southwest both
+failed — one via the watchdog, one via timeout) — the southwest region was not reached
+this round, unlike R14b which sighted the exit marker 24 times. Sweep-recovery
+(zero-raw-cluster path) was not exercised (`provisional_recoveries_final=0` — the 10
+barren cycles all came from filtered, not absent, frontiers). Zero falls (tilt max
+2.37°, the highest of any round so far but still well below any collapse threshold).
+Full numbers and per-goal telemetry: `docs/results/ml35-f5-exploration-r16.md`.
+
+As with R14c, n=1-per-round and differing explored geometry make it impossible to
+cleanly separate a real R15a software effect on goal-completion rate from ordinary
+run-to-run variance — the same methodological caveat already on record from R14b/R14c.
+What R16 does establish with confidence, because it is a direct code-vs-real-telemetry
+check rather than a between-round comparison: the R15a movement watchdog worked exactly
+as designed on real hardware, with zero false positives and the documented partial
+stall-window coverage (2 of 3 windows, the third below the 15 s threshold) matching the
+corrected code comment precisely. No reason to revert or further tune R15a. Open items
+carried forward unchanged: sweep-recovery still unexercised in HIL, the homing-fall risk
+still undocumented-but-unmitigated, and the underlying n=1 measurement-power question
+from R14b/R14c still unresolved.
+
 **Update (30/08) — item 6, AprilTag positioned HIL validation, done (explicitly
 non-acceptance-counted, no exploration ran):** robot teleported directly to vantage
 points in front of the exit marker (safe hold-gait/set_entity_pose/resume-gait sequence,
