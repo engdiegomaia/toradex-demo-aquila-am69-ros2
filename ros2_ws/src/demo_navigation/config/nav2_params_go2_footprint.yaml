@@ -28,10 +28,10 @@
 # costmaps. O raio inscrito cai de 0,38 para 0,18, e a largura planejavel sobe
 # para 1,20 - 0,36 = 0,84 m, ou +/- 0,42 m.
 #
-# `CostCritic.consider_footprint` CONTINUA false de proposito. Com a pegada
-# declarada a precondicao dele passa a estar satisfeita (sem poligono publicado
-# ele derruba o container com SIGSEGV), mas liga-lo seria uma SEGUNDA variavel
-# comportamental na mesma promocao. Ele e o proximo experimento, nao este.
+# `CostCritic.consider_footprint` foi promovido para true em 30/08/2026, junto
+# com o default. Com a pegada declarada a precondicao dele esta satisfeita (sem
+# poligono publicado ele derruba o container com SIGSEGV). Este arquivo agora e
+# apenas um alias historico e deve permanecer semanticamente igual ao default.
 #
 # O collision_monitor le `/local_costmap/published_footprint`, que passa a
 # publicar o retangulo em vez do circulo. Validar a pegada publicada e o
@@ -572,27 +572,11 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        # MUST stay false while the costmaps use robot_radius.
-        #
-        # consider_footprint: true makes the critic do polygon collision checks
-        # against the costmap's footprint. Both costmaps here declare
-        # robot_radius (a circle) and never publish a footprint polygon, so the
-        # critic dereferences an empty polygon and the whole nav2_container dies
-        # with SIGSEGV a few ms after "Created controller : MPPIController".
-        #
-        # Nav2 warns first — "Inconsistent configuration in collision checking.
-        # Please verify the robot's shape settings in both the costmap and the
-        # cost critic" — and then crashes. That warning is the only hint, and it
-        # does not name this parameter.
-        #
-        # With false, the critic samples costmap cell cost at the trajectory
-        # points instead. For a round 0.38 m robot whose inflation_radius (0.55)
-        # already exceeds the footprint that is the correct model anyway; the
-        # inflation gradient does the standoff work.
-        #
-        # To turn this on, first replace robot_radius with an explicit footprint
-        # polygon in BOTH costmaps.
-        consider_footprint: false
+        # Promovido junto com nav2_params_go2.yaml em 30/08/2026. Os dois
+        # costmaps abaixo ja publicam a mesma poligonal explicita; manter este
+        # alias historico igual ao default evita reativar a checagem por ponto
+        # central ao executar um comando antigo com NAV2_PARAMS.
+        consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 1.0
 

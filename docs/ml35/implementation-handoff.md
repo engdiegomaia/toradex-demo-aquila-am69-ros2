@@ -4,7 +4,7 @@ This is the authoritative execution handoff for the next session. Read
 `estado-fases.md` for history and the round reports under `docs/results/` for evidence.
 Do not restart the investigation from older F5 guides.
 
-## Current delivery envelope (30/08/2026, R16 close-out) — read this first
+## Current delivery envelope (30/08/2026, R17 reviewed close-out) — read this first
 
 **This branch delivers a stable, supervised navigation-and-exploration demo driven
 from the Docker/web cockpit. It does NOT deliver a complete autonomous maze-escape
@@ -27,6 +27,24 @@ watch `/demo/exploration/status` and cancel immediately if `state` reaches
 `homing_exit` — do not let the run cross into homing unattended, let alone attempt an
 autonomous exit crossing.**
 
+R17 adds forward/reverse directional selection and finite breadcrumb
+backtracking. The close-out review fixed one functional detail before release:
+breadcrumbs now store the departure of a completed segment, so the first return
+actually retreats instead of dispatching a redundant goal to the robot's current
+pose. It also synchronized `consider_footprint: true` into both historical Nav2
+parameter aliases; the root contract suite had caught those aliases silently
+reactivating point-only collision checking. Full review and validation record:
+`docs/results/ml35-f5-r17-demo-closeout.md`.
+
+This R17 tree is a **reviewed supervised-demo release**, not a new HIL acceptance
+result. The navigation image built successfully on the host and the official
+quadruped scenario resolved to `quadruped_maze11.sdf`. A live trajectory was not
+started during close-out: the Aquila still held state from an earlier simulator
+clock, and synchronizing the reviewed tree would invoke remote `rsync --delete`.
+That deployment requires explicit operator authorization. Before presentation,
+run `scripts/module.sh sync`, `build`, `up`, and `verify` in that order, with the
+robot at spawn, then perform the odometry/TF preflight in the close-out report.
+
 R15a is **frozen**: an independent code review found four issues (movement watchdog
 blind to legitimate rotation and armed too early, an overstated "confirms" claim in two
 docs, a map fingerprint blind to geometry-only changes, an inverted "above/below"
@@ -37,18 +55,20 @@ defect in R15a worth another code change — see `docs/results/ml35-f5-explorati
 session should treat R15a as the baseline to build on, not re-litigate it, unless new HIL
 evidence contradicts R16's finding.
 
-**Identifiers for this delivery:**
+**Identifiers for the two delivery points:**
 
 | what | commit / tag |
 | --- | --- |
 | code actually running on the bench (R15a) | `26aba8f` |
 | current consolidated evidence (R16 report + status log) | `bcb07fc` |
-| delivered version (this documentation close-out, tagged) | `ml35-f5-r16-demo-stable` |
+| last HIL-validated delivery | `ml35-f5-r16-demo-stable` |
+| reviewed R17 supervised-demo release | `ml35-f5-r17-supervised-demo` |
 
-Bench state at handoff: R15a code, robot at spawn, exploration `idle`, `nav`/
-`perception` freshly recreated and `module.sh verify` 4/4 passing. Do not start another
-HIL round against this tag without a reason — see the open items above for what such a
-round should target.
+Bench state at R17 handoff: host simulator at the maze spawn; the reviewed Nav2
+image exists on the host. The Aquila was deliberately not overwritten or recreated
+after remote synchronization was denied, so its earlier deployment is **not** the R17
+release and is not presentation-ready. The R16 tag remains the last HIL-validated
+fallback.
 
 ## 0. Session closed 30/08/2026 (R9–R12) — superseded by R13–R16 above, kept for history
 

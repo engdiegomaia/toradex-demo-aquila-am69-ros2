@@ -7,6 +7,7 @@ used as operational instructions without checking the current status.
 ## Start here
 
 - [`guia-completo.md`](guia-completo.md): installation, operation, and cockpit.
+- [`run-guide.md`](run-guide.md): concise checklist for running the demo.
 - [`guia-hil-go2-labirinto.md`](guia-hil-go2-labirinto.md): running the Go2 in
   the maze under HIL.
 - [`ml35/estado-fases.md`](ml35/estado-fases.md): current ML3.5 status,

@@ -1,148 +1,166 @@
+# Guia rápido de execução da demo
+
+Este checklist cobre a demo HIL: Gazebo, cockpit e HMI no host x86; Nav2 e
+percepção na Aquila AM69. Para instalação e diagnóstico detalhados, consulte o
+[`guia-completo.md`](guia-completo.md).
+
 ## 1. Entrar no repositório
 
-  cd /home/diego-maia/toradex/demo/aquila-am69-ros2
+```bash
+cd <caminho-do-repositorio>/aquila-am69-ros2
+```
 
-  ## 2. Preparação inicial
+## 2. Preparação inicial
 
-  Necessário na primeira execução ou após mudanças relevantes em ros2_ws/src:
+Na primeira execução, copie e preencha a configuração local. Endereços de
+rede e dados da bancada devem permanecer apenas nesse arquivo ignorado pelo
+Git.
 
-  scripts/module.sh sync
-  scripts/module.sh build
+```bash
+cp docker/.env.example docker/.env
+${EDITOR:-vi} docker/.env
+```
 
-  Construa as imagens do host separadamente:
+Sincronize e construa o software do módulo após mudanças em `ros2_ws/src`:
 
-  BUILDX_BUILDER=default docker compose \
-    -f docker/compose.host.yml build base
+```bash
+scripts/module.sh sync
+scripts/module.sh build
+```
 
-  BUILDX_BUILDER=default docker compose \
-    -f docker/compose.host.yml build sim cockpit hmi
+Construa as imagens do host separadamente:
 
-  Autorize o Gazebo a usar o X11:
+```bash
+BUILDX_BUILDER=default docker compose \
+  -f docker/compose.host.yml build base
 
-  xhost +local:docker
+BUILDX_BUILDER=default docker compose \
+  -f docker/compose.host.yml build sim cockpit hmi
+```
 
-  Esses builds não precisam ser repetidos em toda execução.
+Se a interface gráfica do Gazebo for usada, autorize o X11:
 
-  ## 3. Verificar stacks antigas
+```bash
+xhost +local:docker
+```
 
-  docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -v '^docker-'
+Esses builds não precisam ser repetidos em toda execução.
 
-  Se houver outro projeto Compose executando sim, cockpit ou hmi, encerre-o pelo nome correto antes de prosseguir:
+## 3. Verificar stacks antigas
 
-  docker compose -p NOME_DO_PROJETO \
-    -f docker/compose.host.yml down
+```bash
+docker ps -a --format '{{.Names}}\t{{.Status}}' | grep -v '^docker-'
+```
 
-  ## 4. Subir o host
+Se houver outro projeto Compose executando `sim`, `cockpit` ou `hmi`, encerre-o
+pelo nome correto antes de prosseguir:
 
-  Para uma partida limpa, suba primeiro Gazebo, cockpit e HMI. Assim o simulador nasce com o robô no spawn antes de o SLAM receber sua primeira varredura:
+```bash
+docker compose -p NOME_DO_PROJETO \
+  -f docker/compose.host.yml down
+```
 
-  docker compose -f docker/compose.host.yml \
-    up -d sim cockpit hmi
+## 4. Subir o host
 
-  O mundo padrão já é quadruped_maze11.sdf; não é necessário definir SIM_ARGS.
+Para uma partida limpa, suba primeiro Gazebo, cockpit e HMI. Assim o simulador
+nasce com o robô no spawn antes de o SLAM receber sua primeira varredura.
 
-  Confira:
+```bash
+docker compose -f docker/compose.host.yml up -d sim cockpit hmi
+docker compose -f docker/compose.host.yml ps
+```
 
-  docker compose -f docker/compose.host.yml ps
+O mundo padrão já é `quadruped_maze11.sdf`; não é necessário definir
+`SIM_ARGS`. Para acompanhar a inicialização:
 
-  Acompanhe a inicialização do simulador, se necessário:
+```bash
+docker compose -f docker/compose.host.yml logs --tail=100 sim
+```
 
-  docker compose -f docker/compose.host.yml \
-    logs --tail=100 sim
+## 5. Subir Nav2 e percepção na Aquila
 
-  ## 5. Subir Nav2 e percepção na Aquila
+```bash
+scripts/module.sh up
+scripts/module.sh verify
+```
 
-  scripts/module.sh up
-  scripts/module.sh verify
+O `verify` deve confirmar a comunicação DDS e o Nav2 ativo. Se o robô estiver
+longe do spawn, `module.sh up` recusará corretamente a operação.
 
-  O verify deve confirmar comunicação DDS e Nav2 ativo. Se o robô estiver longe do spawn, module.sh up recusará corretamente a operação.
+## 6. Abrir o cockpit web
 
-  ## 6. Abrir o cockpit web
+No navegador do host, abra:
 
-  No navegador do host:
+```text
+http://localhost:8081
+```
 
-  http://localhost:8081
+De outra máquina na mesma rede, use o endereço do host definido localmente:
 
-  De outra máquina na mesma rede:
+```text
+http://<HOST_IP>:8081
+```
 
-  http://192.0.2.6:8081
+O navegador usa HMI/nginx na porta 8081, `web_video_server` na 8080 e o
+WebSocket do rosbridge na 9090.
 
-  O navegador conversa com:
+## 7. Verificação rápida
 
-  - HMI/nginx na porta 8081;
-  - web_video_server na porta 8080;
-  - rosbridge WebSocket na porta 9090.
+```bash
+source scripts/env.sh
+ros2 topic list
+ros2 topic hz /demo/odom
+scripts/module.sh status
+```
 
-  ## 7. Verificação rápida
+No cockpit, aguarde vídeo disponível, robô em pé, mapa aparecendo, Nav2 ativo
+e explorador em `idle`.
 
-  source scripts/env.sh
-  ros2 topic list
-  ros2 topic hz /demo/odom
+## 8. Iniciar a exploração
 
-  Confira também:
+Use o botão de início da exploração no cockpit. Como alternativa:
 
-  scripts/module.sh status
+```bash
+source scripts/env.sh
+ros2 service call /demo/exploration/start std_srvs/srv/Trigger '{}'
+```
 
-  No cockpit, aguarde:
+Durante a rodada, inicie somente uma vez, não envie metas manuais nem use
+teleop. Esta entrega é uma demo supervisionada: interrompa imediatamente se
+houver risco de queda ou se o estado entrar em `homing_exit`.
 
-  - vídeo disponível;
-  - robô em pé;
-  - mapa aparecendo;
-  - Nav2 ativo;
-  - explorer em idle.
+```bash
+ros2 service call /demo/exploration/cancel std_srvs/srv/Trigger '{}'
+```
 
-  ## 8. Iniciar a exploração
+## 9. Reiniciar uma rodada sem derrubar tudo
 
-  Use o botão de início da exploração no cockpit web.
+Primeiro reposicione o robô:
 
-  Alternativamente:
+```bash
+source scripts/env.sh
+ros2 service call /demo/sim/reset std_srvs/srv/Trigger '{}'
+ros2 topic echo /demo/odom --once
+```
 
-  source scripts/env.sh
-  ros2 service call /demo/exploration/start \
-    std_srvs/srv/Trigger '{}'
+Confirme a odometria próxima de `(0, 0)` e somente depois recrie Nav2 e
+percepção:
 
-  Durante a rodada:
+```bash
+scripts/module.sh up
+scripts/module.sh verify
+```
 
-  - inicie somente uma vez;
-  - não envie metas manuais;
-  - não use teleop;
-  - interrompa se houver risco de queda.
+Nunca execute `module.sh up` com o robô longe do spawn para depois chamar
+`reset`; isso corrompe a âncora inicial do mapa.
 
-  Para cancelar:
+## 10. Encerrar
 
-  ros2 service call /demo/exploration/cancel \
-    std_srvs/srv/Trigger '{}'
+```bash
+scripts/module.sh down
+docker compose -f docker/compose.host.yml down
+```
 
-  ## 9. Reiniciar uma rodada sem derrubar tudo
-
-  Primeiro reposicione o robô:
-
-  source scripts/env.sh
-  ros2 service call /demo/sim/reset \
-    std_srvs/srv/Trigger '{}'
-
-  Confirme odometria próxima de (0,0):
-
-  ros2 topic echo /demo/odom --once
-
-  Somente depois recrie Nav2 e percepção:
-
-  scripts/module.sh up
-  scripts/module.sh verify
-
-  Nunca execute module.sh up com o robô longe do spawn para depois chamar reset; isso corrompe a âncora inicial do mapa.
-
-  ## 10. Encerrar
-
-  docker compose -f docker/compose.host.yml down
-  scripts/module.sh down
-
-  O fluxo correto, resumido, é:
-
-  host: sim + cockpit + hmi
-            ↓
-  Aquila: nav + perception
-            ↓
-  browser: http://localhost:8081
-            ↓
-  iniciar exploração pelo cockpit web
+Fluxo resumido: host (`sim` + `cockpit` + `hmi`) → Aquila (`nav` +
+`perception`) → navegador (`http://localhost:8081`) → iniciar exploração pelo
+cockpit.

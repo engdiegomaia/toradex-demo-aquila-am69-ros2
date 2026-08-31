@@ -417,7 +417,10 @@ class MazeExplorer(Node):
         # diz onde parou, nao de onde veio.
         self._nav_departure_pose: tuple[float, float] | None = None
         # Pilha de poses seguras, uma por meta de exploracao concluida
-        # (nao por retorno), espacadas por `breadcrumb_min_spacing_m`.
+        # (nao por retorno), espacadas por `breadcrumb_min_spacing_m`. Cada
+        # entrada e a pose de PARTIDA da meta concluida: ao chegar a um beco,
+        # o topo aponta para onde o robo estava antes de entrar nele, nunca
+        # para a propria pose atual.
         # Consumida (removida) no momento em que um retorno comeca -- nunca
         # reutilizada, o que impede um ciclo entre dois pontos.
         self._breadcrumbs: list[tuple[float, float]] = []
@@ -1219,7 +1222,10 @@ class MazeExplorer(Node):
         if math.hypot(dx, dy) >= 0.05:
             self._current_heading = math.atan2(dy, dx)
         if push_breadcrumb:
-            self._push_breadcrumb((robot[0], robot[1]))
+            # Guarde o inicio do segmento percorrido. Usar a pose de chegada
+            # criaria um primeiro "retorno" para a posicao em que o robo ja
+            # esta, consumindo tempo antes de recuar de fato.
+            self._push_breadcrumb(self._nav_departure_pose)
 
     def _push_breadcrumb(self, pose: tuple[float, float]) -> None:
         spacing = float(self.get_parameter('breadcrumb_min_spacing_m').value)

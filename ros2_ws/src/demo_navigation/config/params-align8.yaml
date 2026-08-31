@@ -514,9 +514,9 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        # STAYS false. See the note in nav2_params_go2.yaml -- enabling it is a
-        # second, unmeasured variable, separate from the footprint promotion.
-        consider_footprint: false
+        # Promovido junto com o default em 30/08/2026. Este perfil deve diferir
+        # dele somente em PathAlignCritic.cost_weight.
+        consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 1.0
 
