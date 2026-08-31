@@ -116,7 +116,9 @@ def test_explicit_argument_beats_the_table(scene_cameras):
 
 def test_warehouse_keeps_its_measured_framing(scene_cameras):
     """
-    6 m e nao 12: a 12 m a camera fica acima das vigas do telhado do armazem e a
+    Use 6 m, não 12 m.
+
+    A 12 m a camera fica acima das vigas do telhado do armazem e a
     imagem inteira vira uma viga, com o robo escondido atras dela.
     """
     params = _params(scene_cameras, 'warehouse.sdf')

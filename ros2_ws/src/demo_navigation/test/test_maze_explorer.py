@@ -1934,6 +1934,21 @@ def test_reaching_the_breadcrumb_runs_selection_again(node) -> None:
         'retorno concluido nao empilha um breadcrumb sobre si mesmo')
 
 
+def test_a_completed_frontier_saves_its_departure_as_the_breadcrumb(
+        node) -> None:
+    """O primeiro retorno deve recuar, nao mirar a pose atual outra vez."""
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._robot_pose = lambda: (2.0, 0.0, 0.0)
+    node._current = Frontier(x=2.0, y=0.0, cells=10, information_gain_m=0.5)
+    node._nav_departure_pose = (0.5, 0.0)
+
+    node._on_nav_result(_Future(SimpleNamespace(
+        status=GoalStatus.STATUS_SUCCEEDED)), node._epoch, True)
+
+    assert node._breadcrumbs == [(0.5, 0.0)]
+
+
 def test_a_consumed_breadcrumb_cannot_cause_a_loop(node) -> None:
     """
     Teste minimo 5: a pilha so encolhe -- nunca reoferece o mesmo ponto.

@@ -120,7 +120,8 @@ def generate_launch_description() -> LaunchDescription:
     #
     # Os mundos pequenos continuam a um argumento de distancia:
     #   ros2 launch demo_simulation quadruped.launch.py \
-    #     world:=$(ros2 pkg prefix demo_simulation)/share/demo_simulation/worlds/quadruped_empty.sdf
+    #     world:=$(ros2 pkg prefix demo_simulation)/share/demo_simulation/\
+    #       worlds/quadruped_empty.sdf
     #
     # A pose de nascimento e o enquadramento das cameras acompanham o mundo por
     # `scenarios.py`; nao ha como trocar de mundo e esquecer os outros nove

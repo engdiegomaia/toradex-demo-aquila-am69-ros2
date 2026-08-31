@@ -8,6 +8,7 @@ uses a Go2 quadruped to map a maze and autonomously search for its exit.
 
 - [Documentation index](docs/README.md)
 - [Complete operations guide](docs/guia-completo.md)
+- [Quick demo run guide](docs/run-guide.md)
 - [Go2 maze HIL guide](docs/guia-hil-go2-labirinto.md)
 - [Current ML3.5 status](docs/ml35/estado-fases.md)
 - [Autonomous demo completion](docs/ml35/guia-implementacao-fechamento-f5.md)

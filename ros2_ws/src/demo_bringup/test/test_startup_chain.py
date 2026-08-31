@@ -1,4 +1,5 @@
-"""A cadeia de subida do Nav2 quadrupede: ordem, nao tempo decorrido.
+"""
+A cadeia de subida do Nav2 quadrupede: ordem, nao tempo decorrido.
 
 Estruturais: leem launch e YAML com `ast`/`yaml`, nao sobem ROS.
 
@@ -100,7 +101,8 @@ def test_nav2_is_gated_on_the_tf_gate_finishing() -> None:
 
 
 def test_the_gate_watches_the_frames_the_costmap_demands() -> None:
-    """O portao tem de esperar a MESMA aresta que faz o costmap ativar.
+    """
+    O portao tem de esperar a MESMA aresta que faz o costmap ativar.
 
     Se alguem trocar `robot_base_frame` no YAML e nao aqui, o portao libera com
     a aresta errada disponivel e o defeito volta inteiro, agora com um teste
@@ -135,7 +137,8 @@ def test_tf_listener_and_polling_share_one_executor() -> None:
 
 
 def test_the_gate_fails_loud_instead_of_starting_nav2_anyway() -> None:
-    """`OnProcessExit` dispara em QUALQUER saida, inclusive erro.
+    """
+    `OnProcessExit` dispara em QUALQUER saida, inclusive erro.
 
     Pelo AST, e nao por `'returncode' in source`: a primeira versao deste teste
     fazia isso e SOBREVIVEU a mutacao que trocava o `if` por `if True`, porque a

@@ -31,6 +31,19 @@ uncertain result. The discarded alternatives are in "Decisions" below.
 | **F5** | Nav2 on legs + HIL mode | 🟡 **in progress** 30/08/2026 | **PASSED:** TF (99.94%), global costmap window, map update, gait, **short stability gate**, the **perception gate on the Aquila** (60/60 detections, pose and timestamped TF), autonomous exploration reaching the exit's own corridor (`R12`: `(-5.077, 1.469)`, west of the exit's `x=-4.90`), and a **positioned (non-acceptance) validation of the AprilTag fiducial pipeline** — render, detection, TF, fail-closed framing, and target latch all confirmed with real HIL evidence. **FIXED THIS SESSION:** the R9/R11 northward scoring bias, the R11 goal-tolerance false-arrival stall, and a `nav`-container-restart-before-`sim-reset` map-anchor corruption bug (R10/R12) — the last now has an automatic `scripts/module.sh up` refusal, not just a documented sequence. **FAILED:** `escaped` is still false in every round; the positioned AprilTag test additionally surfaced an unexplained quadruped fall during blind homing near the opening. **NOT REACHED:** crossing performance gate, three cold starts, and determining why exploration does not continue south of `(-5.08, 1.47)` (coverage vs. clearance vs. selection vs. execution — undiagnosed). See `docs/ml35/implementation-handoff.md` §0 for the full session-close handoff, `docs/results/ml35-f5-exploration-r{9,10,11,12}.md` and `ml35-f5-apriltag-positioned.md`. **UPDATE 30/08/2026 (R13–R16, R15a frozen):** see "Current delivery envelope" at the top of `implementation-handoff.md` for the current authoritative state — R15a (`26aba8f`) closes the MPPI-critic-weight branch and fixes a post-R14c code review's four findings, R16 (`bcb07fc`) validates it integrated with no regression found; `escaped` still never reached `true`, blind homing still unmitigated, sweep-recovery still unexercised in HIL. This delivery is a supervised demo, not an autonomous-escape demonstration. |
 | **F6** | Selectable Fallback and Tests | **Completed** 24/08/2026 | cold start + goal `SUCCEEDED` on both robots |
 
+**Update 30/08/2026 — R17 reviewed demo close-out:** directional exploration
+and finite breadcrumb backtracking are closed in code and tagged as
+`ml35-f5-r17-supervised-demo`. Review corrected the breadcrumb origin, synchronized
+the two historical Nav2 parameter aliases with polygon collision checking, repaired
+the quick-run guide, and cleared minor lint defects in owned packages. Validation:
+292 root tests, 316 ROS package tests, 12 HMI tests, both Compose configurations,
+Python compilation, whitespace checks, and a successful host Nav2 image build. The
+official quadruped launch resolves to `quadruped_maze11.sdf`; the warehouse remains
+only the diff-drive fallback. This does **not** close F5 or supersede R16's HIL
+evidence: no R17 trajectory was run on the Aquila, remote deployment was not
+authorized, and autonomous escape remains unproven. See
+`docs/results/ml35-f5-r17-demo-closeout.md`.
+
 ### 29/08 (R9) — recorder data-loss fixed, full 660 s run captured, wall-clearance suspect diagnosed
 
 R9 was run twice. The first attempt lost all time-series data to a `tools` container
