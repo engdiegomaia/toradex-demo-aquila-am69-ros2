@@ -4,11 +4,58 @@ This is the authoritative execution handoff for the next session. Read
 `estado-fases.md` for history and the round reports under `docs/results/` for evidence.
 Do not restart the investigation from older F5 guides.
 
-## 0. Session closed 30/08/2026 — read this before anything below
+## Current delivery envelope (30/08/2026, R16 close-out) — read this first
+
+**This branch delivers a stable, supervised navigation-and-exploration demo driven
+from the Docker/web cockpit. It does NOT deliver a complete autonomous maze-escape
+demonstration.** `/demo/maze/escaped` has never become `true` in any round. Present it
+as the first sentence, not the second:
+
+> Demo estável e supervisionada de navegação e exploração pelo cockpit Docker/web.
+
+Do **not** present it as:
+
+> Demonstração autônoma completa de fuga do labirinto.
+
+F5 remains formally **in progress** in `estado-fases.md` because: `escaped` never
+reached `true`; blind homing carries a documented, unmitigated fall risk
+([[homing-cego-derruba-quadrupede]], `docs/results/ml35-f5-homing-fall-analise.md`);
+sweep-recovery (the zero-raw-frontier-cluster path) has never been exercised in HIL;
+no three-cold-starts acceptance run has been attempted; and the southwest region
+toward the exit was not reached in R16. **In any live demonstration, an operator must
+watch `/demo/exploration/status` and cancel immediately if `state` reaches
+`homing_exit` — do not let the run cross into homing unattended, let alone attempt an
+autonomous exit crossing.**
+
+R15a is **frozen**: an independent code review found four issues (movement watchdog
+blind to legitimate rotation and armed too early, an overstated "confirms" claim in two
+docs, a map fingerprint blind to geometry-only changes, an inverted "above/below"
+threshold comment), all fixed in commit `26aba8f`, all re-verified by a full integrated
+HIL round (R16, commit `bcb07fc`) run through the official cockpit path. R16 found no
+defect in R15a worth another code change — see `docs/results/ml35-f5-exploration-r16.md`.
+**No further Python/YAML/Nav2-parameter change is planned for this delivery.** The next
+session should treat R15a as the baseline to build on, not re-litigate it, unless new HIL
+evidence contradicts R16's finding.
+
+**Identifiers for this delivery:**
+
+| what | commit / tag |
+| --- | --- |
+| code actually running on the bench (R15a) | `26aba8f` |
+| current consolidated evidence (R16 report + status log) | `bcb07fc` |
+| delivered version (this documentation close-out, tagged) | `ml35-f5-r16-demo-stable` |
+
+Bench state at handoff: R15a code, robot at spawn, exploration `idle`, `nav`/
+`perception` freshly recreated and `module.sh verify` 4/4 passing. Do not start another
+HIL round against this tag without a reason — see the open items above for what such a
+round should target.
+
+## 0. Session closed 30/08/2026 (R9–R12) — superseded by R13–R16 above, kept for history
 
 Everything through R12, the `module.sh` spawn guard and its independent-review fixes,
-and the positioned AprilTag validation is **committed** (tree clean, nothing uncommitted,
-nothing pushed — 25 commits ahead of `origin/feat/f5-percepcao-e-partidas-frias`).
+and the positioned AprilTag validation is **committed** (tree clean, nothing uncommitted;
+the branch is now pushed as part of the R16 close-out above — see that section for the
+current ahead/behind state, not the number below).
 Sections 1–9 below predate this work and are kept for the older blocker narrative
 (footprint polygon, magenta range bias) — read `estado-fases.md`'s dated entries from
 29–30/08 for what actually happened this session; do not treat §2's "Repository

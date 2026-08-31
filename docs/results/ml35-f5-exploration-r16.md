@@ -73,13 +73,28 @@ verificar o comando de velocidade (achado 1 da revisao): um comando
 comando) classificou os dois corretamente como parado. As duas metas
 cortaram aos ~15 s, bem antes do teto de 45 s.
 
-**A cobertura de 2-de-5 (agora 2-de-3) prevista no comentario corrigido
-se confirma:** das 3 janelas que o diagnostico offline (`min_stall_s=10.0`)
-encontrou nesta rodada (14,6 / 12,1 / 14,5 s), so as duas acima do limiar
-`stall_window_s=15.0` (14,6 e 14,5 s, ambas por uma margem de decimos de
-segundo) dispararam o vigia ao vivo; a terceira (12,1 s, durante a meta 12)
-ficou abaixo do limiar e essa meta expirou pelos 45 s normais em vez de
-ser cortada cedo -- e o comportamento documentado, nao uma falha.
+**A cobertura parcial prevista no comentario corrigido de
+`nav2_params_go2.yaml` se confirma, com uma ressalva de metodologia.**
+CORRECAO (revisao pos-R16): a versao original deste paragrafo dizia que as
+janelas offline de 14,6 e 14,5 s ficavam "acima" do limiar `stall_window_s
+= 15,0` -- errado, 14,6 e 14,5 sao MENORES que 15,0. O vigia disparou
+mesmo assim porque as duas medidas nao sao a mesma grandeza: a janela
+offline (`find_stalled_navigating_windows`, amostras a ~0,4-0,5 s de
+espacamento) mede a distancia entre a PRIMEIRA e a ULTIMA amostra que o
+proprio criterio do script classifica como parada, enquanto o relogio do
+vigia ao vivo conta tempo continuo (`_now_s()`) desde a ultima pose com
+progresso real, checado a cada tick -- pontos de partida e granularidade
+diferentes. Uma defasagem da ordem de meio segundo entre as duas contagens
+(o proprio espacamento entre amostras do script) basta para explicar por
+que o vigia disparou (>= 15,0 s no seu relogio) enquanto o script mede uma
+janela um pouco mais curta -- o disparo real provavelmente caiu ENTRE duas
+amostras do script, nao dentro de uma janela que ele delimitou com
+precisao de decimo de segundo. Isto e uma hipotese plausivel pela ordem de
+grandeza, nao uma causa verificada amostra a amostra.
+A terceira janela offline (12,1 s, durante a meta 12) fica abaixo do
+limiar por uma margem bem maior que meio segundo, e essa meta de fato NAO
+foi cortada pelo vigia -- expirou pelos 45 s normais, o comportamento
+esperado.
 
 **Recuperacao por Spin:** nao exercitada nesta rodada
 (`provisional_recoveries_final=0`) -- os 10 ciclos esteris vieram todos
@@ -158,8 +173,15 @@ comentario corrigido em `nav2_params_go2.yaml` descreve.
 ## Recomendacao
 
 Nao ha motivo para reverter nada de R15a -- o codigo fez o que foi
-desenhado para fazer, com evidencia real, e nenhuma metrica de suavidade
-piorou. A questao em aberto e a mesma de R14b/R14c: se vale investir mais
+desenhado para fazer, com evidencia real. CORRECAO (revisao pos-R16): a
+versao original desta frase dizia "nenhuma metrica de suavidade piorou",
+o que contradiz a propria secao "Leitura" acima -- `plan_straightness` e a
+assimetria de parede pioraram nesta rodada. O que de fato nao piorou (na
+verdade, foi o melhor das cinco rodadas medidas) e `cmd_wz` e a amplitude
+de guinada; isso nao cobre plan_straightness nem a assimetria, que sao
+metricas separadas e pioraram. Nenhuma delas, porem, e evidencia de um
+DEFEITO introduzido por R15a -- ver a ressalva de n=1/geometria variavel
+logo abaixo. A questao em aberto e a mesma de R14b/R14c: se vale investir mais
 tempo real de bancada em n>1 por configuracao antes de tirar qualquer
 conclusao sobre o efeito do software de R15/R15a na taxa de conclusao de
 metas, ou se e hora de aceitar a variancia entre rodadas como o limite
