@@ -26,21 +26,21 @@ def test_parse_reads_triples_in_order():
 
 
 def test_parse_rejects_length_that_is_not_a_multiple_of_three():
-    # Um comprimento errado desloca todas as metas seguintes em silencio, que e
-    # exatamente o que este erro impede.
-    with pytest.raises(ValueError, match='multiplo de 3'):
+    # A wrong length silently shifts every following goal, which is exactly
+    # what this error prevents.
+    with pytest.raises(ValueError, match='not a multiple of 3'):
         parse_waypoints([1.0, 2.0, 0.5, -1.0])
 
 
 def test_parse_rejects_empty_waypoints():
-    with pytest.raises(ValueError, match='vazio'):
+    with pytest.raises(ValueError, match='is empty'):
         parse_waypoints([])
 
 
 def test_parse_rejects_goal_outside_the_rolling_window():
-    # O Nav2 ACEITARIA esta meta e falharia perto da borda da janela rolante.
+    # Nav2 WOULD ACCEPT this goal and fail near the edge of the rolling window.
     beyond = MAX_GOAL_RADIUS_M + 1.0
-    with pytest.raises(ValueError, match='acima do limite'):
+    with pytest.raises(ValueError, match='above the limit'):
         parse_waypoints([beyond, 0.0, 0.0])
 
 
@@ -59,23 +59,25 @@ def test_default_waypoints_are_inside_the_rolling_window():
 
 
 def test_every_default_yaw_is_the_bearing_it_arrives_on():
-    # Rumo de CHEGADA, nao de saida. Com o de saida, medido em 20/08/2026, cada
-    # meta exigia 110-139 graus de giro parado (16-20 s a 0,12 rad/s) e o robo
-    # derivava 0,78 m em y durante o giro, saindo da tolerancia de posicao: ele
-    # chegou a 3,8 cm da meta e ela reprovou por prazo.
+    # ARRIVAL bearing, not departure. With the departure bearing, measured on
+    # 20/08/2026, every goal required a 110-139 degree stationary turn (16-20 s
+    # at 0.12 rad/s) and the robot drifted 0.78 m in y during the turn, exiting
+    # the position tolerance: it got to within 3.8 cm of the goal and it
+    # failed on the deadline.
     count = len(DEFAULT_WAYPOINTS)
     for index in range(count):
         goal = DEFAULT_WAYPOINTS[index]
         prev = DEFAULT_WAYPOINTS[index - 1]
         bearing = math.atan2(goal.y - prev.y, goal.x - prev.x)
         assert math.isclose(math.cos(goal.yaw - bearing), 1.0, abs_tol=1e-9), (
-            'meta %d pede %.1f deg, mas chega vindo de %.1f deg'
+            'goal %d requests %.1f deg, but arrives coming from %.1f deg'
             % (index, math.degrees(goal.yaw), math.degrees(bearing)))
 
 
 def test_default_waypoints_close_the_cycle():
-    # O ciclo repete indefinidamente; se a ultima meta nao voltar ao inicio, cada
-    # volta desloca o percurso e o robo sai da area de exposicao.
+    # The cycle repeats indefinitely; if the last goal does not return to the
+    # start, every loop shifts the route and the robot walks out of the
+    # display area.
     assert (DEFAULT_WAYPOINTS[-1].x, DEFAULT_WAYPOINTS[-1].y) == (0.0, 0.0)
 
 
@@ -92,7 +94,7 @@ def test_pose_quaternion_is_a_pure_yaw_rotation():
         q = pose.pose.orientation
         assert q.x == 0.0 and q.y == 0.0
         assert math.hypot(q.z, q.w) == pytest.approx(1.0)
-        # Recupera o yaw do quaternion e compara pelo cosseno da diferenca, para
-        # que pi e -pi contem como iguais.
+        # Recover the yaw from the quaternion and compare via the cosine of
+        # the difference, so pi and -pi count as equal.
         recovered = 2.0 * math.atan2(q.z, q.w)
         assert math.cos(recovered - yaw) == pytest.approx(1.0, abs=1e-9)

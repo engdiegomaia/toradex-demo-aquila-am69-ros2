@@ -188,7 +188,7 @@ def test_cockpit_owns_start_cancel_and_ground_truth_display():
     # janela aberta para uma meta manual por cima da busca.
     assert panel.count('if (explorationBusy()) return') == 3
     assert '/demo/maze/escaped' in config
-    assert 'SAÍDA CONFIRMADA' in store
+    assert 'EXIT CONFIRMED' in store
     # O rotulo de sucesso so pode sair do ground truth, nunca do estado do
     # explorador: 'completed' diz que ele chegou perto do marcador, nao que o
     # robo atravessou a abertura.

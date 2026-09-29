@@ -109,14 +109,14 @@ describe('explorationHudParts', () => {
     const parsed = parseExplorationStatus(
       status({ elapsed_s: 41.6, frontier_count: 2, message: 'navegando' }));
     assert.deepEqual(explorationHudParts(parsed, false),
-      ['42 s', '2 fronteira(s)', 'navegando']);
+      ['42 s', '2 frontier(s)', 'navegando']);
   });
 
   it('anuncia o marcador só quando a percepção o vê', () => {
     const seen = parseExplorationStatus(status({ marker_visible: true }));
-    assert.ok(explorationHudParts(seen, false).includes('saída detectada'));
+    assert.ok(explorationHudParts(seen, false).includes('exit detected'));
     const unseen = parseExplorationStatus(status({ marker_visible: false }));
-    assert.ok(!explorationHudParts(unseen, false).includes('saída detectada'));
+    assert.ok(!explorationHudParts(unseen, false).includes('exit detected'));
   });
 
   it('`completed` NÃO é saída confirmada', () => {
@@ -124,12 +124,12 @@ describe('explorationHudParts', () => {
     // confirma o cruzamento da abertura é /demo/maze/escaped, do validador de
     // ground truth, e ele é o único que pode escrever esse rótulo.
     const parsed = parseExplorationStatus(status({ state: 'completed' }));
-    assert.ok(!explorationHudParts(parsed, false).includes('SAÍDA CONFIRMADA'));
-    assert.ok(explorationHudParts(parsed, true).includes('SAÍDA CONFIRMADA'));
+    assert.ok(!explorationHudParts(parsed, false).includes('EXIT CONFIRMED'));
+    assert.ok(explorationHudParts(parsed, true).includes('EXIT CONFIRMED'));
   });
 
   it('a saída confirmada sobrevive sem status de busca', () => {
-    assert.deepEqual(explorationHudParts(null, true), ['SAÍDA CONFIRMADA']);
+    assert.deepEqual(explorationHudParts(null, true), ['EXIT CONFIRMED']);
   });
 
   it('campos ausentes não viram NaN na tela', () => {
@@ -150,7 +150,7 @@ describe('createExplorationStore', () => {
     const store = createExplorationStore();
     store.apply(status({ state: 'navigating' }));
     assert.equal(store.ownsHud(), true);
-    assert.equal(store.label(), 'busca: navigating');
+    assert.equal(store.label(), 'search: navigating');
     store.apply(status({ state: 'failed', message: 'prazo total excedido' }));
     assert.equal(store.isActive(), false);
     assert.equal(store.ownsHud(), true);
@@ -214,7 +214,7 @@ describe('fail-safe entre o clique e o primeiro status', () => {
 
     assert.equal(store.isBusy(), true);
     assert.equal(store.snapshot().state, 'starting');
-    assert.ok(store.hudParts().includes('iniciando busca'));
+    assert.ok(store.hudParts().includes('starting search'));
   });
 
   it('`starting` esconde o início e mostra o cancelamento', () => {
@@ -300,8 +300,8 @@ describe('status ilegível não devolve o mapa ao operador', () => {
 
     const parts = store.hudParts();
     assert.ok(parts.includes('navegando para fronteira'));
-    assert.ok(parts.includes('estado de busca inválido'));
-    assert.equal(store.linkError(), 'estado de busca inválido');
+    assert.ok(parts.includes('search status invalid'));
+    assert.equal(store.linkError(), 'search status invalid');
   });
 
   it('um status válido depois limpa o erro de comunicação', () => {
@@ -312,7 +312,7 @@ describe('status ilegível não devolve o mapa ao operador', () => {
     store.apply(status({ state: 'selecting' }));
 
     assert.equal(store.linkError(), null);
-    assert.ok(!store.hudParts().includes('estado de busca inválido'));
+    assert.ok(!store.hudParts().includes('search status invalid'));
   });
 
   it('sem nenhum estado válido ainda, o erro é o que há para mostrar', () => {

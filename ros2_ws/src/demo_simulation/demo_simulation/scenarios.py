@@ -1,53 +1,55 @@
 """
-Cenarios do demo: mundo, pose de nascimento e enquadramento das cameras.
+Demo scenarios: world, spawn pose, and camera framing.
 
-POR QUE ESTA TABELA EXISTE
+WHY THIS TABLE EXISTS
 
-Antes dela os nove numeros que descrevem um cenario viviam em tres lugares: o
-`world` no launch, o `yaw` de nascimento em outro launch, e o enquadramento das
-duas cameras de cena num terceiro -- com uma QUARTA copia num comentario de
-`docker/compose.host.yml`, na forma de um SIM_ARGS de seis linhas que o operador
-tinha de colar a mao.
+Before it, the nine numbers that describe a scenario lived in three places:
+the `world` in the launch file, the spawn `yaw` in another launch file, and
+the framing of the two scene cameras in a third -- with a FOURTH copy in a
+comment in `docker/compose.host.yml`, in the form of a six-line SIM_ARGS the
+operator had to paste by hand.
 
-Isso produz uma falha silenciosa especifica, e ela ja aconteceu: trocar de mundo
-sem trocar o enquadramento. O labirinto tem area util centrada em (-4,855;
-4,855) e o armazem na origem, entao o mundo do labirinto com a camera do armazem
-mostra chao vazio ao lado do labirinto. Nada erra, nada loga: o painel azul do
-cockpit simplesmente aponta para o lugar errado, e quem olha conclui que o robo
-nao esta se movendo.
+That produces one specific silent failure, and it already happened: changing
+the world without changing the framing. The maze has its usable area centred
+on (-4.855, 4.855), and the warehouse is centred on the origin, so the maze
+world with the warehouse camera shows empty ground next to the maze. Nothing
+errors, nothing logs: the cockpit's blue panel simply points at the wrong
+place, and whoever is watching concludes the robot is not moving.
 
-A correcao e de estrutura, nao de disciplina: o enquadramento passa a ser
-DERIVADO do mundo. Nao ha mais como escolher um sem o outro, porque nao ha mais
-dois lugares para escolher.
+The fix is structural, not a matter of discipline: the framing is now
+DERIVED from the world. There is no longer a way to pick one without the
+other, because there are no longer two places to pick from.
 
-COMO SE SOBREPOE UM VALOR
+HOW A VALUE GETS OVERRIDDEN
 
-Todo argumento `scene_*` e `yaw` dos launches aceita vazio (o default), que
-significa "pergunte a esta tabela". Qualquer valor nao vazio vence. Entao
-sondar um canto do labirinto continua sendo `scene_top_z:=20.0` na linha de
-comando, sem editar arquivo nenhum, e sem perder os outros oito numeros.
+Every `scene_*` and `yaw` argument in the launch files accepts empty (the
+default), which means "ask this table". Any non-empty value wins. So probing
+a corner of the maze is still just `scene_top_z:=20.0` on the command line,
+with no file to edit, and without losing the other eight numbers.
 
-DE ONDE VEM CADA NUMERO
+WHERE EACH NUMBER COMES FROM
 
-Nenhum foi escolhido: todos foram medidos ou calculados, e as contas estao em
-`launch/scene_cameras.launch.py`. Resumo da origem:
+None were chosen: all were measured or computed, and the working is in
+`launch/scene_cameras.launch.py`. Summary of the source:
 
-- armazem: iso em (-3, +3) porque os quadrantes (-x,-y) caem dentro do corredor
-  de prateleiras; topo a 6 m porque a 12 m a camera fica ACIMA das vigas do
-  telhado e a imagem inteira vira uma viga laranja;
-- maze11: centro e extensao vieram da bbox do STL lida do binario e multiplicada
-  pela escala 0,002 (ver `tools/maze/maze_fit.py`), nao do nome do arquivo.
+- warehouse: iso at (-3, +3) because the (-x,-y) quadrant falls inside the
+  shelving aisle; top at 6 m because at 12 m the camera ends up ABOVE the
+  roof trusses and the whole image turns into an orange beam;
+- maze11: centre and extent came from the STL bounding box read from the
+  binary and multiplied by the 0.002 scale (see `tools/maze/maze_fit.py`),
+  not from the file name.
 
-O maze11 e o cenario OFICIAL do quadrupede. O armazem continua sendo o do
-diff-drive, que e o fallback e foi validado la -- ver `robot_selection.py`.
+maze11 is the quadruped's OFFICIAL scenario. The warehouse remains the
+diff-drive's, which is the fallback and was validated there -- see
+`robot_selection.py`.
 """
 
 import os
 
-# Enquadramento generico: as duas cameras olhando para a origem. Serve para os
-# mundos pequenos e centrados na origem (empty, corridor, objects, ramp, rough),
-# em que a area util E a origem. NAO serve para o maze11, e e exatamente por
-# isso que ele tem entrada propria.
+# Generic framing: both cameras looking at the origin. Serves the small
+# worlds centred on the origin (empty, corridor, objects, ramp, rough), where
+# the usable area IS the origin. Does NOT serve maze11, which is exactly why
+# it has its own entry.
 GENERIC = {
     'spawn': {'x': 0.0, 'y': 0.0, 'yaw': 0.0},
     # (x, y, z, pitch, yaw)
@@ -56,85 +58,87 @@ GENERIC = {
 }
 
 SCENARIOS = {
-    # Cenario OFICIAL do quadrupede. Corredor de 1,20 m, parede de 0,40 m,
-    # pegada 11,60 x 11,60 m centrada em (-4,855; 4,855).
+    # Quadruped's OFFICIAL scenario. 1.20 m corridor, 0.40 m wall, 11.60 x
+    # 11.60 m footprint centred on (-4.855, 4.855).
     #
-    # yaw 1,5708 nasce o robo olhando PARA O CORREDOR e nao para a parede. Sem
-    # isso a primeira coisa que o Nav2 tem de fazer e um giro de 90 graus dentro
-    # de um corredor de 1,20 m, o que gasta os primeiros segundos de qualquer
-    # ensaio e polui a comparacao entre condicoes.
+    # yaw 1.5708 spawns the robot looking DOWN THE CORRIDOR, not at the wall.
+    # Without that the first thing Nav2 has to do is a 90-degree turn inside
+    # a 1.20 m corridor, which eats up the first seconds of any run and
+    # pollutes the comparison between conditions.
     #
-    # O labirinto nao tem teto, entao a vista de topo pode subir: 13 m cobrem
-    # 17,8 x 13,3 m, os 11,6 m com margem. A iso vem de fora e de baixo
-    # (-13, -3, 9) para nao olhar de dentro de um corredor.
+    # The maze has no ceiling, so the top view can go higher: 13 m covers
+    # 17.8 x 13.3 m, the 11.6 m with margin. The iso view comes from outside
+    # and below (-13, -3, 9) so as not to look from inside a corridor.
     'quadruped_maze11.sdf': {
         'spawn': {'x': 0.0, 'y': 0.0, 'yaw': 1.5708},
         'scene_iso': (-13.0, -3.0, 9.0, 0.6717, 0.7676),
         'scene_top': (-4.855, 4.855, 13.0, 1.5708, 1.5708),
-        # Malha EXTERNA ao repositorio -- ver `external_models` abaixo.
+        # Mesh EXTERNAL to the repository -- see `external_models` below.
         'needs_models': ('maze11',),
     },
-    # Cenario do diff-drive, que e o fallback validado. O warehouse tem cerca de
-    # 28 x 45 m e enquadra-lo por completo exigiria h ~ 44 m, altura em que o
-    # robo vira um punhado de pixels; o enquadramento generico e proposital.
+    # The diff-drive's scenario, which is the validated fallback. The
+    # warehouse is about 28 x 45 m, and framing it completely would require
+    # h ~ 44 m, a height at which the robot becomes a handful of pixels; the
+    # generic framing is deliberate.
     'warehouse.sdf': GENERIC,
 }
 
-# Onde o compose monta os modelos externos dentro do container `sim`.
-# Espelha o volume de docker/compose.host.yml; se um dos dois mudar, a
-# verificacao de `missing_models` passa a nao achar nada e volta a ser silenciosa.
+# Where compose mounts the external models inside the `sim` container.
+# Mirrors the volume in docker/compose.host.yml; if one of the two changes,
+# the `missing_models` check stops finding anything and goes silent again.
 EXTERNAL_MODELS_DIR = '/maze/models'
 
 
 def scenario(world: str) -> dict:
     """
-    Devolve o cenario de um mundo, pelo nome do ARQUIVO.
+    Return the scenario for a world, by FILE name.
 
-    Pelo nome do arquivo e nao pelo nome do elemento `<world>`: aqui a entrada e
-    um caminho de launch, e ler o SDF para descobrir o nome interno custaria uma
-    leitura de arquivo em tempo de launch para resolver o que o proprio caminho
-    ja diz. (Onde a distincao importa de verdade -- servico do Gazebo -- e em
-    sim_control.launch.py, que documenta o caso.)
+    By file name and not by the `<world>` element's name: here the input is
+    a launch path, and reading the SDF to discover the internal name would
+    cost a file read at launch time to resolve what the path itself already
+    says. (Where the distinction really matters -- the Gazebo service -- is
+    in sim_control.launch.py, which documents that case.)
 
-    Mundo sem entrada cai no generico. Isso e deliberado: um mundo novo funciona
-    sem tocar nesta tabela, e so precisa de entrada quando a area util NAO esta
-    na origem.
+    A world with no entry falls back to the generic one. That is
+    deliberate: a new world works without touching this table, and only
+    needs an entry when the usable area is NOT on the origin.
     """
     return SCENARIOS.get(os.path.basename(world), GENERIC)
 
 
 def camera_pose(world: str, camera: str) -> tuple:
-    """Pose (x, y, z, pitch, yaw) de `scene_iso` ou `scene_top`."""
+    """Pose (x, y, z, pitch, yaw) of `scene_iso` or `scene_top`."""
     key = f'scene_{camera}'
     if key not in ('scene_iso', 'scene_top'):
-        raise ValueError(f'camera {camera!r} desconhecida: use iso ou top.')
+        raise ValueError(f'unknown camera {camera!r}: use iso or top.')
     return scenario(world)[key]
 
 
 def spawn_pose(world: str) -> dict:
-    """Pose de nascimento do robo: x, y, yaw."""
+    """Robot spawn pose: x, y, yaw."""
     return scenario(world)['spawn']
 
 
 def external_models(world: str) -> tuple:
-    """Modelos que o mundo carrega e que NAO estao no repositorio."""
+    """Models the world loads that are NOT in the repository."""
     return tuple(scenario(world).get('needs_models', ()))
 
 
 def missing_models(world: str, root: str = EXTERNAL_MODELS_DIR) -> tuple:
     """
-    Quais modelos externos o mundo pede e nao estao montados.
+    Which external models the world requires and are not mounted.
 
-    Existe porque a falha e TOTALMENTE silenciosa. O SDF do maze11 referencia
-    `model://maze11/meshes/maze11.stl`; sem a malha o Gazebo carrega o mundo, o
-    modelo fica sem visual e sem colisao, e o resultado e um plano vazio. O lidar
-    nao ve nada, o Nav2 planeja em linha reta e conclui com SUCCEEDED. Ou seja: o
-    ensaio PASSA, com numeros melhores que os reais, e nada na saida diz que o
-    labirinto nao estava la.
+    Exists because the failure is COMPLETELY silent. maze11's SDF references
+    `model://maze11/meshes/maze11.stl`; without the mesh Gazebo loads the
+    world, the model ends up with no visual and no collision, and the result
+    is an empty plane. The lidar sees nothing, Nav2 plans a straight line and
+    finishes with SUCCEEDED. In other words: the run PASSES, with better
+    numbers than the real ones, and nothing in the output says the maze was
+    not there.
 
-    E pior ainda no caminho default do compose: `MAZE_MODELS:-./models-extra`
-    aponta para um diretorio que nao existe no repositorio, e o Docker cria um
-    diretorio VAZIO em vez de falhar.
+    It is even worse on compose's default path: `MAZE_MODELS:-./models-extra`
+    points at a directory that does not exist in the repository, and Docker
+    creates an EMPTY directory instead of failing.
     """
     return tuple(
         name for name in external_models(world)

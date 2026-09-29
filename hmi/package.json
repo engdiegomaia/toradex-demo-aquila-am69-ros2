@@ -9,7 +9,7 @@
     "test": "node --test \"test/**/*.test.js\""
   },
   "//": [
-    "'dependencies' is absent on purpose (plano-cockpit-web.md Decisao 5).",
+    "'dependencies' is absent on purpose (plano-cockpit-web.md Decision 5).",
     "There is no npm install, no bundler and no node_modules: the bundle is",
     "plain ES modules copied verbatim into an nginx image that also builds for",
     "arm64, and the npm supply chain is exactly what should not travel to the",

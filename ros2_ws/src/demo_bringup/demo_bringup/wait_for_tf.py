@@ -1,52 +1,55 @@
 """
-Bloqueia ate uma aresta de TF existir de verdade, depois sai 0.
+Block until a TF edge really exists, then exit 0.
 
-Roda no host x86 em learn, e no Aquila AM69 (arm64) em hil. Só CPU.
+Runs on the x86 host in learn, and on the Aquila AM69 (arm64) in hil. CPU
+only.
 
     ros2 run demo_bringup wait_for_tf --ros-args \
         -p parent_frame:=odom -p child_frame:=base -p timeout_s:=120.0
 
-POR QUE ESTE NO EXISTE (ML3.5 F5, 26/08/2026)
+WHY THIS NODE EXISTS (ML3.5 F5, 26/08/2026)
 
-Ele e irmao do `wait_for_clock`, e nasceu da mesma falha, um nivel adiante.
+It is a sibling of `wait_for_clock`, and was born from the same failure, one
+level further out.
 
-MEDIDO NO AQUILA AM69: depois de um `module.sh up`, o `local_costmap` passou 61 s
-imprimindo
+MEASURED ON THE AQUILA AM69: after a `module.sh up`, `local_costmap` spent 61 s
+printing
 
     Could not find a connection between 'odom' and 'base' because they are not
     part of the same tree. Tf has two or more unconnected trees.
 
-e entao:
+and then:
 
     Failed to activate local_costmap because transform from base to odom did not
     become available before timeout
     Failed to change state for node: controller_server
     Failed to bring up all requested nodes. Aborting bringup.
 
-**O gerenciador de ciclo de vida aborta em DEFINITIVO e nao tenta de novo.** O
-container fica de pe, os topicos todos aparecem, `scripts/module.sh verify`
-retorna 0 -- e toda meta e recusada com "Action server is inactive", porque
-`bt_navigator` nunca saiu de INACTIVE. Nada no caminho diz "TF".
+**The lifecycle manager aborts PERMANENTLY and does not retry.** The
+container stays up, every topic appears, `scripts/module.sh verify` returns
+0 -- and every goal is rejected with "Action server is inactive", because
+`bt_navigator` never left INACTIVE. Nothing along the way says "TF".
 
-A aresta em falta e `odom -> base`, que o `odom_tf` so publica quando a PRIMEIRA
-mensagem de `/demo/odom` chega -- e essa mensagem vem do simulador, na OUTRA
-maquina. Ou seja: o Nav2 estava apostando na velocidade de descoberta do DDS
-entre containers. E a aposta as vezes perde. Depois do episodio medido a mesma
-aresta estava viva a 50 Hz; o que faltou foi ordem, nao capacidade.
+The missing edge is `odom -> base`, which `odom_tf` only publishes once the
+FIRST `/demo/odom` message arrives -- and that message comes from the
+simulator, on the OTHER machine. In other words: Nav2 was betting on the
+speed of DDS discovery between containers. And the bet sometimes loses. After
+the measured episode, the same edge was alive at 50 Hz; what was missing was
+ordering, not capacity.
 
-`wait_for_clock` documenta exatamente este raciocinio para o relogio, e o
-`quadruped.launch.py` ja encadeia a subida dele por `OnProcessExit`, "cada elo
-condicionado ao anterior terminar, e nao a tempo decorrido". Este no leva a mesma
-disciplina para a TF, que era o elo que faltava.
+`wait_for_clock` documents exactly this reasoning for the clock, and
+`quadruped.launch.py` already chains its startup through `OnProcessExit`,
+"each link conditioned on the previous one finishing, not on elapsed time."
+This node brings the same discipline to TF, which was the missing link.
 
-POR QUE `Time()` E NAO O RELOGIO DO NO
+WHY `Time()` INSTEAD OF THE NODE CLOCK
 
-A consulta usa `rclpy.time.Time()`, que em tf2 significa "o instante comum mais
-recente" e nao depende do relogio deste no. Por isso ele roda com
-`use_sim_time: False` de proposito: sem relogio a consultar, ele nao assina
-`/clock` -- e assinar `/clock` a ~870 Hz para nao usar nenhuma mensagem foi
-medido em 26/08 como 35-40% de um nucleo por no. Ver
-`docs/results/ml35-f5-clock-fanout.md` e `test_sim_time_scope.py`.
+The query uses `rclpy.time.Time()`, which in tf2 means "the most recent
+common instant" and does not depend on this node's clock. That is why it
+deliberately runs with `use_sim_time: False`: with no clock to query, it does
+not subscribe to `/clock` -- and subscribing to `/clock` at ~870 Hz without
+using a single message was measured on 26/08 as 35-40% of a core per node.
+See `docs/results/ml35-f5-clock-fanout.md` and `test_sim_time_scope.py`.
 """
 
 import sys
@@ -56,13 +59,13 @@ from rclpy.node import Node
 import tf2_ros
 
 
-# Passo de sondagem. 0.2 s e barato e mantem a latencia de destravamento bem
-# abaixo do proprio tempo de descoberta do DDS.
+# Polling step. 0.2 s is cheap and keeps the unblocking latency well below
+# the DDS discovery time itself.
 POLL_PERIOD_S = 0.2
 
 
 class WaitForTf(Node):
-    """Sonda `can_transform` ate a aresta existir ou o prazo expirar."""
+    """Poll `can_transform` until the edge exists or the deadline expires."""
 
     def __init__(self) -> None:
         super().__init__('wait_for_tf')
@@ -75,8 +78,8 @@ class WaitForTf(Node):
         self.timeout_s = float(self.get_parameter('timeout_s').value)
 
         self.buffer = tf2_ros.Buffer()
-        # O spin_once do laco abaixo alimenta o listener e mantem este no sob um
-        # unico executor.
+        # The spin_once in the loop below feeds the listener and keeps this
+        # node under a single executor.
         self.listener = tf2_ros.TransformListener(self.buffer, self)
 
     def available(self) -> bool:
@@ -87,30 +90,31 @@ class WaitForTf(Node):
 def main(args=None) -> int:
     rclpy.init(args=args)
     node = WaitForTf()
-    # Prazo em tempo de PAREDE, e nao simulado: este no existe justamente para o
-    # caso em que o tempo simulado ainda nao atravessou a fronteira. Medir o
-    # prazo no relogio que pode estar parado seria esperar para sempre -- o
-    # mesmo argumento do `_wait` em nav_control_relay.py.
+    # Deadline in WALL time, not simulated: this node exists precisely for
+    # the case where sim time has not yet crossed the machine boundary.
+    # Measuring the deadline against a clock that might be stalled would
+    # wait forever -- the same argument as `_wait` in nav_control_relay.py.
     import time
     deadline = time.monotonic() + node.timeout_s
     node.get_logger().info(
-        'esperando TF %s -> %s (prazo %.0f s de tempo de parede)'
+        'waiting for TF %s -> %s (deadline %.0f s of wall time)'
         % (node.parent, node.child, node.timeout_s))
 
     try:
         while rclpy.ok():
             if node.available():
                 node.get_logger().info(
-                    'TF %s -> %s disponivel. Liberando a subida do Nav2.'
+                    'TF %s -> %s available. Releasing Nav2 startup.'
                     % (node.parent, node.child))
                 return 0
             if time.monotonic() > deadline:
                 node.get_logger().error(
-                    'TF %s -> %s NAO apareceu em %.0f s. Subir o Nav2 agora faz '
-                    'o local_costmap falhar a ativacao e o gerenciador ABORTAR o '
-                    'bringup em definitivo -- toda meta seria recusada com '
-                    '"Action server is inactive". Confira se /demo/odom atravessa '
-                    'a fronteira e se o odom_tf esta de pe.'
+                    'TF %s -> %s did NOT appear within %.0f s. Bringing up '
+                    'Nav2 now makes local_costmap fail activation and the '
+                    'lifecycle manager ABORT bringup permanently -- every '
+                    'goal would be rejected with "Action server is '
+                    'inactive". Check whether /demo/odom crosses the '
+                    'machine boundary and whether odom_tf is up.'
                     % (node.parent, node.child, node.timeout_s))
                 return 1
             rclpy.spin_once(node, timeout_sec=POLL_PERIOD_S)

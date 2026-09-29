@@ -109,17 +109,17 @@ export function encodeTopicParam(topic) {
 }
 
 /**
- * Qualidade JPEG dos streams, 1-100.
+ * Stream JPEG quality, 1-100.
  *
- * 95 e nao 70: o painel de cena mostra um render 3D com superficies grandes e
- * de cor quase uniforme, e e exatamente nesse conteudo que o ringing do JPEG
- * aparece — as paredes do labirinto ficavam sujas nas bordas. O custo e
- * largura de banda, que em `learn` e localhost.
+ * 95, not 70: the scene panel shows a 3D render with large, near-uniform
+ * color surfaces, and that is exactly the content where JPEG ringing shows
+ * up — the maze walls came out dirty at the edges. The cost is bandwidth,
+ * which in `learn` is localhost.
  *
- * No modo hil o stream atravessa a Ethernet ate o Aquila. Se a banda apertar,
- * o lugar de baixar isto e aqui, e nao a resolucao da camera: reduzir a
- * qualidade degrada suavemente, reduzir a resolucao muda o enquadramento em
- * pixels e desalinha as caixas desenhadas por cima.
+ * In hil mode the stream crosses Ethernet to the Aquila. If bandwidth gets
+ * tight, this is the place to lower, not the camera resolution: reducing
+ * quality degrades gracefully, reducing resolution changes the framing in
+ * pixels and misaligns the boxes drawn on top.
  */
 export const STREAM_QUALITY = 95;
 

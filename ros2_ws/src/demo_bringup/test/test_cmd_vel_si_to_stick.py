@@ -26,8 +26,9 @@ def _si(vx=0.0, vy=0.0, wz=0.0):
 
 
 def test_round_trip_through_the_controller_gain_recovers_the_si_request():
-    # Este é o teste que dá sentido ao nó: o manche publicado, multiplicado pelo
-    # ganho que o controlador aplica, tem de devolver a velocidade pedida.
+    # This is the test that gives the node its purpose: the published stick
+    # value, multiplied by the gain the controller applies, has to return the
+    # requested velocity.
     for si_vx in (0.05, 0.10, 0.15):
         stick = to_stick(si_vx, VX_PER_STICK)
         assert stick * VX_PER_STICK == pytest.approx(si_vx)
@@ -39,8 +40,8 @@ def test_the_validated_speed_maps_to_the_stick_value_the_results_recorded():
 
 
 def test_the_stick_clamp_corresponds_to_the_documented_top_speed():
-    # O clamp de 0.5 no manche é 0,20 m/s de verdade. Se este número mudar, o
-    # envelope documentado em guias e resultados deixou de valer.
+    # A stick clamp of 0.5 is really 0.20 m/s. If this number changes, the
+    # envelope documented in guides and results no longer holds.
     assert STICK_CLAMP * VX_PER_STICK == pytest.approx(0.20)
     assert STICK_CLAMP * WZ_PER_STICK == pytest.approx(0.25)
 
@@ -53,8 +54,9 @@ def test_conversion_scales_all_three_axes_by_their_own_gain():
 
 
 def test_conversion_does_not_flip_any_sign():
-    # `twist_to_inputs` já nega lx e rx. Negar aqui também faria o robô virar
-    # para o lado errado, e o Nav2 corrigiria aumentando o erro.
+    # `twist_to_inputs` already negates lx and rx. Negating here too would
+    # make the robot turn the wrong way, and Nav2 would correct by increasing
+    # the error.
     out = convert(_si(vx=-0.08, vy=-0.06, wz=-0.10))
     assert out.linear.x < 0 and out.linear.y < 0 and out.angular.z < 0
 
@@ -66,7 +68,7 @@ def test_request_above_the_envelope_is_clamped_not_wrapped():
 
 
 def test_zero_stays_exactly_zero():
-    # Silêncio é o comando de parada, mas um zero explícito tem de sair zero:
-    # um viés aqui faria o robô derivar durante toda pausa do Nav2.
+    # Silence is the stop command, but an explicit zero has to come out as
+    # zero: a bias here would make the robot drift during every Nav2 pause.
     out = convert(_si())
     assert (out.linear.x, out.linear.y, out.angular.z) == (0.0, 0.0, 0.0)

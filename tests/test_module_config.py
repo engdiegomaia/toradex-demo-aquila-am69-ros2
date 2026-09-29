@@ -126,8 +126,8 @@ def test_hil_render_prefers_routed_interface_over_loopback() -> None:
 
     assert '<NetworkInterface name=\\"lo\\" priority=\\"default\\"' in script
     assert 'priority=\\"10\\"' in script
-    assert 'nao rebaixou loopback no modo HIL' in script
-    assert 'nao priorizou a interface roteada no modo HIL' in script
+    assert 'did not downgrade loopback in HIL mode' in script
+    assert 'did not prioritize the routed interface in HIL mode' in script
 
 
 def test_module_up_recreates_containers_after_dds_render() -> None:

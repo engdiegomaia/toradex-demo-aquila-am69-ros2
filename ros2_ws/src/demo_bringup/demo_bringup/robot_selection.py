@@ -30,24 +30,25 @@ def launch_file(robot_type: str, role: str) -> str:
     return ROBOT_LAUNCH_FILES[robot_type][role]
 
 
-# Cenario OFICIAL de cada robo: (pacote, subdiretorio, arquivo).
+# OFFICIAL scenario for each robot: (package, subdirectory, file).
 #
-# POR QUE E POR ROBO E NAO UM DEFAULT UNICO
+# WHY THIS IS PER ROBOT AND NOT A SINGLE DEFAULT
 #
-# O labirinto e o cenario oficial da demo, e e no labirinto que a sintonia do
-# Nav2 do quadrupede foi medida: corredor de 1,20 m, inflacao global 0,85,
-# `vx_min` zero, arvore de comportamento com SmoothPath. Ver
+# The maze is the demo's official scenario, and it is in the maze that the
+# quadruped's Nav2 tuning was measured: 1.20 m corridor, 0.85 global
+# inflation, zero `vx_min`, behavior tree with SmoothPath. See
 # docs/results/ml35-navegacao-maze11.md.
 #
-# O diff-drive NAO herda isso. Ele e o fallback, e o que existe medido dele e no
-# armazem -- inclusive o portao do F6 (meta de x=0 para x=1). Mudar o mundo dele
-# junto trocaria o cenario de um teste que ja passou por um em que ele nunca
-# rodou, e a meta de x=1 no labirinto cai numa parede. Um fallback que se quebra
-# no dia em que se precisa dele nao e um fallback.
+# The diff-drive does NOT inherit this. It is the fallback, and what has been
+# measured for it is in the warehouse -- including the F6 gate (goal from
+# x=0 to x=1). Changing its world along with the quadruped's would swap the
+# scenario of a test that already passed for one it never ran on, and the
+# x=1 goal in the maze lands inside a wall. A fallback that breaks on the day
+# it is needed is not a fallback.
 #
-# Por isso a tabela tem duas linhas em vez de uma constante: a pergunta "qual e o
-# mundo oficial" nao tem resposta unica, e fingir que tem e o que produz a
-# combinacao errada em silencio.
+# That is why the table has two rows instead of one constant: the question
+# "what is the official world" has no single answer, and pretending it does
+# is what produces the wrong combination silently.
 OFFICIAL_WORLD = {
     'quadruped': ('demo_simulation', 'worlds', 'quadruped_maze11.sdf'),
     'diffdrive': ('nav2_minimal_tb4_sim', 'worlds', 'warehouse.sdf'),
@@ -56,12 +57,12 @@ OFFICIAL_WORLD = {
 
 def official_world(robot_type: str) -> tuple:
     """
-    Cenario oficial de um robo, como (pacote, subdiretorio, arquivo).
+    Official scenario for a robot, as (package, subdirectory, file).
 
-    Devolve as tres partes em vez de um caminho pronto porque quem sabe montar o
-    caminho e o launch, com FindPackageShare: o prefixo de instalacao nao existe
-    em tempo de import, e cravar um aqui daria um caminho que so funciona na
-    maquina onde foi escrito.
+    Returns the three parts instead of a ready-made path because the launch
+    file is what knows how to build the path, with FindPackageShare: the
+    install prefix does not exist at import time, and hardcoding one here
+    would give a path that only works on the machine it was written on.
     """
     if robot_type not in OFFICIAL_WORLD:
         supported = ', '.join(sorted(OFFICIAL_WORLD))

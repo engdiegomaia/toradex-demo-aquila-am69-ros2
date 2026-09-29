@@ -17,9 +17,9 @@
   background: var(--bg-panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  /* Sobre fundo branco a borda sozinha nao separa painel de pagina; a sombra e
-     o que faz cada bloco existir. No tema escuro anterior ela era invisivel e
-     por isso nao existia. */
+  /* Over a white background the border alone does not separate panel from
+     page; the shadow is what makes each block exist. In the previous dark
+     theme it was invisible, which is why it did not exist. */
   box-shadow: var(--shadow-panel);
 }
 
@@ -268,15 +268,15 @@
   color: var(--warn);
 }
 
-/* --- view pad (camera de cena) --------------------------------------------
- * Sobreposto ao canto inferior direito da imagem. Grade de 4 colunas: girar e
- * inclinar em cima, mover no meio, zoom e recentrar embaixo — agrupados pelo
- * que fazem, nao pelo que cabe.
+/* --- view pad (scene camera) ------------------------------------------------
+ * Overlaid on the bottom-right corner of the image. 4-column grid: rotate and
+ * tilt on top, pan in the middle, zoom and recenter at the bottom — grouped
+ * by what they do, not by what fits.
  *
- * A superficie e escura mesmo num cockpit claro, e de proposito: ela flutua
- * sobre um render 3D cujo brilho muda com o cenario, e so uma placa escura
- * mantem contraste tanto sobre o chao claro do armazem quanto sobre a sombra
- * das paredes do labirinto.
+ * The surface is dark even in an otherwise light cockpit, and on purpose: it
+ * floats over a 3D render whose brightness changes with the scene, and only
+ * a dark plate keeps contrast both over the warehouse's light floor and over
+ * the maze walls' shadow.
  */
 
 .viewpad {
@@ -321,7 +321,7 @@
   outline-offset: 1px;
 }
 
-/* Sem simulador ouvindo, o pad diz isso em vez de aceitar cliques que somem. */
+/* With no simulator listening, the pad says so instead of accepting clicks that vanish. */
 .viewpad[data-enabled="false"] {
   opacity: 0.45;
   pointer-events: none;
@@ -337,9 +337,9 @@
   letter-spacing: 0.03em;
 }
 
-/* Pressionado = seguindo. Verde da marca porque isto e um ESTADO do sistema e
-   nao um destaque de UI: a mesma cor que o ponto de frescor vivo e a pegada do
-   robo no mapa. Ver a nota sobre semantica de cor em tokens.css. */
+/* Pressed = following. Brand green because this is a system STATE and not a
+   UI highlight: the same color as the live freshness dot and the robot's
+   footprint on the map. See the note on color semantics in tokens.css. */
 .viewpad__btn[aria-pressed="true"] {
   color: #16232e;
   background: var(--brand-green);
@@ -350,7 +350,7 @@
   background: color-mix(in srgb, var(--brand-green) 80%, white);
 }
 
-/* --- header switch (scene iso/topo, cancel goal) --------------------------- */
+/* --- header switch (scene iso/top, cancel goal) ---------------------------- */
 
 .switch {
   display: flex;
@@ -400,24 +400,24 @@
   border-color: color-mix(in srgb, var(--warn) 55%, transparent);
 }
 
-/* Reiniciar a navegacao. Vermelho e nao laranja: laranja aqui e "atencao,
-   olhe", e este botao apaga estado que nao volta. Ver a nota em tokens.css
-   sobre --bad nao ser cor da marca de proposito. */
+/* Restart navigation. Red, not orange: orange here means "attention, look",
+   and this button wipes state that does not come back. See the note in
+   tokens.css about --bad not being a brand color on purpose. */
 .switch__btn--danger {
   color: var(--bad);
   border-color: color-mix(in srgb, var(--bad) 45%, transparent);
 }
 
-/* Armado, esperando o segundo clique. Fundo cheio, porque o estado "um clique
-   ja foi dado" tem de ser visivel do outro lado da sala. */
+/* Armed, waiting for the second click. Solid background, because the "one
+   click has already happened" state must be visible from across the room. */
 .switch__btn[data-armed="true"] {
   color: #fff;
   background: var(--bad);
   border-color: var(--bad);
 }
 
-/* Reinicio em curso. Nao e desabilitado por acaso: sao ~7 s medidos, e um
-   segundo clique nesse meio tempo empilharia um PAUSE sobre um RESUME. */
+/* Restart in progress. It is not disabled by accident: it is ~7 s measured,
+   and a second click in that window would stack a PAUSE on top of a RESUME. */
 .switch__btn[data-busy="true"] {
   color: var(--text-faint);
   background: var(--bg-inset);
@@ -524,14 +524,14 @@
 /* --- control bar ---------------------------------------------------------- */
 
 /*
- * A barra e a UNICA superficie escura do cockpit: as duas marcas sao PNG de
- * tinta branca, e sobre branco elas sumiriam.
+ * The bar is the cockpit's ONLY dark surface: both marks are white-ink PNGs,
+ * and over white they would vanish.
  *
- * Em vez de duplicar cada regra de botao e badge numa variante "na barra", os
- * tokens sao redefinidos aqui dentro. Tudo que ja lia --text/--border/--accent
- * passa a ler o valor de cima do azul sem nenhuma alteracao. Um --bad novo e
- * necessario: #c0261b sobre #00508c e ilegivel, e o vermelho de falha e
- * exatamente o que nao pode desaparecer.
+ * Instead of duplicating every button and badge rule into an "in the bar"
+ * variant, the tokens are redefined right here. Anything that already read
+ * --text/--border/--accent now reads the value on top of the blue with no
+ * change at all. A new --bad is needed: #c0261b over #00508c is illegible,
+ * and the failure red is exactly what must not disappear.
  */
 .bar {
   --text: #ffffff;
@@ -565,24 +565,24 @@
   border-right: 1px solid var(--border);
 }
 
-/* Altura fixa, largura livre: as duas marcas tem proporcoes bem diferentes
-   (720x244 e 520x137) e travar a largura deformaria uma das duas.
+/* Fixed height, free width: the two marks have quite different proportions
+   (720x244 and 520x137), and locking the width would distort one of them.
 
-   As alturas sao diferentes de proposito. Igualar a caixa nao iguala a
-   presenca: a marca da Toradex tem descida e um ponto acima do texto, entao ao
-   mesmo numero de pixels ela LE menor que o ROS. A razao 34/22 foi ajustada na
-   tela ate as duas pesarem igual.
+   The heights are different on purpose. Matching the box does not match the
+   presence: the Toradex mark has a descender and a dot above the text, so at
+   the same pixel count it READS smaller than ROS. The 34/22 ratio was tuned
+   on screen until the two carried equal visual weight.
 
-   AS DUAS DOBRARAM JUNTAS (34/22 -> 68/44). O pedido era a marca da Toradex 2x;
-   dobrar so ela quebraria a razao acima, que nao e arbitraria. Se em algum
-   momento a Toradex tiver de dominar de verdade, mexa em --logo-ros e nao na
-   proporcao por acidente.
+   BOTH DOUBLED TOGETHER (34/22 -> 68/44). The request was the Toradex mark
+   at 2x; doubling only it would break the ratio above, which is not
+   arbitrary. If at some point Toradex genuinely needs to dominate, adjust
+   --logo-ros, not the ratio by accident.
 
-   E A ALTURA DA BARRA VEM DAQUI. `.cockpit` reserva
-   `minmax(var(--bar-min-height), 0.36fr)` para a faixa, e esse minimo e
-   calculado a partir destes tokens em layout.css: subir --logo-toradex sem
-   subir o minimo faz a marca ser CORTADA em telas baixas, sem erro nenhum e
-   sem barra de rolagem (a barra tem overflow-x, nao -y). */
+   AND THE BAR'S HEIGHT COMES FROM HERE. `.cockpit` reserves
+   `minmax(var(--bar-min-height), 0.36fr)` for the strip, and that minimum is
+   computed from these tokens in layout.css: raising --logo-toradex without
+   raising the minimum gets the mark CLIPPED on short screens, with no error
+   and no scrollbar (the bar has overflow-x, not -y). */
 .brand__logo {
   display: block;
   width: auto;
@@ -595,8 +595,8 @@
 
 .brand__rule {
   width: 1px;
-  /* Acompanha a marca menor: um filete mais alto que o logo do ROS leria como
-     borda de painel e nao como separador entre duas marcas. */
+  /* Follows the smaller mark: a rule taller than the ROS logo would read as
+     a panel border rather than a separator between two marks. */
   height: calc(var(--logo-ros) + 4px);
   background: var(--border);
 }
@@ -625,9 +625,9 @@
 }
 
 /*
- * Estado da simulacao. Nao e o eco do ultimo clique: vem do /clock, e por isso
- * pode discordar do botao que acabou de ser apertado — que e precisamente o
- * caso em que o operador precisa saber.
+ * Simulation state. It is not the echo of the last click: it comes from
+ * /clock, so it can disagree with the button that was just pressed — which
+ * is precisely the case the operator needs to know about.
  */
 .bar__state {
   min-width: 9ch;
@@ -636,13 +636,13 @@
   color: var(--text-faint);
 }
 
-.bar__state[data-state="rodando"] {
+.bar__state[data-state="running"] {
   color: var(--ok);
 }
-.bar__state[data-state="pausado"] {
+.bar__state[data-state="paused"] {
   color: var(--warn);
 }
-.bar__state[data-state="sem simulador"] {
+.bar__state[data-state="no simulator"] {
   color: var(--bad);
 }
 
@@ -690,8 +690,8 @@
   cursor: not-allowed;
 }
 
-/* Reset do mundo. Laranja e nao vermelho: destroi o estado da simulacao, mas
-   nao e a parada de emergencia, e as duas nao podem parecer a mesma coisa. */
+/* World reset. Orange, not red: it destroys the simulation state, but it is
+   not the emergency stop, and the two must not look like the same thing. */
 .btn--warn {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 65%, transparent);
@@ -703,8 +703,8 @@
   border-color: var(--warn);
 }
 
-/* Armado: um clique de reset por engano no meio da demo custa a demo, entao o
-   primeiro clique so arma e o segundo executa. */
+/* Armed: one accidental reset click in the middle of a demo costs the demo,
+   so the first click only arms it and the second executes. */
 .btn--warn[data-armed="true"] {
   color: #fff;
   background: var(--warn);

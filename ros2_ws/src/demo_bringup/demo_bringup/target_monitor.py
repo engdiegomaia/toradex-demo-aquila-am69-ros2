@@ -1,18 +1,18 @@
 """
-Telemetria operacional do target para o cockpit.
+Operational telemetry of the target for the cockpit.
 
-O painel do cockpit não deve depender de `/rosout` bruto para responder a
-pergunta de operação: "o Aquila está comandando quais eixos do robô agora, e
-quanto recurso ele está gastando?". `/rosout` mistura host, Gazebo, Nav2,
-bridge, avisos repetidos e ruído de descoberta DDS. Este nó publica dois canais
-dedicados, ambos em `std_msgs/String` com JSON para o rosbridge consumir sem
-mensagem customizada:
+The cockpit panel should not depend on raw `/rosout` to answer the
+operational question: "which axes is the Aquila commanding right now, and how
+much resource is it spending?". `/rosout` mixes host, Gazebo, Nav2, bridge,
+repeated warnings, and DDS discovery noise. This node publishes two dedicated
+channels, both `std_msgs/String` with JSON, so rosbridge can consume them
+without a custom message:
 
-    /demo/target/ops_log   eventos curtos sobre vx/vy/wz e manche
-    /demo/target/status    CPU, memória, temperatura e carga do target
+    /demo/target/ops_log   short events about vx/vy/wz and the stick
+    /demo/target/status    CPU, memory, temperature, and load of the target
 
-Ele roda junto da navegação, portanto no modo HIL estes números são do AM69.
-No modo learn eles são da workstation, o que continua útil para desenvolvimento.
+It runs alongside navigation, so in HIL mode these numbers are the AM69's. In
+learn mode they are the workstation's, which is still useful for development.
 """
 
 from __future__ import annotations
@@ -108,16 +108,16 @@ def _load_average() -> tuple[Optional[float], Optional[float], Optional[float]]:
 def _direction(vx: float, vy: float, wz: float) -> str:
     parts: list[str] = []
     if abs(vx) >= 0.01:
-        parts.append('frente' if vx > 0 else 'ré')
+        parts.append('forward' if vx > 0 else 'reverse')
     if abs(vy) >= 0.01:
-        parts.append('lateral esquerda' if vy > 0 else 'lateral direita')
+        parts.append('strafe left' if vy > 0 else 'strafe right')
     if abs(wz) >= 0.02:
-        parts.append('giro anti-horário' if wz > 0 else 'giro horário')
-    return 'parado' if not parts else ' + '.join(parts)
+        parts.append('turn ccw' if wz > 0 else 'turn cw')
+    return 'stopped' if not parts else ' + '.join(parts)
 
 
 class TargetMonitor(Node):
-    """Publica logs diretos de atuação e telemetria de recursos do target."""
+    """Publish direct actuation logs and resource telemetry for the target."""
 
     def __init__(self) -> None:
         super().__init__('target_monitor')
@@ -142,8 +142,8 @@ class TargetMonitor(Node):
         self.create_timer(0.5, self._publish_ops_if_changed)
         self.create_timer(2.0, self._publish_status)
         self.get_logger().info(
-            'publicando atuação do target em /demo/target/ops_log e recursos em '
-            '/demo/target/status')
+            'publishing target actuation on /demo/target/ops_log and '
+            'resources on /demo/target/status')
 
     def _on_si(self, message: Twist) -> None:
         self._last_si = message
@@ -188,7 +188,7 @@ class TargetMonitor(Node):
         now = time.monotonic()
         si = self._last_si
         if si is None or now - self._last_si_at > 2.5:
-            summary = 'sem comando SI recente do Nav2'
+            summary = 'no recent SI command from Nav2'
             details = {'fresh': False}
         else:
             vx = si.linear.x
@@ -196,7 +196,7 @@ class TargetMonitor(Node):
             wz = si.angular.z
             direction = _direction(vx, vy, wz)
             summary = (
-                f'eixos target: {direction}; '
+                f'target axes: {direction}; '
                 f'vx={vx:+.3f} m/s vy={vy:+.3f} m/s wz={wz:+.3f} rad/s')
             details = {
                 'fresh': True,
@@ -209,7 +209,7 @@ class TargetMonitor(Node):
         stick = self._last_stick
         if stick is not None and now - self._last_stick_at <= 2.5:
             summary += (
-                f'; manche lx={stick.linear.x:+.2f} '
+                f'; stick lx={stick.linear.x:+.2f} '
                 f'ly={stick.linear.y:+.2f} rz={stick.angular.z:+.2f}')
             details.update({
                 'stick_lx': stick.linear.x,

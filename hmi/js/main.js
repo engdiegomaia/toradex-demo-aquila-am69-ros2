@@ -56,7 +56,7 @@ const SOURCES = Object.freeze({
   cmdVel: { staleAfterMs: 2000 },
   cmdVelSi: { staleAfterMs: 2000 },
   odom: { staleAfterMs: 2000 },
-  // Nav2 publishes the global costmap at 0,5 Hz and republishes the footprint
+  // Nav2 publishes the global costmap at 0.5 Hz and republishes the footprint
   // with it. Anything under ~4 s here would sit amber during normal operation.
   costmap: { staleAfterMs: 6000 },
   scan: { staleAfterMs: 2000 },
@@ -70,9 +70,10 @@ const SOURCES = Object.freeze({
  */
 const SCENE_VIEWS = Object.freeze({
   iso: {
-    // O nome que o scene_view_controller espera em header.frame_id. Não é o
-    // mesmo do botão ('iso') nem o do modelo no Gazebo ('cockpit_scene_iso'),
-    // e escrevê-lo aqui é o que evita adivinhar no meio do handler.
+    // The name scene_view_controller expects in header.frame_id. It is
+    // neither the button's ('iso') nor the Gazebo model's
+    // ('cockpit_scene_iso'), and writing it here is what avoids guessing in
+    // the middle of the handler.
     frame: 'scene_iso',
     topic: TOPICS.sceneIso,
     heartbeat: {
@@ -111,7 +112,7 @@ async function start() {
     onError: (message, error) => console.warn('[cockpit]', message, error ?? ''),
     // Without this the client cannot honour `compression: 'png'` and every
     // subscriber that asks for it would silently receive nothing. The costmap
-    // is 456,8 KiB per frame as JSON and 13,8 KiB as PNG (measured).
+    // is 456.8 KiB per frame as JSON and 13.8 KiB as PNG (measured).
     decodePng: createPngDecoder(),
   });
 
@@ -164,8 +165,8 @@ async function start() {
       build: config.build,
       shell,
     }),
-    // Play/pause/reset do Gazebo. O simulador continua na workstation x86
-    // (regra 1 do CLAUDE.md); o que sai daqui é uma chamada de serviço.
+    // Gazebo play/pause/reset. The simulator stays on the x86 workstation
+    // (CLAUDE.md rule 1); what leaves here is a service call.
     createSimControls({
       root: document.querySelector('[data-role="bar"]'),
       client,
@@ -173,8 +174,8 @@ async function start() {
     }),
   ];
 
-  // Não entra em `panels`: não tem tick nem estado de frescor, e o único ciclo
-  // de vida que lhe interessa é o do link, que ele mesmo observa.
+  // Not part of `panels`: it has no tick or freshness state, and the only
+  // lifecycle it cares about is the link's, which it observes itself.
   const viewControls = createViewControls({
     root: document.querySelector('[data-panel="scene"]'),
     client,
@@ -200,8 +201,8 @@ async function start() {
       const view = SCENE_VIEWS[button.dataset.source];
       if (!view) return;
       scenePanel.setSource(view);
-      // Os botões de câmera passam a comandar a imagem que está na tela.
-      // Comandar a outra é o erro que se lê como "os botões não funcionam".
+      // The camera buttons now command whichever image is on screen.
+      // Commanding the other one is the bug that reads as "the buttons don't work".
       viewControls.setCamera(view.frame);
       for (const other of sceneButtons) {
         other.setAttribute('aria-pressed', String(other === button));
@@ -230,5 +231,5 @@ async function start() {
 }
 
 start().catch((error) => {
-  console.error('[cockpit] falha ao iniciar', error);
+  console.error('[cockpit] failed to start', error);
 });
