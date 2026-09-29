@@ -478,8 +478,20 @@ def _run_selection(node, monkeypatch, frontiers, robot=(0.0, 0.0, 0.0)):
     monkeypatch.setattr(node, '_grid', lambda: object())
     monkeypatch.setattr(node, '_robot_pose', lambda: robot)
     monkeypatch.setattr(node, '_validate_next', lambda: None)
-    monkeypatch.setattr(maze_explorer_module, 'extract_frontiers',
-                        lambda grid, **_kwargs: list(frontiers))
+
+    def fake_extract(grid, stats=None, **_kwargs):
+        # Real `extract_frontiers` always reports `raw_clusters`. A
+        # non-zero value here (matching the frontiers actually given) keeps
+        # these near/far filtering tests isolated from the zero-raw-cluster
+        # recovery path (R15) and the R17 backtrack-then-spin fallback
+        # inside `_handle_no_usable_frontier`, both of which have their own
+        # dedicated tests.
+        if stats is not None:
+            stats['raw_clusters'] = len(frontiers) or 1
+        return list(frontiers)
+
+    monkeypatch.setattr(
+        maze_explorer_module, 'extract_frontiers', fake_extract)
     node._begin_selection()
 
 
@@ -1801,3 +1813,223 @@ def test_the_homing_tolerance_matches_what_nav2_is_configured_with(node) -> None
         checker = params['controller_server']['ros__parameters'][
             'general_goal_checker']
         assert declared == float(checker['xy_goal_tolerance']), name
+
+
+# R17 -- exploracao direcional com backtracking por breadcrumbs.
+#
+# O que esta sob teste: a classificacao adiante/reversa por cone de rumo (com
+# prioridade dura, nao penalidade de score), a pilha de breadcrumbs e o
+# despacho unificado de recuperacao em `_handle_no_usable_frontier`. Reusa os
+# mesmos duplos (`_Future`, `_StubGoalHandle`, `_run_selection`) do resto do
+# arquivo -- o objetivo e testar a maquina de estados, nao reinventar duplos.
+
+def _run_selection_with_heading(
+        node, monkeypatch, frontiers, heading, robot=(0.0, 0.0, 0.0),
+        breadcrumbs=()):
+    """
+    Como `_run_selection`, mas com rumo (e breadcrumbs) ja estabelecidos.
+
+    `_start()` zera `_breadcrumbs` -- por isso os breadcrumbs deste teste
+    sao aplicados DEPOIS dele, nunca antes.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    node._map_seq += 1
+    node._current_heading = heading
+    node._breadcrumbs = list(breadcrumbs)
+    monkeypatch.setattr(node, '_grid', lambda: object())
+    monkeypatch.setattr(node, '_robot_pose', lambda: robot)
+    monkeypatch.setattr(node, '_validate_next', lambda: None)
+
+    def fake_extract(grid, stats=None, **_kwargs):
+        if stats is not None:
+            stats['raw_clusters'] = len(frontiers) or 1
+        return list(frontiers)
+
+    monkeypatch.setattr(
+        maze_explorer_module, 'extract_frontiers', fake_extract)
+    node._begin_selection()
+
+
+def test_a_forward_frontier_beats_a_rearward_one_with_a_higher_score(
+        node, monkeypatch) -> None:
+    """
+    Teste minimo 1: adiante vence mesmo perdendo em ganho de informacao.
+
+    A prioridade e dura, nao uma penalidade de score -- a fronteira atras do
+    robo (ganho de informacao 5x maior) nem chega a competir por pontuacao:
+    ela e removida da lista de candidatos antes de `_validate_next` rodar.
+    """
+    ahead = Frontier(x=1.0, y=0.0, cells=10, information_gain_m=0.5)
+    behind = Frontier(x=-1.0, y=0.0, cells=90, information_gain_m=4.5)
+    _run_selection_with_heading(
+        node, monkeypatch, [ahead, behind], heading=0.0)
+
+    assert node._decision_mode == 'forward'
+    assert node._candidates == [ahead]
+    assert behind not in node._candidates
+
+
+def test_a_rearward_frontier_is_accepted_when_it_is_the_only_one(
+        node, monkeypatch) -> None:
+    """Teste minimo 2: sem nada adiante, reversa passa a ser elegivel."""
+    behind = Frontier(x=-1.0, y=0.0, cells=90, information_gain_m=4.5)
+    _run_selection_with_heading(node, monkeypatch, [behind], heading=0.0)
+
+    assert node._decision_mode == 'reverse'
+    assert node._candidates == [behind]
+
+
+def test_a_filtered_cycle_starts_a_breadcrumb_return_not_a_failure(
+        node, monkeypatch) -> None:
+    """
+    Teste minimo 3: ciclo sem candidato com breadcrumb disponivel nao falha.
+
+    R17 nao espera dez ciclos baldios como o R15 fazia -- com um breadcrumb
+    na pilha, o primeiro ciclo sem fronteira usavel ja despacha o retorno.
+    `_barren_cycles` fica intocado: este ciclo produziu uma meta, so nao uma
+    de exploracao nova.
+    """
+    sent: list[tuple[float, float]] = []
+    node._send_navigation = lambda frontier, exploration=True, target=None: \
+        sent.append((frontier.x, frontier.y))
+    # Fronteiras que existem mas sao todas filtradas (ex.: dentro da
+    # tolerancia de chegada) tambem devem cair no mesmo caminho de
+    # recuperacao -- por isso a lista de entrada e vazia aqui.
+    _run_selection_with_heading(
+        node, monkeypatch, [], heading=0.0, breadcrumbs=[(2.0, 0.0)])
+
+    assert sent == [(2.0, 0.0)]
+    assert node._is_backtrack_goal is True
+    assert node._decision_mode == 'backtracking'
+    assert node._backtrack_attempts == 1
+    assert node._breadcrumbs == []
+    assert node._barren_cycles == 0
+
+
+def test_reaching_the_breadcrumb_runs_selection_again(node) -> None:
+    """
+    Teste minimo 4: chegar ao breadcrumb tem de reexecutar a selecao.
+
+    O sucesso de uma meta de retorno tem de cair de volta em 'selecting'
+    (nao em 'completed' nem travado em 'navigating'), com a mensagem
+    dedicada -- e sem empilhar um breadcrumb novo sobre o ponto que acabou
+    de ser retirado da pilha para chegar ali.
+    """
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._robot_pose = lambda: (2.0, 0.0, 0.0)
+    node._current = Frontier(x=2.0, y=0.0, cells=0, information_gain_m=0.0)
+    node._is_backtrack_goal = True
+    node._nav_departure_pose = (0.0, 0.0)
+    node._breadcrumbs = []
+
+    node._on_nav_result(_Future(SimpleNamespace(
+        status=GoalStatus.STATUS_SUCCEEDED)), node._epoch, True)
+
+    assert node._state == 'selecting'
+    assert 'retorno concluido' in node._message
+    assert node._is_backtrack_goal is False
+    assert node._breadcrumbs == [], (
+        'retorno concluido nao empilha um breadcrumb sobre si mesmo')
+
+
+def test_a_completed_frontier_saves_its_departure_as_the_breadcrumb(
+        node) -> None:
+    """O primeiro retorno deve recuar, nao mirar a pose atual outra vez."""
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._robot_pose = lambda: (2.0, 0.0, 0.0)
+    node._current = Frontier(x=2.0, y=0.0, cells=10, information_gain_m=0.5)
+    node._nav_departure_pose = (0.5, 0.0)
+
+    node._on_nav_result(_Future(SimpleNamespace(
+        status=GoalStatus.STATUS_SUCCEEDED)), node._epoch, True)
+
+    assert node._breadcrumbs == [(0.5, 0.0)]
+
+
+def test_a_consumed_breadcrumb_cannot_cause_a_loop(node) -> None:
+    """
+    Teste minimo 5: a pilha so encolhe -- nunca reoferece o mesmo ponto.
+
+    Dois retornos seguidos tem de consumir dois pontos distintos e esvaziar
+    a pilha; nenhum dos dois pode reaparecer para um terceiro retorno.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    node._robot_pose = lambda: (0.0, 0.0, 0.0)
+    node._breadcrumbs = [(1.0, 1.0), (2.0, 2.0)]
+    sent: list[tuple[float, float]] = []
+    node._send_navigation = lambda frontier, exploration=True, target=None: \
+        sent.append((frontier.x, frontier.y))
+
+    node._start_backtrack()
+    assert node._breadcrumbs == [(1.0, 1.0)]
+    node._start_backtrack()
+    assert node._breadcrumbs == []
+    assert sent == [(2.0, 2.0), (1.0, 1.0)], (
+        'os dois retornos tem de mirar pontos diferentes, na ordem LIFO')
+
+    # Pilha vazia: a terceira chamada nao pode inventar um terceiro retorno.
+    node._frontier_clusters_raw = 5  # nao aciona a varredura de observacao
+    node._handle_no_usable_frontier()
+    assert node._barren_cycles == 1, (
+        'sem breadcrumb restante, o ciclo conta como baldio, nao como retorno')
+
+
+def test_no_breadcrumbs_and_no_frontiers_terminates_normally(node) -> None:
+    """
+    Teste minimo 6: sem breadcrumb e sem fronteira, a busca termina via `_fail`.
+
+    Sem isto o robo ficaria preso em 'selecting' ate o `total_timeout_s` --
+    a recuperacao por breadcrumb nao pode virar uma nova forma de travar em
+    silencio quando de fato nao ha mais nada a fazer.
+    """
+    node._start(None, trigger(node))
+    node._state = 'selecting'
+    node._breadcrumbs = []
+    node._frontier_clusters_raw = 5  # nao aciona a varredura de observacao
+    limit = int(node.get_parameter('barren_selections_limit').value)
+
+    for _ in range(limit):
+        node._handle_no_usable_frontier()
+
+    assert node._state == 'failed'
+    assert node._message == 'nenhuma fronteira segura alcancavel'
+
+
+def test_cancel_also_cancels_an_in_progress_breadcrumb_return(node) -> None:
+    """Teste minimo 7 (cancelamento): cancelar tem de parar um retorno em voo."""
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._current = Frontier(x=2.0, y=0.0, cells=0, information_gain_m=0.0)
+    node._is_backtrack_goal = True
+    handle = _StubGoalHandle()
+    cancelled: list[bool] = []
+    handle.cancel_goal_async = lambda: cancelled.append(True)
+    node._goal_handle = handle
+
+    node._cancel(None, trigger(node))
+
+    assert cancelled == [True]
+    assert node._state == 'cancelled'
+    assert node._is_backtrack_goal is False
+
+
+def test_timeout_also_cancels_an_in_progress_breadcrumb_return(node) -> None:
+    """Teste minimo 7 (expiracao): a meta de retorno tambem tem prazo."""
+    node._start(None, trigger(node))
+    node._state = 'navigating'
+    node._current = Frontier(x=2.0, y=0.0, cells=0, information_gain_m=0.0)
+    node._is_backtrack_goal = True
+    handle = _StubGoalHandle()
+    cancelled: list[bool] = []
+    handle.cancel_goal_async = lambda: cancelled.append(True)
+    node._goal_handle = handle
+
+    node._timeout_current('meta de fronteira expirou')
+
+    assert cancelled == [True]
+    assert node._state == 'selecting'
+    assert node._is_backtrack_goal is False

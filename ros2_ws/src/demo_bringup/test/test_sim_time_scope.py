@@ -1,4 +1,5 @@
-"""Quem nao pergunta as horas nao assina o relogio.
+"""
+Quem nao pergunta as horas nao assina o relogio.
 
 `use_sim_time: true` NAO e uma declaracao de intencao inofensiva: o rclpy cria
 uma assinatura de `/clock` por no, independentemente de o codigo do no chamar o

@@ -524,37 +524,47 @@ controller_server:
         cost_weight: 5.0
         threshold_to_consider: 0.5
 
-      # CostCritic reads the costmap directly. Preferred over ObstaclesCritic for
-      # this demo because it respects the inflation layer's gradient instead of
-      # applying its own footprint model, so the inflation_radius tuned below is
-      # actually what steers the robot.
+      # CostCritic reads the costmap directly. Preferred over ObstaclesCritic
+      # for this demo because it reads the inflation layer's gradient as well
+      # as (now, see `consider_footprint` below) the real footprint polygon,
+      # instead of ObstaclesCritic's own separate collision model.
       CostCritic:
         enabled: true
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        # STAYS false on purpose, even now that both costmaps publish a
-        # footprint polygon instead of robot_radius.
+        # Promovido para true em 30/08/2026: em simulacao (host, amd64) o
+        # robo raspava paredes laterais em corredores estreitos com
+        # `consider_footprint: false`. Com false o critic amostra o custo
+        # da celula no PONTO da trajetoria e confia no gradiente de
+        # inflacao (0.55 local / 0.85 global) como margem -- mas o
+        # gradiente foi calibrado sobre o raio CIRCUNSCRITO (0.411 m), e o
+        # ponto amostrado fica no centro do tronco, nao no canto do
+        # retangulo. Numa curva junto a parede, o canto alcanca alem do
+        # que aquele raio cobre enquanto o ponto central ainda mede custo
+        # baixo -- o critic aprova a trajetoria e o canto ainda assim
+        # roça o obstaculo real que o lidar ja tinha marcado no costmap.
         #
-        # consider_footprint: true makes the critic do polygon collision checks
-        # against the costmap's footprint. Before the footprint promotion, both
-        # costmaps declared robot_radius (a circle) and never published a
-        # polygon, so the critic dereferenced an empty one and the whole
-        # nav2_container died with SIGSEGV a few ms after "Created controller :
-        # MPPIController" (Nav2 warns first — "Inconsistent configuration in
-        # collision checking. Please verify the robot's shape settings in both
-        # the costmap and the cost critic" — and then crashes; that warning is
-        # the only hint, and it does not name this parameter). That precondition
-        # for the crash no longer holds, but enabling this now would be a
-        # SECOND behavioural variable riding on the same promotion — the
-        # footprint change is measured in `docs/results/ml35-f5-footprint-ab.md`
-        # on its own; consider_footprint is the next experiment, not this one.
+        # true faz o critic checar a poligonal real contra as celulas do
+        # costmap (que carregam o obstaculo do lidar via `obstacle_layer`,
+        # nao uma estimativa por odometria) em vez de um unico ponto mais
+        # margem fixa -- e essa poligonal so pode ser usada com seguranca
+        # porque os dois costmaps ja publicam `footprint` (retangulo), nao
+        # `robot_radius` (circulo). Antes da promocao do footprint em
+        # codigo, ambos os costmaps declaravam `robot_radius` e nunca
+        # publicavam poligonal, entao o critic dereferenciava uma vazia e
+        # o `nav2_container` inteiro morria com SIGSEGV alguns ms depois de
+        # "Created controller : MPPIController" (o Nav2 avisa antes --
+        # "Inconsistent configuration in collision checking. Please verify
+        # the robot's shape settings in both the costmap and the cost
+        # critic" -- e so depois trava; o aviso e a unica pista, e nao
+        # nomeia este parametro). Essa precondicao do crash nao vale mais.
         #
-        # With false, the critic samples costmap cell cost at the trajectory
-        # points instead; the inflation gradient (0.55 local / 0.85 global,
-        # both above the polygon's 0.411 m circumscribed radius) does the
-        # standoff work.
-        consider_footprint: false
+        # Medido so em simulacao ate agora -- falta a rodada HIL na Aquila
+        # confirmando que o mesmo ganho de folga se sustenta sob a dinamica
+        # real do trote (a simulacao nao mede desempenho de hardware, so
+        # geometria de colisao; ver CLAUDE.md regra 5).
+        consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 1.0
 

@@ -178,15 +178,14 @@ def test_inflation_still_covers_the_circumscribed_footprint() -> None:
         assert inflation >= circumscribed, (name, inflation, circumscribed)
 
 
-def test_footprint_variant_keeps_consider_footprint_disabled() -> None:
+def test_footprint_variant_uses_polygon_collision_checking() -> None:
     """
-    Ligar `consider_footprint` seria a SEGUNDA variavel, e e o proximo teste.
+    Promovido em 30/08/2026 após a pegada explícita virar o default.
 
-    Com a pegada declarada a precondicao dele passa a estar satisfeita -- sem
-    poligono publicado ele derruba o nav2_container com SIGSEGV -- mas medir
-    forma e criterio de colisao na mesma rodada nao atribui o resultado a
-    nenhum dos dois.
+    O alias histórico não pode reativar a amostragem apenas pelo ponto central;
+    sem polígono publicado este modo derrubaria o nav2_container com SIGSEGV,
+    por isso a igualdade integral com o default também é testada acima.
     """
     variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
     critic = variant['controller_server']['ros__parameters']['FollowPath']
-    assert critic['CostCritic']['consider_footprint'] is False
+    assert critic['CostCritic']['consider_footprint'] is True

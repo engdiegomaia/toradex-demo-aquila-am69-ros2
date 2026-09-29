@@ -244,6 +244,20 @@ class MazeExplorer(Node):
         # repetida a cada versao de mapa que continuar sem cluster algum,
         # cobre o entorno progressivamente sem monopolizar o orcamento total.
         self.declare_parameter('recovery_spin_rad', 1.047)
+        # R17 (30/08/2026). Cone de rumo (graus) dentro do qual uma fronteira
+        # ainda conta como "adiante" -- ate 120 graus de desvio do rumo
+        # estabelecido, o suficiente para curvas e corredores laterais sem
+        # tratar toda mudanca de direcao como retorno. So o arco de 60 graus
+        # de cada lado do sentido exatamente oposto (os 120 graus restantes
+        # dos 360) conta como reversa. Enquanto existir ao menos uma
+        # fronteira adiante alcancavel, nenhuma reversa e considerada --
+        # prioridade explicita, nao uma penalidade suave.
+        self.declare_parameter('forward_cone_deg', 120.0)
+        # R17. Espacamento minimo entre breadcrumbs consecutivos, para nao
+        # empilhar pontos quase identicos quando metas ficam proximas umas
+        # das outras -- a pilha existe para marcar cruzamentos reais
+        # (spawn -> corredor A -> cruzamento B -> ...), nao cada parada.
+        self.declare_parameter('breadcrumb_min_spacing_m', 0.75)
 
         transient = QoSProfile(
             depth=1,
@@ -392,6 +406,30 @@ class MazeExplorer(Node):
         self._recovery_handle = None
         self._recovery_map_seq = -1
         self._recovery_attempts = 0
+        # R17: exploracao direcional com backtracking por breadcrumbs.
+        #
+        # Rumo real (direcao do deslocamento, nao a guinada final) desde a
+        # ultima meta concluida -- `None` ate a primeira, quando nao ha base
+        # para classificar nada como "adiante" ou "reverso".
+        self._current_heading: float | None = None
+        # Pose do robo no despacho da meta ATUAL, para medir o deslocamento
+        # real na chegada (`_update_heading`) -- nao a pose no fim, que so
+        # diz onde parou, nao de onde veio.
+        self._nav_departure_pose: tuple[float, float] | None = None
+        # Pilha de poses seguras, uma por meta de exploracao concluida
+        # (nao por retorno), espacadas por `breadcrumb_min_spacing_m`. Cada
+        # entrada e a pose de PARTIDA da meta concluida: ao chegar a um beco,
+        # o topo aponta para onde o robo estava antes de entrar nele, nunca
+        # para a propria pose atual.
+        # Consumida (removida) no momento em que um retorno comeca -- nunca
+        # reutilizada, o que impede um ciclo entre dois pontos.
+        self._breadcrumbs: list[tuple[float, float]] = []
+        self._is_backtrack_goal = False
+        self._backtrack_attempts = 0
+        self._decision_mode: str | None = None
+        self._forward_candidates_count = 0
+        self._reverse_candidates_count = 0
+        self._heading_delta_deg: float | None = None
         self.create_timer(1.0, self._tick)
         self._publish_status()
 
@@ -437,6 +475,15 @@ class MazeExplorer(Node):
         self._recovery_handle = None
         self._recovery_map_seq = -1
         self._recovery_attempts = 0
+        self._current_heading = None
+        self._nav_departure_pose = None
+        self._breadcrumbs = []
+        self._is_backtrack_goal = False
+        self._backtrack_attempts = 0
+        self._decision_mode = None
+        self._forward_candidates_count = 0
+        self._reverse_candidates_count = 0
+        self._heading_delta_deg = None
         self._release_goal()
         if self._nav_cancel_client.service_is_ready():
             # Empty goal_info means every active NavigateToPose goal.  Starting
@@ -661,9 +708,15 @@ class MazeExplorer(Node):
         #
         # A epoca entra na chave para que iniciar ou cancelar a busca force uma
         # extracao, mesmo que o mapa e a blacklist estejam iguais.
+        # R17: a pilha de breadcrumbs entra na chave porque um retorno pode
+        # mudar o resultado da selecao SEM mudar epoca, mapa ou supressao --
+        # a mudanca real e a pose do robo apos o retorno. Sem isto, a
+        # chegada ao breadcrumb reproduziria a MESMA chave da ultima falha
+        # de selecao e cairia no atalho de "nada mudou, conta como estéril"
+        # antes de sequer reextrair fronteiras da nova posicao.
         key = (self._epoch, self._map_seq,
                len(self._blacklist) + len(self._refused)
-               + len(self._timed_out))
+               + len(self._timed_out), len(self._breadcrumbs))
         if key == self._selection_key:
             # Nada mudou desde o ciclo anterior, entao nao ha o que reextrair --
             # mas tambem nao houve progresso, e ficar aqui e indistinguivel de
@@ -727,7 +780,21 @@ class MazeExplorer(Node):
         frontiers.sort(key=lambda item: math.hypot(
             item.x - robot[0], item.y - robot[1]))
         self._frontier_count = len(frontiers)
-        self._candidates = frontiers[:8]
+        # R17: adiante vence sempre que existir -- so considera reversa
+        # quando nao ha nenhuma fronteira adiante alcancavel.
+        forward, reverse = self._split_forward_reverse(frontiers, robot)
+        self._forward_candidates_count = len(forward)
+        self._reverse_candidates_count = len(reverse)
+        if forward:
+            self._decision_mode = 'forward'
+            selected = forward
+        elif reverse:
+            self._decision_mode = 'reverse'
+            selected = reverse
+        else:
+            self._decision_mode = None
+            selected = []
+        self._candidates = selected[:8]
         self._candidate_index = 0
         self._candidate_alt_index = 0
         self._best = None
@@ -739,23 +806,75 @@ class MazeExplorer(Node):
             if self._near_skipped:
                 self._message = ('todas as fronteiras estao dentro da '
                                  'tolerancia de chegada')
-                self._note_barren_selection()
             elif self._frontier_clusters_raw == 0:
                 self._message = 'nenhum cluster de fronteira bruto'
-                # Varredura de observacao: no maximo uma tentativa por
-                # versao de mapa (`_map_seq`, que so avanca com conteudo
-                # novo). Sem isto o robo giraria sem parar sobre a MESMA
-                # leitura, que nenhuma varredura anterior mudou.
-                if self._map_seq > self._recovery_map_seq:
-                    self._recovery_map_seq = self._map_seq
-                    self._start_observation_recovery()
-                else:
-                    self._note_barren_selection()
             else:
                 self._message = 'fronteiras existem mas foram filtradas'
-                self._note_barren_selection()
+            self._handle_no_usable_frontier()
             return
         self._validate_next()
+
+    def _split_forward_reverse(
+        self, frontiers: list[Frontier], robot: tuple[float, float, float],
+    ) -> tuple[list[Frontier], list[Frontier]]:
+        """
+        Split frontiers into forward (within the heading cone) and reverse.
+
+        R17: sem rumo estabelecido ainda (nenhuma meta de exploracao
+        concluida nesta busca), trata tudo como adiante -- nao ha base para
+        penalizar nada antes do primeiro deslocamento real.
+        """
+        if self._current_heading is None:
+            return list(frontiers), []
+        cone = float(self.get_parameter('forward_cone_deg').value)
+        forward: list[Frontier] = []
+        reverse: list[Frontier] = []
+        for item in frontiers:
+            bearing = math.atan2(item.y - robot[1], item.x - robot[0])
+            delta = math.degrees(math.atan2(
+                math.sin(bearing - self._current_heading),
+                math.cos(bearing - self._current_heading)))
+            (forward if abs(delta) <= cone else reverse).append(item)
+        return forward, reverse
+
+    def _handle_no_usable_frontier(self) -> None:
+        """
+        R17: sem candidato usavel -- backtrack por breadcrumb primeiro.
+
+        Ordem: um breadcrumb ainda nao consumido e a opcao mais barata (nao
+        gira, nao gasta orcamento de varredura) e a mais alinhada ao
+        objetivo de so recuar quando de fato nao ha por onde seguir. A
+        varredura de observacao so entra quando a pilha ja esvaziou, e
+        exatamente nas mesmas condicoes de antes (nenhum cluster bruto,
+        no maximo uma tentativa por versao de mapa) -- sem breadcrumbs
+        disponiveis, o comportamento e identico ao de R15.
+        """
+        if self._breadcrumbs:
+            self._start_backtrack()
+            return
+        if self._frontier_clusters_raw == 0 \
+                and self._map_seq > self._recovery_map_seq:
+            self._recovery_map_seq = self._map_seq
+            self._start_observation_recovery()
+            return
+        self._note_barren_selection()
+
+    def _start_backtrack(self) -> None:
+        """
+        Retorna ao breadcrumb mais recente em vez de declarar falha na hora.
+
+        Consumido (retirado da pilha) no momento em que a navegacao de
+        volta comeca, nao quando ela termina -- um retorno que falhe (Nav2
+        recusa ou expira) nao pode ficar tentando o MESMO ponto para
+        sempre. A pilha so encolhe, nunca reutiliza uma entrada ja
+        retirada: e isso que impede um ciclo infinito entre dois pontos.
+        """
+        x, y = self._breadcrumbs.pop()
+        self._backtrack_attempts += 1
+        self._decision_mode = 'backtracking'
+        frontier = Frontier(x=x, y=y, cells=0, information_gain_m=0.0)
+        self._is_backtrack_goal = True
+        self._send_navigation(frontier, exploration=True)
 
     def _start_observation_recovery(self) -> None:
         """
@@ -913,6 +1032,18 @@ class MazeExplorer(Node):
         nav_x, nav_y = target if target is not None else (frontier.x, frontier.y)
         self._last_nav_original = (frontier.x, frontier.y)
         self._last_nav_target = (nav_x, nav_y)
+        # R17: pose de partida desta meta, para medir o deslocamento REAL na
+        # chegada (`_update_heading`) -- e o angulo entre o rumo estabelecido
+        # e esta fronteira, para telemetria (`heading_delta_deg`).
+        self._nav_departure_pose = (robot[0], robot[1])
+        if exploration and self._current_heading is not None:
+            bearing = math.atan2(
+                frontier.y - robot[1], frontier.x - robot[0])
+            self._heading_delta_deg = round(math.degrees(math.atan2(
+                math.sin(bearing - self._current_heading),
+                math.cos(bearing - self._current_heading))), 1)
+        elif exploration:
+            self._heading_delta_deg = None
         yaw = math.atan2(nav_y - robot[1], nav_x - robot[0])
         goal = NavigateToPose.Goal()
         goal.pose = self._pose(nav_x, nav_y, yaw)
@@ -962,6 +1093,12 @@ class MazeExplorer(Node):
             if status != GoalStatus.STATUS_SUCCEEDED:
                 self._blacklist_current(f'fronteira terminou com status {status}')
             else:
+                # R17: captura ANTES de `_release_goal`, que zera a flag.
+                # Um retorno concluido nao empilha um novo breadcrumb sobre
+                # o ponto que acabou de ser retirado da pilha -- o rumo real
+                # ainda e atualizado, so o registro de posicao e que muda.
+                was_backtrack = self._is_backtrack_goal
+                self._update_heading(push_breadcrumb=not was_backtrack)
                 self._release_goal()
                 # Chegar mudou pose, costmap e mapa, que sao exatamente os
                 # tres motivos pelos quais o planejador reprovou e pelos quais
@@ -972,7 +1109,9 @@ class MazeExplorer(Node):
                 self._last_provisional_map_seq = -1
                 self._provisional_recovery_used = False
                 self._state = 'selecting'
-                self._message = 'fronteira alcancada; atualizando mapa'
+                self._message = (
+                    'retorno concluido; selecionando novamente' if was_backtrack
+                    else 'fronteira alcancada; atualizando mapa')
         elif status == GoalStatus.STATUS_SUCCEEDED:
             self._release_goal()
             self._state = 'homing_exit'
@@ -1059,6 +1198,42 @@ class MazeExplorer(Node):
         self._goal_handle = None
         self._pending = False
         self._current = None
+        # R17: ponto de saida unico para toda meta (sucesso, blacklist,
+        # timeout e cancelamento passam por aqui) -- garante que a flag
+        # nunca vaze de uma meta de retorno para a proxima meta normal.
+        self._is_backtrack_goal = False
+
+    def _update_heading(self, push_breadcrumb: bool) -> None:
+        """
+        Registra o rumo real (nao a guinada final) e, se pedido, um breadcrumb.
+
+        R17: rumo = direcao do deslocamento desde o despacho desta meta
+        (`_nav_departure_pose`), nao a orientacao final do robo -- um robo
+        que chega de lado ou virado ainda estava indo NAQUELA direcao.
+        Segmentos curtos demais (ruido de localizacao, nao deslocamento
+        real) nao atualizam o rumo, para nao deixar uma chegada quase no
+        lugar redefinir "adiante" ao acaso.
+        """
+        robot = self._robot_pose()
+        if robot is None or self._nav_departure_pose is None:
+            return
+        dx = robot[0] - self._nav_departure_pose[0]
+        dy = robot[1] - self._nav_departure_pose[1]
+        if math.hypot(dx, dy) >= 0.05:
+            self._current_heading = math.atan2(dy, dx)
+        if push_breadcrumb:
+            # Guarde o inicio do segmento percorrido. Usar a pose de chegada
+            # criaria um primeiro "retorno" para a posicao em que o robo ja
+            # esta, consumindo tempo antes de recuar de fato.
+            self._push_breadcrumb(self._nav_departure_pose)
+
+    def _push_breadcrumb(self, pose: tuple[float, float]) -> None:
+        spacing = float(self.get_parameter('breadcrumb_min_spacing_m').value)
+        if self._breadcrumbs and math.hypot(
+                pose[0] - self._breadcrumbs[-1][0],
+                pose[1] - self._breadcrumbs[-1][1]) < spacing:
+            return
+        self._breadcrumbs.append(pose)
 
     def _fail(self, message: str) -> None:
         self._epoch += 1
@@ -1175,6 +1350,16 @@ class MazeExplorer(Node):
             'homing_entries': self._homing_entries,
             'homing_abandons': self._homing_abandons,
             'marker_far_ignored': self._marker_far_ignored,
+            # R17: exploracao direcional com backtracking por breadcrumbs.
+            # `decision_mode` e `None` ate a primeira selecao com
+            # candidatos; o cockpit deve tratar isso como "ainda
+            # selecionando", nao como um quarto modo.
+            'decision_mode': self._decision_mode,
+            'breadcrumbs': len(self._breadcrumbs),
+            'backtrack_attempts': self._backtrack_attempts,
+            'heading_delta_deg': self._heading_delta_deg,
+            'forward_candidates': self._forward_candidates_count,
+            'reverse_candidates': self._reverse_candidates_count,
             'message': self._message,
         }
         self._status_pub.publish(String(

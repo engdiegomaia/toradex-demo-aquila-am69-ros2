@@ -1,4 +1,5 @@
-"""Invariantes do transporte comprimido da camera entre host e modulo.
+"""
+Invariantes do transporte comprimido da camera entre host e modulo.
 
 Testes estruturais: leem os launch files com `ast`, nao sobem ROS. Casar string
 crua seria fragil justamente aqui -- a primeira versao destes testes passou
@@ -57,7 +58,8 @@ MODULE = _republish_nodes('perception.launch.py')
 
 
 def _expected_remap_key(side: str, transport: str) -> str:
-    """image_transport nomeia o topico como `<side>/<transporte>`, exceto em raw.
+    """
+    Nomeie o topico como `<side>/<transporte>`, exceto em raw.
 
     `raw` e o transporte default e usa o topico base sem sufixo. Qualquer outro
     acrescenta o sufixo, e o remap precisa casar o nome COMPLETO.
@@ -76,7 +78,8 @@ def test_both_sides_declare_a_republish_node() -> None:
 
 
 def test_every_republish_sets_both_transports_explicitly() -> None:
-    """out_transport ausente nao da erro -- da um no mudo, ou um laco.
+    """
+    `out_transport` ausente nao da erro -- da um no mudo, ou um laco.
 
     Escrito como arguments=['raw', 'compressed'], o Jazzy le o primeiro como
     in_transport e deixa out_transport vazio, registrando
@@ -90,7 +93,8 @@ def test_every_republish_sets_both_transports_explicitly() -> None:
 
 
 def test_remap_keys_carry_the_transport_suffix() -> None:
-    """Remapear `out` quando o topico se chama `out/compressed` NAO casa.
+    """
+    Remapear `out` quando o topico se chama `out/compressed` NAO casa.
 
     A regra e ignorada em silencio: o no sobe, loga os transportes certos,
     assina a entrada, e publica em `/out/compressed` na raiz -- um topico que
@@ -106,7 +110,8 @@ def test_remap_keys_carry_the_transport_suffix() -> None:
 
 
 def test_no_republish_can_feed_itself() -> None:
-    """Publicar no topico que se assina nao da erro -- da realimentacao.
+    """
+    Publicar no topico que se assina nao da erro -- da realimentacao.
 
     Medido: Publisher count 2 no topico do contrato e a camera a 118 Hz em vez
     de 10 Hz, com o detection_stub do modulo recebendo o fluxo inflado pelo fio.
@@ -117,7 +122,8 @@ def test_no_republish_can_feed_itself() -> None:
 
 
 def test_the_two_sides_agree_on_the_wire_topic() -> None:
-    """O que o host publica precisa ser exatamente o que o modulo assina.
+    """
+    O que o host publica precisa ser exatamente o que o modulo assina.
 
     Sao arquivos diferentes, em maquinas diferentes, e nada em runtime reclama
     se divergirem: o decompressor apenas nunca recebe nada, e a percepcao morre
@@ -134,7 +140,8 @@ def test_module_output_never_reuses_the_contract_topic_name() -> None:
 
 
 def test_perception_is_rewired_by_remap_and_not_by_editing_the_node() -> None:
-    """Regra 6: demo_perception nao sabe a origem do quadro.
+    """
+    Regra 6: demo_perception nao sabe a origem do quadro.
 
     A religacao mora no launch. Se virar edicao em detection_stub.py, o no passa
     a conhecer a topologia de transporte e a troca pelo TIDL deixa de ser troca
