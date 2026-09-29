@@ -1,55 +1,57 @@
 #!/usr/bin/env python3
 """
-Ensaio de navegação Nav2 sobre o quadrúpede: dirige por METAS e grava evidência.
+Nav2 navigation trial over the quadruped: drives through GOALS and records evidence.
 
-Roda no host x86, contra a simulação em container e o Nav2 já ativo
-(`ROS_DOMAIN_ID=69`, `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`).
+Runs on the x86 host, against the simulation in a container and Nav2 already
+active (`ROS_DOMAIN_ID=69`, `RMW_IMPLEMENTATION=rmw_cyclonedds_cpp`).
 
     ros2 launch demo_bringup nav_quadruped.launch.py     # terminal 2
     python3 tools/evaluation/nav_trial.py out.csv --seconds 180   # terminal 3
 
-POR QUE ESTE SCRIPT EXISTE, E POR QUE NÃO É O `gait_trial.py`
+WHY THIS SCRIPT EXISTS, AND WHY IT IS NOT `gait_trial.py`
 
-`gait_trial.py` publica `/demo/cmd_vel` — é malha aberta, e não pode coexistir
-com o Nav2: dois publicadores no tópico que comanda o robô **não dão erro**,
-`twist_to_inputs` obedece a última mensagem que chegou, e o robô anda em
-espasmos sem nada em log explicando.
+`gait_trial.py` publishes `/demo/cmd_vel` — it is open loop, and cannot coexist
+with Nav2: two publishers on the topic that commands the robot **do not error
+out**, `twist_to_inputs` obeys whichever message arrived last, and the robot
+moves in spasms with nothing in the log explaining why.
 
-Este script **nunca publica `/demo/cmd_vel`**. Ele manda meta pela ação
-`navigate_to_pose` e deixa o Nav2 decidir a velocidade, que é exatamente o que
-se quer medir quando a pergunta é "o robô atravessa mais rápido?".
+This script **never publishes `/demo/cmd_vel`**. It sends a goal through the
+`navigate_to_pose` action and lets Nav2 decide the speed, which is exactly what
+you want to measure when the question is "does the robot cross faster?".
 
-`patrol_commander` também manda metas, e é o nó de exposição: uma meta que falha
-é abandonada e o ciclo segue, então ele não sabe dizer se o percurso foi
-cumprido. O docstring dele manda usar um script de teste para isso. É este.
+`patrol_commander` also sends goals, and it is the exposure node: a goal that
+fails is abandoned and the cycle continues, so it cannot say whether the route
+was completed. Its docstring says to use a test script for that. This is it.
 
-O QUE ELE MEDE, E POR QUE CADA COISA ESTÁ AQUI
+WHAT IT MEASURES, AND WHY EACH THING IS HERE
 
-- **RTF no mesmo intervalo das amostras.** Cada linha carrega tempo de simulação
-  e tempo monotônico de parede. Corridas com carga ou enlace diferentes deixam
-  de parecer comparáveis só porque `/clock` continuou publicando rapidamente.
-- **Velocidade média, não o pico.** Nas corridas de 20/08 o pico foi 0,119 m/s e
-  a média 0,021 m/s: o MPPI gasta a maior parte do tempo corrigindo rumo a
-  0,12 rad/s de teto de guinada. Subir `vx_max` mexe no pico; o que se sente é
-  a média. Comparar picos entre condições não decide nada.
-- **`/demo/cmd_vel_si`**, não `/demo/cmd_vel`. É a saída do `collision_monitor`,
-  em SI. `/demo/cmd_vel` carrega posição de manche (ganho 0,4 / 0,5), e comparar
-  manche entre condições que mudam `vx_max` compara a coisa errada.
-- **Folga mínima medida pelo lidar**, não contra posições de obstáculo
-  conhecidas. Num labirinto não existe "posição do obstáculo": a parede está em
-  toda volta. Corredor de 1,20 m com margem de 21,7 cm por lado é o que torna
-  esse número o critério de parada de qualquer aumento de velocidade.
-- **Quedas por `z`**, imediatamente e com abortar. Qualquer número medido depois
-  que o robô caiu descreve um corpo sendo arrastado.
-- **Estatísticas do supervisor de marcha** (`mode`, tilt, `yawSat`) vêm do log
-  do container, porque `StateTrotting.cpp:589` as emite como linha de log e não
-  como tópico. Passe `--sim-log` e elas entram no resumo; sem isso o resumo diz
-  que não as tem, em vez de omitir silenciosamente.
+- **RTF over the same interval as the samples.** Each row carries simulation
+  time and monotonic wall-clock time. Runs under different load or link
+  conditions stop looking comparable just because `/clock` kept publishing
+  quickly.
+- **Average speed, not the peak.** In the 20/08 runs the peak was 0.119 m/s and
+  the average 0.021 m/s: MPPI spends most of its time correcting toward the
+  0.12 rad/s yaw-rate ceiling. Raising `vx_max` moves the peak; what you feel
+  is the average. Comparing peaks between conditions decides nothing.
+- **`/demo/cmd_vel_si`**, not `/demo/cmd_vel`. It is the `collision_monitor`
+  output, in SI units. `/demo/cmd_vel` carries joystick position (gain 0.4 /
+  0.5), and comparing joystick values between conditions that change `vx_max`
+  compares the wrong thing.
+- **Minimum clearance measured by the lidar**, not against known obstacle
+  positions. In a maze there is no "obstacle position": the wall is all the
+  way around. A 1.20 m corridor with a 21.7 cm margin on each side is what
+  makes this number the stopping criterion for any speed increase.
+- **Falls by `z`**, immediately and with an abort. Any number measured after
+  the robot fell describes a body being dragged.
+- **Gait supervisor statistics** (`mode`, tilt, `yawSat`) come from the
+  container log, because `StateTrotting.cpp:589` emits them as a log line and
+  not as a topic. Pass `--sim-log` and they enter the summary; without it the
+  summary says it does not have them, instead of silently omitting them.
 
-No HIL, o script mede a planta simulada no host e o Nav2 que roda no Aquila. Os
-números valem para essa pilha distribuída, mas não validam localização por
-pernas, um Go2 físico, térmica ou desempenho isolado do módulo (regras 5 e 7 do
-`CLAUDE.md`).
+On HIL, the script measures the simulated plant on the host and the Nav2 that
+runs on the Aquila. The numbers hold for this distributed stack, but do not
+validate leg-based localization, a physical Go2, thermal behavior, or isolated
+module performance (rules 5 and 7 of `CLAUDE.md`).
 """
 
 import argparse
@@ -75,21 +77,21 @@ from trial_timing import (goals_csv_path, path_metrics, plan_switch_count,
                           timing_spans, vx_metrics)
 
 
-# Raio circunscrito do tronco do Go2. A folga do lidar até a parede menos isto é
-# a folga real da carcaça.
+# Circumscribed radius of the Go2's trunk. The lidar clearance to the wall
+# minus this is the real clearance of the chassis.
 TRUNK_RADIUS_M = 0.383
 
-# Banda de altura que o costmap trata como obstáculo
-# (`min_obstacle_height` / `max_obstacle_height` em nav2_params_go2.yaml).
+# Height band the costmap treats as an obstacle
+# (`min_obstacle_height` / `max_obstacle_height` in nav2_params_go2.yaml).
 OBSTACLE_Z_MIN_M = 0.12
 OBSTACLE_Z_MAX_M = 1.0
 
-# Metas default: centros de corredor do quadruped_maze11.sdf, dentro dos 8 m de
-# MAX_GOAL_RADIUS_M. Geradas por
+# Default goals: corridor centers of quadruped_maze11.sdf, within the 8 m of
+# MAX_GOAL_RADIUS_M. Generated by
 #   maze_fit.py --models <models> maze11 --start se --goals 4
-# e não escolhidas a olho: meta sobre parede é ACEITA pelo Nav2 e falha depois,
-# perto da borda, onde o erro já não tem nome. A partida é o canto inferior
-# direito, então todo o labirinto fica em -x / +y.
+# and not eyeballed: a goal on top of a wall is ACCEPTED by Nav2 and fails
+# later, near the border, where the error no longer has a name. The start is
+# the bottom-right corner, so the whole maze sits in -x / +y.
 MAZE11_GOALS = ((0.00, 8.00), (-8.00, 0.00), (-1.60, 1.60), (-5.83, 4.91))
 # Stability gate before autonomous exploration.  These are prefixes of the
 # measured connected exit route, split into short steps on the initial aisle.
@@ -101,16 +103,16 @@ SUPERVISOR = re.compile(
 
 
 def yaw_and_tilt(q) -> tuple[float, float]:
-    """Yaw em rad e inclinação do eixo z do corpo em graus."""
+    """Yaw in rad and body z-axis tilt in degrees."""
     yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                      1.0 - 2.0 * (q.y * q.y + q.z * q.z))
-    # z do corpo no referencial do mundo; o ângulo dele com o z do mundo é o tilt.
+    # Body z in the world frame; its angle to world z is the tilt.
     z_axis_z = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
     return yaw, math.degrees(math.acos(max(-1.0, min(1.0, z_axis_z))))
 
 
 class NavTrial(Node):
-    """Manda metas, amostra o estado, e nunca toca em /demo/cmd_vel."""
+    """Sends goals, samples state, and never touches /demo/cmd_vel."""
 
     def __init__(self, args) -> None:
         super().__init__('nav_trial')
@@ -125,25 +127,28 @@ class NavTrial(Node):
         self.plan_heading_deg = math.nan
         self.plan_received_s = None
         self.rows: list[dict] = []
-        # Uma entrada por meta ENCERRADA. Nao e log de tela: e a evidencia que o
-        # portao de estabilidade exige (desfecho e codigo de erro de cada acao),
-        # e por isso ela vai para um CSV irmao em vez de morrer no stdout.
+        # One entry per CLOSED goal. This is not a screen log: it is the
+        # evidence the stability gate requires (outcome and error code of
+        # each action), which is why it goes to a sibling CSV instead of
+        # dying on stdout.
         self.goal_log: list[dict] = []
         self._wall_start: float | None = None
-        # Uma meta por vez, com EPOCA. O servidor navigate_to_pose aceita uma
-        # meta so: mandar outra PREEMPTA a anterior, que devolve ABORTED, cujo
-        # callback chegaria depois e sobrescreveria o estado da meta nova. Isso
-        # realimenta -- cada callback obsoleto libera outro envio -- e o ensaio
-        # vira uma enxurrada de metas na taxa do laco. Ja aconteceu antes neste
-        # projeto (F5, "metas concorrentes"). A epoca e o que corta a
-        # realimentacao: callback de epoca velha e descartado.
+        # One goal at a time, with an EPOCH. The navigate_to_pose server
+        # accepts only one goal: sending another PREEMPTS the previous one,
+        # which returns ABORTED, whose callback would arrive later and
+        # overwrite the state of the new goal. This feeds back on itself --
+        # each stale callback frees up another send -- and the trial turns
+        # into a flood of goals at the loop rate. This has happened before in
+        # this project (F5, "concurrent goals"). The epoch is what cuts the
+        # feedback loop: a callback from an old epoch is discarded.
         self._epoch = 0
         self._active = False
         self._result = None
-        # Identidade e desfecho da meta em voo. `_goal_index` tambem carimba
-        # cada amostra de telemetria, que e o que permite recortar odometria,
-        # plano e trocas de rota POR META depois -- sem isso o CSV mistura as
-        # tres metas do portao numa serie so e a corrida nao prova nada.
+        # Identity and outcome of the in-flight goal. `_goal_index` also
+        # stamps every telemetry sample, which is what lets odometry, plan,
+        # and route switches be sliced PER GOAL afterward -- without this the
+        # CSV mixes the gate's three goals into a single series and the run
+        # proves nothing.
         self._goal_index: int | None = None
         self._goal_target: tuple[float, float] | None = None
         self._goal_sent_s = math.nan
@@ -159,7 +164,7 @@ class NavTrial(Node):
         self.create_subscription(Path, '/plan', self._on_plan, 10)
         self.client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
-    # -- entradas ----------------------------------------------------------
+    # -- inputs --------------------------------------------------------
 
     def _on_odom(self, msg: Odometry) -> None:
         self.pose = msg.pose.pose
@@ -186,20 +191,21 @@ class NavTrial(Node):
         self.plan_length_m, self.plan_heading_deg = path_metrics(points)
         self.plan_received_s = self.sim_s()
 
-    # -- relógios ----------------------------------------------------------
+    # -- clocks --------------------------------------------------------
 
     def sim_s(self) -> float:
         return self.get_clock().now().nanoseconds / 1e9
 
-    # -- metas -------------------------------------------------------------
+    # -- goals ---------------------------------------------------------
 
     def _send(self, x: float, y: float, yaw: float, index: int) -> None:
         """
-        Envia uma meta. O yaw é o rumo de CHEGADA, deliberadamente.
+        Send a goal. The yaw is the ARRIVAL heading, deliberately.
 
-        Exigir um yaw arbitrário na chegada custou 110-139 graus de giro parado
-        nas corridas de 20/08, e girar parado não fica parado: o robô derivou
-        0,78 m em y e saiu da tolerância de posição que já havia satisfeito.
+        Requiring an arbitrary yaw on arrival cost 110-139 degrees of turning
+        in place in the 20/08 runs, and turning in place does not stay in
+        place: the robot drifted 0.78 m in y and left the position tolerance
+        it had already satisfied.
         """
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = self.args.frame_id
@@ -234,10 +240,10 @@ class NavTrial(Node):
         handle = future.result()
         if not handle.accepted:
             self._active = False
-            self._result = 'rejeitada'
-            # Recusa nao produz Result, entao nao ha error_code do Nav2 aqui: a
-            # ausencia e informacao, e nao deve virar um zero que se confunde
-            # com NONE. Fica vazia no CSV.
+            self._result = 'rejected'
+            # A rejection produces no Result, so there is no Nav2 error_code
+            # here: the absence is information, and must not turn into a
+            # zero that gets confused with NONE. Stays empty in the CSV.
             return
         self._handle = handle
         handle.get_result_async().add_done_callback(
@@ -249,17 +255,17 @@ class NavTrial(Node):
         self._active = False
         self._handle = None
         wrapped = future.result()
-        # status 4 == SUCCEEDED em action_msgs/GoalStatus
+        # status 4 == SUCCEEDED in action_msgs/GoalStatus
         self._status = int(wrapped.status)
-        self._result = 'ok' if wrapped.status == 4 else 'falhou'
-        # NavigateToPose.Result em Jazzy carrega error_code/error_msg. E a
-        # diferenca entre "falhou" e "falhou POR QUE", que e a primeira pergunta
-        # da ordem de investigacao do portao.
+        self._result = 'ok' if wrapped.status == 4 else 'failed'
+        # NavigateToPose.Result in Jazzy carries error_code/error_msg. That is
+        # the difference between "failed" and "failed WHY", which is the
+        # first question in the gate's investigation order.
         self._error_code = int(getattr(wrapped.result, 'error_code', 0))
         self._error_msg = str(getattr(wrapped.result, 'error_msg', ''))
 
     def cancel_goal(self) -> None:
-        """Cancela a meta corrente e aposenta a epoca dela."""
+        """Cancels the current goal and retires its epoch."""
         if self._handle is not None:
             self._handle.cancel_goal_async()
         self._epoch += 1
@@ -267,12 +273,13 @@ class NavTrial(Node):
         self._active = False
 
     def close_goal(self, elapsed_s: float) -> None:
-        """Fecha a meta em voo e a arquiva com desfecho e codigo de erro."""
+        """Closes the in-flight goal and archives it with outcome and error code."""
         if self._goal_index is None or self._result is None:
             return
         target = self._goal_target or (math.nan, math.nan)
-        # Trocas de rota DESTA meta, nao do ensaio inteiro: o criterio do portao
-        # e por meta, e somar o ensaio esconde qual delas oscilou.
+        # Route switches for THIS goal, not the whole trial: the gate's
+        # criterion is per goal, and summing over the trial hides which one
+        # oscillated.
         mine = [row for row in self.rows if row.get('goal_index')
                 == self._goal_index]
         self.goal_log.append({
@@ -291,7 +298,7 @@ class NavTrial(Node):
         self._result = None
         self._goal_index = None
 
-    # -- amostragem --------------------------------------------------------
+    # -- sampling ------------------------------------------------------
 
     def sample(self) -> None:
         yaw, tilt = yaw_and_tilt(self.pose.orientation)
@@ -320,34 +327,36 @@ class NavTrial(Node):
 
     def wait_for_stack(self) -> None:
         """
-        Espera odometria E o servidor de ação, com erro que diz qual faltou.
+        Waits for odometry AND the action server, with an error naming which one was missing.
 
-        `ros2 action list` BLOQUEIA indefinidamente com o grafo incompleto -- não
-        devolve vazio, não expira. Por isso o portão aqui é
-        `wait_for_server` com prazo, e não uma listagem.
+        `ros2 action list` BLOCKS indefinitely with an incomplete graph -- it
+        does not return empty, it does not time out. That is why the gate
+        here is `wait_for_server` with a deadline, and not a listing.
         """
         deadline = time.time() + self.args.wait_stack
         while time.time() < deadline and self.pose is None:
             rclpy.spin_once(self, timeout_sec=0.1)
         if self.pose is None:
             raise SystemExit(
-                'sem /demo/odom em %.0fs: a simulação está de pé, e o '
-                'ROS_DOMAIN_ID é 69?' % self.args.wait_stack)
+                'no /demo/odom after %.0fs: is the simulation up, and is '
+                'ROS_DOMAIN_ID 69?' % self.args.wait_stack)
 
         remaining = max(1.0, deadline - time.time())
         if not self.client.wait_for_server(timeout_sec=remaining):
             raise SystemExit(
-                'navigate_to_pose não apareceu: o Nav2 subiu e chegou a '
-                '"Managed nodes are active"? Sem isso não há o que medir.')
+                'navigate_to_pose did not appear: did Nav2 come up and reach '
+                '"Managed nodes are active"? Without that there is nothing '
+                'to measure.')
 
-        # DE PÉ É z E INCLINAÇÃO, NÃO SÓ z.
+        # UPRIGHT IS z AND TILT, NOT JUST z.
         #
-        # Um Go2 tombado de lado mantém o tronco a ~0.25 m do chão, acima de
-        # qualquer --min-z razoável. Medido em 21/08/2026 no HIL: o robô caiu num
-        # ensaio, ficou caído, e o ensaio SEGUINTE passou por esta verificação e
-        # mediu 240 s de robô no chão como se fosse navegação -- 808 linhas de
-        # supervisor, todas em RECOVER, tilt 136 graus, e um relatório completo
-        # com velocidade média 0.0000 m/s. Nada acusou que a medição era lixo.
+        # A Go2 tipped onto its side keeps the trunk at ~0.25 m off the
+        # ground, above any reasonable --min-z. Measured on 21/08/2026 on
+        # HIL: the robot fell in one trial, stayed fallen, and the NEXT trial
+        # passed this check and measured 240 s of robot on the ground as if
+        # it were navigation -- 808 supervisor lines, all in RECOVER, tilt
+        # 136 degrees, and a complete report with average speed 0.0000 m/s.
+        # Nothing flagged that the measurement was garbage.
         def upright() -> bool:
             _, tilt = yaw_and_tilt(self.pose.orientation)
             return (self.pose.position.z > self.args.min_z
@@ -358,21 +367,21 @@ class NavTrial(Node):
         if not upright():
             _, tilt = yaw_and_tilt(self.pose.orientation)
             raise SystemExit(
-                'robô não está de pé (z = %.3f m, inclinação = %.1f graus; '
-                'limites --min-z %.2f m e --max-tilt %.0f graus): não há nada '
-                'a medir. Reinicie a simulação.'
+                'robot is not upright (z = %.3f m, tilt = %.1f degrees; '
+                'limits --min-z %.2f m and --max-tilt %.0f degrees): there '
+                'is nothing to measure. Restart the simulation.'
                 % (self.pose.position.z, tilt, self.args.min_z,
                    self.args.max_tilt))
 
     def run(self, goals) -> str:
-        """Cicla as metas por --seconds de tempo de SIMULAÇÃO."""
+        """Cycles through the goals for --seconds of SIMULATION time."""
         start = self.sim_s()
         self._wall_start = time.monotonic()
         next_sample = start
         index = 0
         goal_started = start
         previous = (self.pose.position.x, self.pose.position.y)
-        verdict = 'concluído'
+        verdict = 'completed'
 
         while True:
             rclpy.spin_once(self, timeout_sec=0.02)
@@ -381,28 +390,29 @@ class NavTrial(Node):
                 self.cancel_goal()
                 break
 
-            # Mesmo critério da pré-condição: z E inclinação. Tombo lateral
-            # mantém z acima do limiar, então checar z sozinho deixa o ensaio
-            # seguir medindo um corpo deitado no chão.
+            # Same criterion as the precondition: z AND tilt. A sideways
+            # tip-over keeps z above the threshold, so checking z alone
+            # would let the trial keep measuring a body lying on the ground.
             _, tilt_now = yaw_and_tilt(self.pose.orientation)
             if (self.pose.position.z <= self.args.min_z
                     or tilt_now >= self.args.max_tilt):
-                verdict = ('ABORTADO: robô caiu (z = %.3f m, inclinação = '
-                           '%.1f graus)' % (self.pose.position.z, tilt_now))
+                verdict = ('ABORTED: robot fell (z = %.3f m, tilt = '
+                           '%.1f degrees)' % (self.pose.position.z, tilt_now))
                 self.cancel_goal()
                 break
 
-            # Prazo por meta. Sem ele uma única meta inalcançável consome o
-            # ensaio inteiro e a comparação entre condições perde a perna que
-            # ela devia medir. Cancelar e seguir é o que o Nav2 permite.
+            # Per-goal deadline. Without it a single unreachable goal
+            # consumes the whole trial and the comparison between conditions
+            # loses the leg it was supposed to measure. Cancel and move on
+            # is what Nav2 allows.
             if self._active and now - goal_started >= self.args.goal_timeout:
                 self.cancel_goal()
-                self._result = 'prazo'
+                self._result = 'timed_out'
 
-            # `settle` é a defesa contra realimentação: mesmo que o estado da
-            # meta fique inconsistente por algum motivo não previsto, o ensaio
-            # não pode virar uma enxurrada de metas. Duas por segundo já é mais
-            # rápido do que qualquer meta real termina.
+            # `settle` is the defense against feedback: even if the goal
+            # state becomes inconsistent for some unforeseen reason, the
+            # trial must not turn into a flood of goals. Two per second is
+            # already faster than any real goal finishes.
             if not self._active and now - goal_started >= self.args.goal_settle:
                 self.close_goal(now - start)
                 target = goals[index % len(goals)]
@@ -417,25 +427,25 @@ class NavTrial(Node):
                 self.sample()
                 next_sample += 1.0 / self.args.sample_rate
 
-        # A meta em voo quando o ensaio termina TEM de ser arquivada. Sem isto a
-        # ultima meta some do log -- ela so era registrada quando a seguinte
-        # partia -- e um portao de 3 metas terminava mostrando 2. Custou a
-        # leitura da corrida de 28/08/2026.
+        # The in-flight goal when the trial ends MUST be archived. Without
+        # this the last goal disappears from the log -- it was only recorded
+        # when the next one started -- and a 3-goal gate ended up showing 2.
+        # Cost the reading of the 28/08/2026 run.
         if self._result is None:
-            # Meta ainda em voo quando o prazo do ensaio (ou a queda) chegou.
-            # Nao e 'falhou': ninguem a deixou terminar.
-            self._result = 'cancelada'
+            # Goal still in flight when the trial deadline (or the fall)
+            # arrived. Not 'failed': nobody let it finish.
+            self._result = 'cancelled'
         self.close_goal(self.sim_s() - start)
         return verdict
 
 
 def supervisor_stats(path: str, offset: int) -> dict | None:
     """
-    Lê as linhas do supervisor de marcha escritas DEPOIS de `offset`.
+    Reads gait supervisor lines written AFTER `offset`.
 
-    Casar pela posição no arquivo, e não por timestamp, porque a linha de log
-    carrega o relógio do nó e o ensaio mede tempo de simulação -- correlacionar
-    os dois introduz um erro que ninguém percebe.
+    Match by file position, not by timestamp, because the log line carries
+    the node's clock and the trial measures simulation time -- correlating
+    the two introduces an error nobody notices.
     """
     if not path or not os.path.isfile(path):
         return None
@@ -460,10 +470,10 @@ def supervisor_stats(path: str, offset: int) -> dict | None:
 
 
 def summarise(trial: NavTrial, verdict: str, stats: dict | None) -> None:
-    """Imprime o resumo. A média é o número que decide, não o pico."""
+    """Prints the summary. The average is the number that decides, not the peak."""
     rows = trial.rows
     if len(rows) < 2:
-        print('menos de duas amostras: nada a resumir', file=sys.stderr)
+        print('fewer than two samples: nothing to summarize', file=sys.stderr)
         return
 
     xs = np.array([r['x'] for r in rows])
@@ -478,108 +488,109 @@ def summarise(trial: NavTrial, verdict: str, stats: dict | None) -> None:
     ranges = ranges[np.isfinite(ranges)]
 
     print()
-    print(f'veredito                 {verdict}')
-    print(f'tempo de simulação       {elapsed:.1f} s  ({len(rows)} amostras)')
-    print(f'tempo de parede          {wall_elapsed:.1f} s')
-    print(f'fator de tempo real      {rtf:.3f}')
-    print(f'caminho percorrido       {path:.2f} m')
-    print(f'deslocamento líquido     {net:.2f} m')
-    print(f'velocidade média         {path / elapsed:.4f} m/s')
-    print(f'cmd_vx pico / médio      {cmd_vx.max():.3f} / {cmd_vx.mean():.4f} m/s')
-    print(f'cmd_vx ~ 0               {100.0 * vx_zero:.1f}% das amostras')
-    print(f'razão de trabalho vx     {100.0 * vx_duty:.1f}% '
-          f'(cmd_vx > {trial.args.vx_work_threshold:.3f} m/s)   <- métrica primária')
-    print(f'cmd_vx negativo          {100.0 * (cmd_vx < 0).mean():.0f}% das amostras')
-    print(f'tilt pico                {max(r["tilt_deg"] for r in rows):.2f} deg')
+    print(f'verdict                  {verdict}')
+    print(f'simulation time          {elapsed:.1f} s  ({len(rows)} samples)')
+    print(f'wall-clock time          {wall_elapsed:.1f} s')
+    print(f'real-time factor         {rtf:.3f}')
+    print(f'distance traveled        {path:.2f} m')
+    print(f'net displacement         {net:.2f} m')
+    print(f'average speed            {path / elapsed:.4f} m/s')
+    print(f'cmd_vx peak / average    {cmd_vx.max():.3f} / {cmd_vx.mean():.4f} m/s')
+    print(f'cmd_vx ~ 0               {100.0 * vx_zero:.1f}% of samples')
+    print(f'vx work ratio            {100.0 * vx_duty:.1f}% '
+          f'(cmd_vx > {trial.args.vx_work_threshold:.3f} m/s)   <- primary metric')
+    print(f'cmd_vx negative          {100.0 * (cmd_vx < 0).mean():.0f}% of samples')
+    print(f'tilt peak                {max(r["tilt_deg"] for r in rows):.2f} deg')
     if ranges.size:
-        print(f'folga mínima (lidar)     {ranges.min():.3f} m'
-              f'   -> carcaça {ranges.min() - TRUNK_RADIUS_M:+.3f} m')
+        print(f'minimum clearance (lidar) {ranges.min():.3f} m'
+              f'   -> chassis {ranges.min() - TRUNK_RADIUS_M:+.3f} m')
     valid_plans = [r for r in rows
                    if math.isfinite(float(r.get('plan_length_m', math.nan)))
                    and math.isfinite(float(r.get('plan_heading_deg', math.nan)))
                    and float(r.get('plan_age_s', math.inf)) <= 2.5]
     if valid_plans:
         lengths = np.array([r['plan_length_m'] for r in valid_plans])
-        print(f'plano comprimento       {np.median(lengths):.2f} m mediana '
+        print(f'plan length              {np.median(lengths):.2f} m median '
               f'[{lengths.min():.2f}, {lengths.max():.2f}]')
-        print(f'trocas grandes de rota   {plan_switch_count(rows)} '
-              '(>1 m ou >45 graus)')
+        print(f'large route switches     {plan_switch_count(rows)} '
+              '(>1 m or >45 degrees)')
     done = sum(1 for entry in trial.goal_log if entry['outcome'] == 'ok')
-    print(f'metas                    {done} cumprida(s) de '
-          f'{len(trial.goal_log)} encerrada(s)')
+    print(f'goals                    {done} completed out of '
+          f'{len(trial.goal_log)} closed')
     tally: dict = {}
     for entry in trial.goal_log:
         tally[entry['outcome']] = tally.get(entry['outcome'], 0) + 1
     if tally:
-        print('   por desfecho            ' + '  '.join(
+        print('   by outcome               ' + '  '.join(
             f'{name}={count}' for name, count in sorted(tally.items())))
     for entry in trial.goal_log[:12]:
         code = entry['error_code']
-        detail = f' código {code}' if code not in ('', 0) else ''
+        detail = f' code {code}' if code not in ('', 0) else ''
         if entry['error_msg']:
             detail += f' ({entry["error_msg"]})'
-        print(f'   meta {entry["goal_index"]}: {entry["outcome"]} em '
+        print(f'   goal {entry["goal_index"]}: {entry["outcome"]} at '
               f't={entry["elapsed_s"]:.0f}s{detail}, '
-              f'{entry["plan_switches"]} troca(s) de rota')
+              f'{entry["plan_switches"]} route switch(es)')
     if len(trial.goal_log) > 12:
-        print(f'   ... e {len(trial.goal_log) - 12} outras')
+        print(f'   ... and {len(trial.goal_log) - 12} more')
 
     if stats is None:
-        print('supervisor de marcha     SEM DADOS (passe --sim-log)')
+        print('gait supervisor          NO DATA (pass --sim-log)')
     elif stats['lines'] == 0:
-        print('supervisor de marcha     0 linhas: o robô entrou em trote?')
+        print('gait supervisor          0 lines: did the robot enter trot?')
     else:
-        print(f'supervisor de marcha     {stats["lines"]} linhas, '
+        print(f'gait supervisor          {stats["lines"]} lines, '
               f'RECOVER={stats["recover"]}, tilt_max={stats["tilt_max"]:.1f} deg, '
-              f'yawSat média={stats["yawsat_mean"]:.0f}% '
-              f'pico={stats["yawsat_max"]:.0f}%')
+              f'yawSat average={stats["yawsat_mean"]:.0f}% '
+              f'peak={stats["yawsat_max"]:.0f}%')
 
 
 def main(argv=None) -> int:
-    """Roda um ensaio e grava o CSV. Devolve 1 se o robô caiu."""
+    """Runs a trial and writes the CSV. Returns 1 if the robot fell."""
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('csv', help='arquivo CSV de saída')
+    parser.add_argument('csv', help='output CSV file')
     parser.add_argument('--seconds', type=float, default=180.0,
-                        help='duração em tempo de SIMULAÇÃO')
-    # USE `--goals=`, COM SINAL DE IGUAL. Toda meta do maze11 tem x negativo, e
-    # `--goals -1.50,0.05` e lido pelo argparse como uma FLAG desconhecida: o
-    # script imprime `usage` e sai 0. Num pipe com `2>/dev/null` -- que e o uso
-    # normal aqui, porque o CycloneDDS enche o stderr -- isso vira uma corrida
-    # silenciosa que nao faz nada e nao acusa. Custou uma corrida em 27/08/2026.
+                        help='duration in SIMULATION time')
+    # USE `--goals=`, WITH AN EQUALS SIGN. Every maze11 goal has a negative
+    # x, and `--goals -1.50,0.05` is read by argparse as an unknown FLAG: the
+    # script prints `usage` and exits 0. In a pipe with `2>/dev/null` --
+    # which is normal usage here, because CycloneDDS floods stderr -- this
+    # turns into a silent run that does nothing and reports nothing. Cost a
+    # run on 27/08/2026.
     parser.add_argument('--goals', default='maze11',
-                        help='"maze11", "maze11-short" ou "x,y;x,y;...". '
-                             'Passe com sinal de igual (--goals="-1.5,0.05;...") '
-                             ': coordenada negativa sem o "=" vira flag e o '
-                             'script sai 0 sem rodar nada.')
+                        help='"maze11", "maze11-short" or "x,y;x,y;...". '
+                             'Pass with an equals sign (--goals="-1.5,0.05;...") '
+                             ': a negative coordinate without the "=" becomes a '
+                             'flag and the script exits 0 without running anything.')
     parser.add_argument('--frame-id', default='map')
     parser.add_argument('--cmd-topic', default='/demo/cmd_vel_si',
-                        help='saída SI do Nav2; NAO use /demo/cmd_vel (manche)')
-    # 0.20, nao 0.30. O robo em pe fica em ~0.35 m em trote e afunda a 0.29 num
-    # tropeco -- medido no HIL em 21/08/2026, onde 0.30 abortou um ensaio por
-    # AFUNDAMENTO e chamou isso de queda. Um Go2 caido fica em ~0.10 m, entao
-    # 0.20 separa os dois casos com folga nos dois lados.
+                        help='Nav2 SI output; do NOT use /demo/cmd_vel (joystick)')
+    # 0.20, not 0.30. The robot upright sits at ~0.35 m in trot and sinks to
+    # 0.29 on a stumble -- measured on HIL on 21/08/2026, where 0.30 aborted
+    # a trial for SINKING and called it a fall. A fallen Go2 sits at ~0.10 m,
+    # so 0.20 separates the two cases with margin on both sides.
     parser.add_argument('--min-z', type=float, default=0.20,
-                        help='abaixo disto o robô está no chão e o ensaio aborta')
-    # Um Go2 em pé fica abaixo de 4 graus mesmo em trote (medido: pico 3.3).
-    # 30 graus e folga de quase uma ordem de grandeza e ainda pega tombo, que
-    # passa de 100 graus.
+                        help='below this the robot is on the ground and the trial aborts')
+    # An upright Go2 stays under 4 degrees even in trot (measured: peak 3.3).
+    # 30 degrees is nearly an order of magnitude of margin and still catches
+    # a tip-over, which goes past 100 degrees.
     parser.add_argument('--max-tilt', type=float, default=30.0,
-                        help='acima disto o robô tombou e o ensaio aborta')
+                        help='above this the robot has tipped over and the trial aborts')
     parser.add_argument('--goal-settle', type=float, default=2.0,
-                        help='intervalo mínimo entre envios de meta; e o teto '
-                             'que impede o ensaio de virar enxurrada de metas')
+                        help='minimum interval between goal sends; the ceiling '
+                             'that keeps the trial from turning into a flood of goals')
     parser.add_argument('--goal-timeout', type=float, default=90.0,
-                        help='prazo por meta em tempo de simulação; ao expirar '
-                             'a meta é cancelada e o ciclo segue')
+                        help='per-goal deadline in simulation time; on expiry '
+                             'the goal is cancelled and the cycle continues')
     parser.add_argument('--wait-stack', type=float, default=120.0)
     parser.add_argument('--sample-rate', type=float, default=10.0)
     parser.add_argument('--vx-zero-threshold', type=float, default=0.005,
-                        help='|cmd_vx| até este valor conta como zero (m/s)')
+                        help='|cmd_vx| up to this value counts as zero (m/s)')
     parser.add_argument('--vx-work-threshold', type=float, default=0.05,
-                        help='cmd_vx acima deste valor conta como trabalho para frente (m/s)')
+                        help='cmd_vx above this value counts as forward work (m/s)')
     parser.add_argument('--sim-log',
-                        help='log do container da simulação, para as '
-                             'estatísticas do supervisor de marcha')
+                        help='simulation container log, for gait supervisor '
+                             'statistics')
     args = parser.parse_args(argv)
 
     if args.goals == 'maze11':
@@ -590,7 +601,7 @@ def main(argv=None) -> int:
         goals = [tuple(float(v) for v in pair.split(',')[:2])
                  for pair in args.goals.split(';') if pair.strip()]
     if not goals:
-        print('nenhuma meta: --goals ficou vazio', file=sys.stderr)
+        print('no goals: --goals ended up empty', file=sys.stderr)
         return 2
 
     offset = os.path.getsize(args.sim_log) if (
@@ -600,8 +611,8 @@ def main(argv=None) -> int:
     trial = NavTrial(args)
     try:
         trial.wait_for_stack()
-        print(f'pilha de pé. {len(goals)} metas, {args.seconds:.0f} s de '
-              'tempo de simulação.')
+        print(f'stack is up. {len(goals)} goals, {args.seconds:.0f} s of '
+              'simulation time.')
         verdict = trial.run(goals)
     finally:
         with open(args.csv, 'w', newline='', encoding='utf-8') as handle:
@@ -620,9 +631,9 @@ def main(argv=None) -> int:
         rclpy.shutdown()
 
     summarise(trial, verdict, supervisor_stats(args.sim_log, offset))
-    print(f'\namostras em {args.csv}')
-    print(f'metas em     {goals_csv_path(args.csv)}')
-    return 1 if verdict.startswith('ABORTADO') else 0
+    print(f'\nsamples in {args.csv}')
+    print(f'goals in    {goals_csv_path(args.csv)}')
+    return 1 if verdict.startswith('ABORTED') else 0
 
 
 if __name__ == '__main__':

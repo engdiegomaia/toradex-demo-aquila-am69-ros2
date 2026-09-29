@@ -69,11 +69,11 @@ def test_cockpit_image_carries_the_two_transports():
 
 
 def test_hmi_image_has_no_javascript_build_step():
-    """plano-cockpit-web.md Decisão 5: no npm supply chain travels to arm64."""
+    """plano-cockpit-web.md Decision 5: no npm supply chain travels to arm64."""
     dockerfile = _code_of(HMI_DOCKERFILE)
     for forbidden in ('npm ', 'yarn ', 'pnpm ', 'node_modules'):
         assert forbidden not in dockerfile, (
-            f'{forbidden.strip()!r} reopens Decisão 5 (bundle without build step)'
+            f'{forbidden.strip()!r} reopens Decision 5 (bundle without build step)'
         )
 
 
@@ -153,7 +153,7 @@ def test_scene_cameras_are_spawned_not_written_into_worlds():
         )
 
     for name in ('cockpit_scene_iso.sdf', 'cockpit_scene_top.sdf'):
-        assert (SIMULATION / 'models' / name).is_file(), f'modelo {name} ausente'
+        assert (SIMULATION / 'models' / name).is_file(), f'model {name} missing'
 
 
 def test_scene_camera_models_are_installed():
@@ -197,14 +197,14 @@ def test_scene_topics_are_bridged_on_every_plant():
 
     The camera_info is not geometry here: it is the panel's heartbeat. An <img>
     on a multipart stream never reports its own liveness, so without it the
-    panel shows "sem sinal" over running video.
+    panel shows "no signal" over running video.
     """
     for config in BRIDGE_CONFIGS:
         text = config.read_text()
         for view in ('scene_iso', 'scene_top'):
             for suffix in ('image_raw', 'camera_info'):
                 topic = f'/demo/cockpit/{view}/{suffix}'
-                assert topic in text, f'{topic} não está em {config.name}'
+                assert topic in text, f'{topic} is not in {config.name}'
 
 
 def test_scene_camera_framing_is_overridable():
@@ -234,11 +234,11 @@ def test_scene_camera_framing_is_overridable():
     )
 
     assert {'scene_iso', 'scene_top'} <= set(poses), (
-        'as duas vistas precisam de enquadramento generico'
+        'both views need a generic framing entry'
     )
     for name in ('scene_iso', 'scene_top'):
         # x, y, z, pitch, yaw. Roll is deliberately absent.
-        assert len(poses[name]) == 5, f'pose de {name} incompleta'
+        assert len(poses[name]) == 5, f'{name} pose is incomplete'
         for value in poses[name]:
             float(value)
 
@@ -246,10 +246,10 @@ def test_scene_camera_framing_is_overridable():
     for axis in ('x', 'y', 'z', 'pitch', 'yaw'):
         assert f"scene_{{name}}_{{axis}}" in launch or (
             f"'{axis}'" in launch
-        ), f'o eixo {axis} não é declarado como argumento de launch'
+        ), f'the {axis} axis is not declared as a launch argument'
     assert 'POSE_FIELDS' in launch, (
-        'os cinco eixos têm de ser declarados a partir de uma lista única; '
-        'declarar um por um é como um deles some sem ninguém notar'
+        'the five axes must be declared from a single list; declaring them '
+        'one by one is how one of them silently goes missing'
     )
 
 
@@ -261,17 +261,17 @@ def test_scene_camera_models_carry_no_desktop_gl_assumption():
     """
     for name in ('cockpit_scene_iso.sdf', 'cockpit_scene_top.sdf'):
         text = (SIMULATION / 'models' / name).read_text()
-        assert '<static>true</static>' in text, f'{name} deve ser estático'
+        assert '<static>true</static>' in text, f'{name} must be static'
         assert 'gz-sim-sensors-system' in text, (
-            f'{name} não documenta a dependência do plugin de sensores; sem ele '
-            'o sensor existe e não publica nada, sem erro no log'
+            f'{name} does not document the sensors plugin dependency; without '
+            'it the sensor exists and publishes nothing, with no error in the log'
         )
 
 
 # --------------------------------------------------------------------------
-# Controle da simulação e das câmeras a partir do cockpit (pedido do operador,
-# 24/08/2026: "iniciar a simulação pela cockpit, resetá-la, mover, girar e dar
-# zoom na tela da simulação").
+# Simulation and camera control from the cockpit (operator request,
+# 24/08/2026: "start the simulation from the cockpit, reset it, move, rotate
+# and zoom the simulation screen").
 # --------------------------------------------------------------------------
 
 SIM_CONTROL_LAUNCH = SIMULATION / 'launch' / 'sim_control.launch.py'
@@ -284,11 +284,11 @@ INDEX_HTML = BUNDLE / 'index.html'
 
 def _code_lines(source: str) -> list[str]:
     """
-    Linhas de código, sem comentário.
+    Code lines, without comments.
 
-    Os cabeçalhos destes arquivos EXPLICAM por que o navegador não fala o
-    vocabulário do Gazebo, e citam os nomes ao fazê-lo. Uma busca ingênua pelo
-    texto proibiria justamente a documentação da regra.
+    These files' headers EXPLAIN why the browser does not speak Gazebo's
+    vocabulary, and cite the names while doing it. A naive text search would
+    forbid exactly the documentation of the rule.
     """
     lines, in_block = [], False
     for raw in source.splitlines():
@@ -308,30 +308,32 @@ def _code_lines(source: str) -> list[str]:
 
 def test_browser_never_speaks_gazebo_interfaces():
     """
-    O navegador chama std_srvs, nunca ros_gz_interfaces.
+    The browser calls std_srvs, never ros_gz_interfaces.
 
-    O rosbridge monta o pedido importando o pacote de interfaces dentro do
-    próprio container, e o container do cockpit não tem ros_gz_interfaces — no
-    modo `deploy`, sem Gazebo nenhum, nem faria sentido ter. A falha é uma
-    InvalidModuleException em tempo de clique, longe de qualquer teste.
+    rosbridge builds the request by importing the interfaces package inside
+    the container itself, and the cockpit container does not have
+    ros_gz_interfaces — in `deploy` mode, with no Gazebo at all, it would not
+    even make sense to have it. The failure is an InvalidModuleException at
+    click time, far from any test.
     """
     for path in (SIM_CONTROLS_JS, VIEW_CONTROLS_JS):
         code = '\n'.join(_code_lines(path.read_text(encoding='utf-8')))
-        assert 'callService(' in code, f'{path.name} não chama nenhum serviço'
+        assert 'callService(' in code, f'{path.name} does not call any service'
         assert 'ros_gz_interfaces' not in code, (
-            f'{path.name} referencia ros_gz_interfaces em código'
+            f'{path.name} references ros_gz_interfaces in code'
         )
         assert '/demo/sim/control' not in code, (
-            f'{path.name} chama o serviço com tipo do Gazebo direto; use a '
-            'fachada std_srvs do sim_control_relay'
+            f'{path.name} calls the service directly with the Gazebo type; use '
+            'the sim_control_relay std_srvs facade'
         )
         assert 'world_control' not in code, (
-            f'{path.name} monta um WorldControl; esse vocabulário é do simulador'
+            f'{path.name} builds a WorldControl; that vocabulary belongs to '
+            'the simulator'
         )
 
 
 def test_sim_control_relay_ships_with_the_bridge():
-    """A fachada e a ponte sobem juntas: uma sem a outra é um botão morto."""
+    """The facade and the bridge come up together: one without the other is a dead button."""
     launch = SIM_CONTROL_LAUNCH.read_text(encoding='utf-8')
     assert "executable='sim_control_relay'" in launch
     assert 'ros_gz_bridge' in launch
@@ -341,72 +343,74 @@ def test_sim_control_relay_ships_with_the_bridge():
 
 
 def test_sim_control_relay_serves_the_three_actions():
-    """Os três botões do cockpit precisam de serviço do outro lado."""
+    """The cockpit's three buttons need a service on the other side."""
     relay = SIM_CONTROL_RELAY.read_text(encoding='utf-8')
-    # Os CAMINHOS, não os nomes: `play` e `pause` saem de um laço e `reset` tem
-    # handler próprio, e o navegador só conhece o caminho.
+    # The PATHS, not the names: `play` and `pause` come out of a loop and
+    # `reset` has its own handler, and the browser only knows the path.
     assert "f'/demo/sim/{action}'" in relay
     assert "for action in ('play', 'pause')" in relay
-    assert "'/demo/sim/reset'" in relay, 'reset não é servido pela fachada'
+    assert "'/demo/sim/reset'" in relay, 'reset is not served by the facade'
 
 
 def test_o_reset_nao_pode_voltar_a_apagar_o_robo():
     """
-    `reset.all` APAGA a planta, e o cockpit não tem como perceber.
+    `reset.all` DELETES the plant, and the cockpit has no way to notice.
 
-    O robô e as duas câmeras de cena são inseridos depois da carga do mundo
-    (`ros_gz_sim create`); `reset.all` devolve o mundo ao SDF de origem, que não
-    os contém. Medido em 26/08/2026: `/joint_states` 999 Hz -> morto,
-    `/demo/imu` 996 Hz -> morto, `/demo/odom` 49,6 Hz -> morto, e
-    `gz model -m demo_robot` respondendo `No model named <demo_robot>`.
+    The robot and the two scene cameras are inserted after the world loads
+    (`ros_gz_sim create`); `reset.all` returns the world to its source SDF,
+    which does not contain them. Measured on 26/08/2026: `/joint_states` 999 Hz
+    -> dead, `/demo/imu` 996 Hz -> dead, `/demo/odom` 49.6 Hz -> dead, and
+    `gz model -m demo_robot` answering `No model named <demo_robot>`.
 
-    O que torna isto digno de um guarda é a APARÊNCIA: o relógio segue a 999 Hz
-    e o Gazebo deixa os sensores órfãos publicando a 10 Hz, então todo painel do
-    cockpit fica verde apontando para uma planta que não existe. Nada em log
-    acusa. Evidência em `docs/results/cockpit-reset-nao-destrutivo.md`.
+    What makes this worth a guard is the APPEARANCE: the clock keeps running
+    at 999 Hz and Gazebo leaves the orphaned sensors publishing at 10 Hz, so
+    every cockpit panel turns green pointing at a plant that no longer exists.
+    Nothing in the log flags it. Evidence in
+    `docs/results/cockpit-reset-nao-destrutivo.md`.
     """
     relay = SIM_CONTROL_RELAY.read_text(encoding='utf-8')
-    # O campo, não a palavra: o cabeçalho CITA `reset.all` de propósito, para
-    # que a próxima pessoa saiba por que ele não está sendo usado. O que não
-    # pode existir é a atribuição.
+    # The field, not the word: the header CITES `reset.all` on purpose, so the
+    # next person knows why it is not being used. What must not exist is the
+    # assignment.
     assert 'request.world_control.reset' not in relay, (
-        'a fachada não pode escrever em nenhum campo de reset do WorldControl; '
-        'reset.all apaga o robô e time_only salta o relógio para trás'
+        'the facade must not write to any WorldControl reset field; '
+        'reset.all deletes the robot and time_only jumps the clock backwards'
     )
     assert 'reset.all = True' not in relay
-    # O caminho novo: teleporta pela mesma fachada que as câmeras de cena usam.
+    # The new path: teleport through the same facade the scene cameras use.
     assert 'SetEntityPose' in relay
     assert "'/demo/sim/set_entity_pose'" in relay
 
 
 def test_sim_state_label_comes_from_the_clock():
     """
-    O rótulo de estado não pode ser o eco do último clique.
+    The state label must not be the echo of the last click.
 
-    Um simulador morto, uma chamada expirada ou uma pausa feita pela GUI do
-    Gazebo produzem exatamente o caso em que o eco mente.
+    A dead simulator, an expired call, or a pause made through the Gazebo GUI
+    produce exactly the case where the echo lies.
     """
     source = SIM_CONTROLS_JS.read_text(encoding='utf-8')
     assert "'/clock'" in source
     assert 'throttleRate' in source, (
-        '/clock publica a ~1 kHz; sem throttle o tráfego vai inteiro ao navegador'
+        '/clock publishes at ~1 kHz; without throttling the full traffic goes '
+        'to the browser'
     )
 
 
 def test_view_pad_buttons_all_have_a_step():
-    """Um data-command sem passo é um botão que não faz nada e não reclama."""
+    """A data-command without a step is a button that does nothing and never complains."""
     html = INDEX_HTML.read_text(encoding='utf-8')
     commands = set(re.findall(r'data-role="view" data-command="([a-z-]+)"', html))
     steps = set(re.findall(r"^  '([a-z-]+)':", VIEW_CONTROLS_JS.read_text(encoding='utf-8'),
                            flags=re.MULTILINE))
-    assert commands, 'nenhum botão de câmera no HTML'
-    assert commands == steps, f'sem passo: {commands - steps}; sem botão: {steps - commands}'
+    assert commands, 'no camera button in the HTML'
+    assert commands == steps, f'missing step: {commands - steps}; missing button: {steps - commands}'
 
 
 def test_brand_palette_is_the_toradex_one():
     """
-    Os três valores da marca são exatos e vieram do time. Um ajuste "só um
-    tom mais escuro" num deles é a forma como uma identidade se perde.
+    The three brand values are exact and came from the team. A "just one
+    shade darker" tweak to one of them is how an identity gets lost.
     """
     tokens = TOKENS_CSS.read_text(encoding='utf-8')
     for name, value in (
@@ -414,89 +418,92 @@ def test_brand_palette_is_the_toradex_one():
         ('--brand-green', '#96c837'),
         ('--brand-orange', '#ff5a00'),
     ):
-        assert f'{name}: {value};' in tokens, f'{name} deixou de ser {value}'
-    assert '--bg-root: #ffffff;' in tokens, 'o fundo do cockpit é branco'
+        assert f'{name}: {value};' in tokens, f'{name} stopped being {value}'
+    assert '--bg-root: #ffffff;' in tokens, 'the cockpit background is white'
 
 
 def test_canvas_colours_come_from_the_tokens():
     """
-    Nenhum painel de canvas guarda cor própria.
+    No canvas panel keeps its own colour.
 
-    Quando o cockpit trocou o fundo preto pelo branco da marca, o ciano do
-    plano e o amarelo do laser sumiram junto. Cor duplicada em JavaScript é o
-    que faz a próxima troca de tema consertar quatro painéis e esquecer dois.
+    When the cockpit swapped the black background for the brand's white, the
+    plane's cyan and the laser's yellow disappeared along with it. Colour
+    duplicated in JavaScript is what makes the next theme swap fix four panels
+    and forget two.
     """
     for name in ('nav-panel.js', 'detection-overlay.js'):
         source = (BUNDLE / 'js' / 'panels' / name).read_text(encoding='utf-8')
         literals = re.findall(r"= '(#[0-9a-fA-F]{3,8})'", source)
-        assert not literals, f'{name} ainda tem cor literal: {literals}'
+        assert not literals, f'{name} still has a literal colour: {literals}'
         assert 'readMapPalette' in source
 
 
 def test_logos_are_present_and_have_alpha():
     """
-    As marcas são tinta branca com alfa, e é por isso que a barra é azul.
+    The brand marks are white ink with alpha, which is why the bar is blue.
 
-    Um PNG opaco aqui viraria um retângulo branco sobre o azul — e o teste
-    existe porque o arquivo é fácil de substituir por um JPG achatado.
+    An opaque PNG here would turn into a white rectangle over the blue — and
+    the test exists because the file is easy to replace with a flattened JPG.
     """
     for name in ('toradex.png', 'ros.png'):
         blob = (BUNDLE / 'img' / name).read_bytes()
-        assert blob[:8] == b'\x89PNG\r\n\x1a\n', f'{name} não é PNG'
-        # Byte 25 do IHDR é o color type; 6 = RGBA, 4 = cinza+alfa.
-        assert blob[25] in (4, 6), f'{name} não tem canal alfa'
+        assert blob[:8] == b'\x89PNG\r\n\x1a\n', f'{name} is not a PNG'
+        # Byte 25 of the IHDR is the color type; 6 = RGBA, 4 = grey+alpha.
+        assert blob[25] in (4, 6), f'{name} has no alpha channel'
 
     html = INDEX_HTML.read_text(encoding='utf-8')
     assert 'img/toradex.png' in html and 'img/ros.png' in html
     assert 'alt="Toradex"' in html and 'alt="ROS 2"' in html, (
-        'sem alt, um kiosk sem imagem não diz de quem é a demo'
+        'without alt, a kiosk with no image does not say whose demo this is'
     )
 
 
 def test_stub_detections_are_not_drawn_over_the_video():
     """
-    Nada desenha as detecções do stub sobre a câmera.
+    Nothing draws the stub's detections over the camera.
 
-    O `demo_perception` de hoje varre uma caixa sintética pela imagem quer haja
-    objeto ali ou não. Sobre o vídeo isso vira um retângulo passeando de um lado
-    para o outro, e numa demo o espectador lê aquilo como detecção de verdade.
+    Today's `demo_perception` sweeps a synthetic box across the image whether
+    there is an object there or not. Over the video that turns into a
+    rectangle wandering from one side to the other, and in a demo the viewer
+    reads that as a real detection.
 
-    O que NÃO está sob teste: as detecções continuarem chegando e alimentando a
-    perception_layer do costmap. Isso é o contrato de tópicos do CLAUDE.md e não
-    mudou — o que saiu foi só o desenho. O módulo de overlay segue no bundle,
-    testado, para quando o TIDL substituir o stub.
+    What is NOT under test: detections continuing to arrive and feed the
+    costmap's perception_layer. That is CLAUDE.md's topic contract and it did
+    not change — what left was only the drawing. The overlay module stays in
+    the bundle, tested, for when TIDL replaces the stub.
     """
     html = INDEX_HTML.read_text(encoding='utf-8')
     assert 'data-role="detections"' not in html, (
-        'o canvas de detecções voltou ao painel da câmera'
+        'the detections canvas came back to the camera panel'
     )
     main = (BUNDLE / 'js' / 'main.js').read_text(encoding='utf-8')
     assert 'createDetectionOverlay' not in main
     assert (BUNDLE / 'js' / 'panels' / 'detection-overlay.js').exists(), (
-        'o overlay deve continuar no bundle: ele volta com o TIDL'
+        'the overlay must stay in the bundle: it comes back with TIDL'
     )
 
 
 def test_scene_cameras_keep_the_measured_aspect_ratio():
     """
-    A resolução pode subir; a proporção 4:3 não pode mudar.
+    Resolution can go up; the 4:3 ratio must not change.
 
-    O horizontal_fov e as poses das duas câmeras foram medidos nesta proporção
-    (ver o cabeçalho de scene_cameras.launch.py). Ir para 16:9 mantendo o hfov
-    corta vertical e desenquadra as duas cenas de uma vez — sem erro nenhum,
-    só um robô fora do quadro.
+    The horizontal_fov and the poses of both cameras were measured at this
+    ratio (see the header of scene_cameras.launch.py). Going to 16:9 while
+    keeping the hfov crops vertically and misframes both scenes at once — with
+    no error at all, just a robot out of frame.
     """
     for name in ('cockpit_scene_iso.sdf', 'cockpit_scene_top.sdf'):
         sdf = (SIMULATION / 'models' / name).read_text(encoding='utf-8')
         width = int(re.search(r'<width>(\d+)</width>', sdf).group(1))
         height = int(re.search(r'<height>(\d+)</height>', sdf).group(1))
-        assert width * 3 == height * 4, f'{name} deixou de ser 4:3 ({width}x{height})'
+        assert width * 3 == height * 4, f'{name} stopped being 4:3 ({width}x{height})'
 
 
 # --------------------------------------------------------------------------
-# Câmera seguindo o robô, e reinício da navegação a partir do cockpit
-# (pedido do operador, 24/08/2026: logo maior, resetar o alvo reiniciando o ROS
-# de navegação no Aquila, e vista trackeada ao robô nas duas câmeras).
+# Camera following the robot, and navigation restart from the cockpit
+# (operator request, 24/08/2026: bigger logo, reset the goal by restarting
+# the navigation ROS stack on the Aquila, and a view tracked to the robot on
+# both cameras).
 # --------------------------------------------------------------------------
 
 SCENE_VIEW_CONTROLLER = SIMULATION / 'demo_simulation' / 'scene_view_controller.py'
@@ -506,9 +513,9 @@ NAV_CONTROL_LAUNCH = NAVIGATION / 'launch' / 'nav_control.launch.py'
 NAV_PANEL_JS = BUNDLE / 'js' / 'panels' / 'nav-panel.js'
 PANELS_CSS = BUNDLE / 'css' / 'panels.css'
 LAYOUT_CSS = BUNDLE / 'css' / 'layout.css'
-# Os dois entrypoints explícitos de navegação. Os dois sobem o
-# lifecycle_manager_navigation, então os dois têm de expor a fachada de reinício
-# — o modo como isso quebra é o botão funcionar num ROBOT_TYPE e não no outro.
+# The two explicit navigation entrypoints. Both bring up the
+# lifecycle_manager_navigation, so both must expose the restart facade — the
+# way this breaks is the button working on one ROBOT_TYPE and not the other.
 NAV_ENTRYPOINTS = (
     NAVIGATION / 'launch' / 'navigation.launch.py',
     REPO_ROOT / 'ros2_ws' / 'src' / 'demo_bringup' / 'launch'
@@ -518,14 +525,14 @@ NAV_ENTRYPOINTS = (
 
 def _python_code(source: str) -> str:
     """
-    Código Python sem comentário e sem docstring.
+    Python code without comments and without docstrings.
 
-    Mesma razão do `_code_lines` acima, um andar mais fundo: os cabeçalhos destes
-    nós EXPLICAM por que a localização não é resetada, e citam o nome do
-    gerenciador ao fazê-lo. Uma busca ingênua proibiria a documentação da regra.
+    Same reason as `_code_lines` above, one floor deeper: these nodes' headers
+    EXPLAIN why localization is not reset, and cite the manager's name while
+    doing it. A naive search would forbid the documentation of the rule.
 
-    Via ast, e não por regex: uma docstring com aspas triplas dentro de uma
-    f-string é exatamente o caso que o regex erra em silêncio.
+    Via ast, not regex: a docstring with triple quotes inside an f-string is
+    exactly the case a regex silently gets wrong.
     """
     tree = ast.parse(source)
     for node in ast.walk(tree):
@@ -542,68 +549,71 @@ def _python_code(source: str) -> str:
 
 def test_scene_views_follow_the_robot_on_both_cameras():
     """
-    Seguir vale para as DUAS vistas, e o alvo é o robô.
+    Following applies to BOTH views, and the target is the robot.
 
-    Uma implementação que seguisse só a iso passaria por qualquer teste de
-    "existe seguimento" e falharia exatamente no botão iso/topo: a vista de topo
-    é a que o operador usa para ver o robô caminhar pelo labirinto.
+    An implementation that only followed the iso view would pass any "does
+    following exist" test and fail exactly on the iso/top button: the top
+    view is the one the operator uses to watch the robot walk through the
+    maze.
     """
     code = SCENE_VIEW_CONTROLLER.read_text(encoding='utf-8')
     assert 'def follow(self, anchor)' in code, (
-        'a Orbit não tem como seguir um alvo móvel'
+        'the Orbit has no way to follow a moving target'
     )
-    # O laço do tique percorre self._orbits, que contém as duas câmeras. Um
-    # `self._orbits['scene_iso']` literal aqui seria a regressão.
+    # The tick loop iterates self._orbits, which holds both cameras. A
+    # literal `self._orbits['scene_iso']` here would be the regression.
     assert 'for name, orbit in self._orbits.items()' in code
     assert "'scene_iso'" in code and "'scene_top'" in code
 
 
 def test_scene_follow_state_is_published_not_echoed():
     """
-    O botão `seguir` é pintado pelo nó, não pelo próprio clique.
+    The `follow` button is painted by the node, not by the click itself.
 
-    Mesma regra do rótulo de simulação: recarregar a página, abrir o cockpit numa
-    segunda tela ou desligar o seguimento por linha de comando são três casos em
-    que o clique local não sabe a resposta.
+    Same rule as the simulation label: reloading the page, opening the
+    cockpit on a second screen, or turning following off from the command
+    line are three cases where the local click does not know the answer.
     """
     node = SCENE_VIEW_CONTROLLER.read_text(encoding='utf-8')
     assert "'/demo/cockpit/scene/following'" in node, (
-        'o nó não publica o estado do seguimento'
+        'the node does not publish the following state'
     )
     assert 'TRANSIENT_LOCAL' in node, (
-        'sem durabilidade latched uma aba nova fica sem valor até a próxima '
-        'mudança'
+        'without latched durability a new tab has no value until the next '
+        'change'
     )
 
     code = '\n'.join(_code_lines(VIEW_CONTROLS_JS.read_text(encoding='utf-8')))
     assert 'FOLLOWING_TOPIC' in code and 'client.subscribe(' in code, (
-        'o cockpit não lê o estado do seguimento de tópico nenhum'
+        'the cockpit does not read the following state from any topic'
     )
     assert 'following = wanted' not in code, (
-        'o botão está sendo pintado pelo clique; o valor tem de vir do nó'
+        'the button is being painted by the click; the value must come from '
+        'the node'
     )
 
 
 def test_follow_anchor_carries_the_odom_to_world_seed():
     """
-    /demo/odom não é a pose no mundo nas duas plantas, e a diferença é silenciosa.
+    /demo/odom is not the pose in the world on both plants, and the difference is silent.
 
-    No quadrúpede é ground truth do Gazebo. No diff-drive o plugin DiffDrive
-    integra encoders a partir de zero, então a origem do odom é a pose de SPAWN.
-    Sem o seed, um `x:=5` faz a câmera seguir um ponto 5 m ao lado do robô — e um
-    `yaw:=` faz o erro crescer com a distância.
+    On the quadruped it is Gazebo ground truth. On diff-drive the DiffDrive
+    plugin integrates encoders from zero, so the odom origin is the SPAWN
+    pose. Without the seed, an `x:=5` makes the camera follow a point 5 m
+    beside the robot — and a `yaw:=` makes the error grow with distance.
     """
     node = SCENE_VIEW_CONTROLLER.read_text(encoding='utf-8')
     for name in ('follow_offset_x', 'follow_offset_y', 'follow_offset_yaw'):
-        assert f"'{name}'" in node, f'{name} não é declarado pelo nó'
-    # O yaw tem de ser APLICADO, não apenas declarado: uma rotação ignorada é
-    # exatamente o erro que cresce com a distância percorrida.
+        assert f"'{name}'" in node, f'{name} is not declared by the node'
+    # The yaw must be APPLIED, not just declared: an ignored rotation is
+    # exactly the error that grows with distance travelled.
     assert 'math.cos(syaw)' in node and 'math.sin(syaw)' in node, (
-        'o seed de yaw é declarado e não usado'
+        'the yaw seed is declared and unused'
     )
 
-    # A planta diff-drive passa a pose de spawn; a quadrúpede NÃO passa nada,
-    # porque somaria a pose duas vezes sobre uma odometria que já é do mundo.
+    # The diff-drive plant passes the spawn pose; the quadruped plant passes
+    # NOTHING, because it would add the pose twice on top of an odometry
+    # that is already world-frame.
     diffdrive = (SIMULATION / 'launch' / 'simulation.launch.py').read_text(
         encoding='utf-8')
     assert "'follow_offset_x': LaunchConfiguration('x')" in diffdrive
@@ -612,24 +622,24 @@ def test_follow_anchor_carries_the_odom_to_world_seed():
     quadruped = (SIMULATION / 'launch' / 'quadruped.launch.py').read_text(
         encoding='utf-8')
     assert 'follow_offset' not in quadruped, (
-        'a planta quadrúpede tem odometria ground truth: um seed aqui somaria a '
-        'pose de spawn duas vezes'
+        'the quadruped plant has ground-truth odometry: a seed here would add '
+        'the spawn pose twice'
     )
 
 
 def test_nav_reset_facade_ships_with_both_navigation_paths():
     """
-    A fachada de reinício sobe nos DOIS caminhos de navegação.
+    The restart facade ships on BOTH navigation paths.
 
-    Os dois sobem o `lifecycle_manager_navigation`, então os dois podem ser
-    reiniciados. Se ela subisse só num, o botão do cockpit funcionaria com um
-    ROBOT_TYPE e não com o outro — sem erro em lugar nenhum, porque o serviço
-    simplesmente não existiria.
+    Both bring up `lifecycle_manager_navigation`, so both can be restarted.
+    If it only shipped on one, the cockpit button would work on one
+    ROBOT_TYPE and not the other — with no error anywhere, because the
+    service would simply not exist.
     """
     for path in NAV_ENTRYPOINTS:
         source = path.read_text(encoding='utf-8')
         assert 'nav_control.launch.py' in source, (
-            f'{path.name} sobe o Nav2 sem a fachada de reinício'
+            f'{path.name} brings up Nav2 without the restart facade'
         )
 
     launch = NAV_CONTROL_LAUNCH.read_text(encoding='utf-8')
@@ -639,24 +649,25 @@ def test_nav_reset_facade_ships_with_both_navigation_paths():
     assert (
         'nav_control_relay = demo_navigation.nav_control_relay:main'
         in entry_points
-    ), 'o executável não está registrado; o launch falha ao encontrá-lo'
+    ), 'the executable is not registered; the launch fails to find it'
 
 
 def test_nav_reset_never_uses_reset_startup_because_it_segfaults():
     """
-    Reiniciar é PAUSE + RESUME, nunca RESET + STARTUP.
+    Restart is PAUSE + RESUME, never RESET + STARTUP.
 
-    Medido em 24/08/2026, learn, caminho quadrúpede: RESET seguido de STARTUP
-    mata o `component_container_isolated` com SIGSEGV (exit code -11), sempre no
-    segundo CONFIGURE do `route_server`, em "Configuring Rerouting service
-    operation". Duas tentativas, duas mortes idênticas. Depois disso não existe
-    navegação nenhuma — só `docker compose restart nav` traz de volta.
+    Measured on 24/08/2026, learn, quadruped path: RESET followed by STARTUP
+    kills the `component_container_isolated` with SIGSEGV (exit code -11),
+    always on the second CONFIGURE of `route_server`, in "Configuring
+    Rerouting service operation". Two attempts, two identical deaths. After
+    that there is no navigation at all — only `docker compose restart nav`
+    brings it back.
 
-    `route_server` está na lista `lifecycle_nodes` do navigation_launch.py
-    vendorizado, que é cópia upstream e tem de seguir idêntica, e este projeto
-    não usa rota nenhuma. Enquanto ele estiver na lista gerenciada, RESET é
-    proibido: um botão de consertar a navegação que mata a navegação é pior que
-    nenhum botão.
+    `route_server` is in the vendored navigation_launch.py's `lifecycle_nodes`
+    list, which is an upstream copy and must stay identical, and this project
+    uses no routing at all. As long as it stays in the managed list, RESET is
+    forbidden: a button meant to fix navigation that kills navigation is
+    worse than no button.
     """
     relay = NAV_CONTROL_RELAY.read_text(encoding='utf-8')
     code = _python_code(relay)
@@ -664,43 +675,44 @@ def test_nav_reset_never_uses_reset_startup_because_it_segfaults():
     assert 'ManageLifecycleNodes.Request.RESUME' in code
     for forbidden in ('Request.RESET', 'Request.STARTUP'):
         assert forbidden not in code, (
-            f'{forbidden} volta a passar pelo CONFIGURE do route_server, que '
-            'mata o container — ver o docstring deste teste'
+            f'{forbidden} goes back through route_server\'s CONFIGURE, which '
+            'kills the container — see this test\'s docstring'
         )
-    # A alternativa ao CONFIGURE: o costmap é esvaziado pelos serviços dos
-    # próprios nós de costmap, sem passar pelo ciclo de vida. Sem isto o reset
-    # deixaria o obstáculo fantasma que suja uma demo longa.
+    # The alternative to CONFIGURE: the costmap is cleared by the costmap
+    # nodes' own services, without going through the lifecycle. Without this
+    # the reset would leave the phantom obstacle that ruins a long demo.
     assert 'clear_entirely_global_costmap' in code
     assert 'clear_entirely_local_costmap' in code
 
     assert 'lifecycle_manager_localization' not in code, (
-        'a fachada está mexendo na localização junto; ver o cabeçalho dela'
+        'the facade is touching localization too; see its header'
     )
-    # O timeout é medido no relógio de PAREDE. Este nó roda com use_sim_time e um
-    # Nav2 desativado coexiste com um /clock parado: medir no tempo simulado
-    # transforma "expirou" em "espera para sempre".
+    # The timeout is measured on the WALL clock. This node runs with
+    # use_sim_time and a deactivated Nav2 coexists with a stopped /clock:
+    # measuring on simulated time turns "timed out" into "wait forever".
     assert 'time.monotonic()' in relay
     assert 'self.get_clock()' not in relay
 
 
 def test_nav_reset_needs_two_clicks_and_the_browser_speaks_std_srvs():
     """
-    Reiniciar é destrutivo e leva dezenas de segundos: dois cliques, como o
-    reset da simulação.
+    Restarting is destructive and takes tens of seconds: two clicks, like the
+    simulation reset.
 
-    E a chamada é a fachada std_srvs, não o manage_nodes. Aqui `nav2_msgs` até
-    existe no container do cockpit — é o pacote do NavigateToPose que a meta
-    usa — então o motivo não é o da armadilha do Gazebo: é que a sequência tem um
-    estado inválido no meio e não pode depender da página continuar aberta.
+    And the call is the std_srvs facade, not manage_nodes. Here `nav2_msgs`
+    does exist in the cockpit container — it's the package NavigateToPose's
+    goal uses — so the reason is not the Gazebo trap: it's that the sequence
+    has an invalid state in the middle and cannot depend on the page staying
+    open.
     """
     code = '\n'.join(_code_lines(NAV_PANEL_JS.read_text(encoding='utf-8')))
-    assert "'/demo/nav/reset'" in code, 'o painel não chama a fachada'
+    assert "'/demo/nav/reset'" in code, 'the panel does not call the facade'
     assert 'manage_nodes' not in code, (
-        'o navegador está conduzindo o ciclo de vida do Nav2 direto; um F5 no '
-        'meio deixa a pilha desativada'
+        'the browser is driving Nav2\'s lifecycle directly; an F5 in the '
+        'middle leaves the stack deactivated'
     )
     assert 'RESET_ARM_MS' in code and "dataset.armed = 'true'" in code, (
-        'reiniciar a navegação não está atrás de confirmação'
+        'restarting navigation is not gated behind confirmation'
     )
 
 
@@ -723,32 +735,33 @@ def test_nav_map_has_bounded_zoom_controls_that_do_not_send_goals():
 
 def test_toradex_logo_doubled_and_the_bar_grew_with_it():
     """
-    A marca da Toradex é 2x a original, e a faixa reserva altura para ela.
+    The Toradex mark is 2x the original, and the bar reserves height for it.
 
-    O 34 px original foi ajustado na tela contra o logo do ROS; o pedido era
-    dobrar a Toradex. O que este teste guarda não é o número: é o acoplamento.
-    `.bar` tem overflow-x e não -y, então subir o logo sem subir o mínimo da
-    linha da grade CORTA a marca, sem barra de rolagem e sem erro nenhum.
+    The original 34 px was tuned on screen against the ROS logo; the request
+    was to double the Toradex one. What this test guards is not the number:
+    it is the coupling. `.bar` has overflow-x and not -y, so raising the logo
+    without raising the grid row's minimum CROPS the mark, with no scrollbar
+    and no error at all.
     """
     tokens = TOKENS_CSS.read_text(encoding='utf-8')
     toradex = int(re.search(r'--logo-toradex:\s*(\d+)px', tokens).group(1))
     bar_min = int(re.search(r'--bar-min-height:\s*(\d+)px', tokens).group(1))
 
     assert toradex >= 68, (
-        f'a marca da Toradex voltou a {toradex}px; o pedido era ao menos 2x os '
-        '34px originais'
+        f'the Toradex mark went back to {toradex}px; the request was at '
+        'least 2x the original 34px'
     )
     assert bar_min >= toradex + 10, (
-        f'a faixa reserva {bar_min}px para um logo de {toradex}px mais 10px de '
-        'padding: a marca é cortada'
+        f'the bar reserves {bar_min}px for a {toradex}px logo plus 10px of '
+        'padding: the mark gets cropped'
     )
 
-    # A altura vem do token nos dois lados. Um literal em px em qualquer um
-    # deles é exatamente como os dois números divergem.
+    # The height comes from the token on both sides. A literal px value on
+    # either one is exactly how the two numbers drift apart.
     panels = PANELS_CSS.read_text(encoding='utf-8')
     assert 'height: var(--logo-toradex)' in panels
     layout = LAYOUT_CSS.read_text(encoding='utf-8')
     assert 'minmax(var(--bar-min-height)' in layout
     assert 'minmax(48px' not in layout, (
-        'a linha da barra voltou a um mínimo literal, dessincronizado do logo'
+        'the bar row went back to a literal minimum, out of sync with the logo'
     )

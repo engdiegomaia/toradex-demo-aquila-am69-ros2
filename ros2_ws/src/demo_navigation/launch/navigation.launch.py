@@ -89,17 +89,17 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
-    # Fachada std_srvs do "resetar meta" do cockpit. Fragmento compartilhado
-    # com nav_quadruped.launch.py — ver o cabeçalho de nav_control.launch.py
-    # para por que ele é um include e não um bloco Node duplicado.
+    # std_srvs facade for the cockpit's "reset goal". Fragment shared with
+    # nav_quadruped.launch.py — see the header of nav_control.launch.py for
+    # why it is an include and not a duplicated Node block.
     nav_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_navigation'),
             'launch', 'nav_control.launch.py',
         ])),
-        # Sem launch_arguments: o relay nao declara mais use_sim_time, porque
-        # nao chama o relogio. Passar aqui agora e erro de launch, e essa e a
-        # intencao -- ver nav_control.launch.py.
+        # No launch_arguments: the relay no longer declares use_sim_time,
+        # because it does not call the clock. Passing it here now would be a
+        # launch error, and that is intentional -- see nav_control.launch.py.
     )
 
     return LaunchDescription([

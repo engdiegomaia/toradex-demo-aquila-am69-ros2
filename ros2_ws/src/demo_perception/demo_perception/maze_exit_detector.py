@@ -228,7 +228,7 @@ def find_fiducial(image: Image, dictionary_name: str, marker_id: int) -> dict:
     """
     array = _image_to_bgr_array(image)
     if array is None:
-        return {'ids_found': [], 'corners': None, 'reject_reason': 'imagem invalida'}
+        return {'ids_found': [], 'corners': None, 'reject_reason': 'invalid image'}
 
     dictionary = cv2.aruco.getPredefinedDictionary(FIDUCIAL_DICTIONARIES[dictionary_name])
     parameters = cv2.aruco.DetectorParameters_create()
@@ -236,7 +236,7 @@ def find_fiducial(image: Image, dictionary_name: str, marker_id: int) -> dict:
     ids_found = [] if ids is None else [int(i) for i in ids.flatten()]
 
     if marker_id not in ids_found:
-        reason = 'nenhuma tag encontrada' if not ids_found else 'id incorreto'
+        reason = 'no tag found' if not ids_found else 'incorrect id'
         return {'ids_found': ids_found, 'corners': None, 'reject_reason': reason}
 
     corners = all_corners[ids_found.index(marker_id)][0]  # shape (4, 2)
@@ -244,7 +244,7 @@ def find_fiducial(image: Image, dictionary_name: str, marker_id: int) -> dict:
     if not _corners_fully_inside(corners, width, height):
         return {
             'ids_found': ids_found, 'corners': corners,
-            'reject_reason': 'tag parcialmente fora da imagem',
+            'reject_reason': 'tag partially outside the image',
         }
     return {'ids_found': ids_found, 'corners': corners, 'reject_reason': None}
 
@@ -382,17 +382,17 @@ class MazeExitDetector(Node):
 
         if detection['corners'] is not None and reject_reason is None:
             if self._info is None:
-                reject_reason = 'sem camera_info'
+                reject_reason = 'no camera_info'
             else:
                 pose_data = fiducial_pose(
                     detection['corners'], self._info, marker_size_m)
                 if pose_data is None:
-                    reject_reason = 'pose nao finita'
+                    reject_reason = 'pose not finite'
                 elif pose_data['reprojection_error_px'] > max_reprojection_error_px:
-                    reject_reason = 'erro de reprojecao acima do limite'
+                    reject_reason = 'reprojection error above the limit'
                     pose_data = None
                 elif not FIDUCIAL_MIN_RANGE_M <= pose_data['range_m'] <= FIDUCIAL_MAX_RANGE_M:
-                    reject_reason = 'distancia fora dos limites'
+                    reject_reason = 'distance out of range'
                     pose_data = None
 
         detection['reject_reason'] = reject_reason

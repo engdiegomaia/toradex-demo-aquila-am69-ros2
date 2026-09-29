@@ -1,13 +1,13 @@
 """
-Confirmação temporal do detector da saída, e o que ele se recusa a publicar.
+Temporal confirmation of the exit detector, and what it refuses to publish.
 
-`test_maze_exit_detector.py` cobre as funções puras -- a segmentação e a
-geometria. O que está aqui é a parte que decide QUANDO o explorador é
-interrompido: um único quadro magenta não pode cancelar uma meta de fronteira, e
-uma pose sem intrínsecos não pode ser inventada.
+`test_maze_exit_detector.py` covers the pure functions -- segmentation and
+geometry. What is here is the part that decides WHEN the explorer is
+interrupted: a single magenta frame must not cancel a frontier goal, and a
+pose without intrinsics must not be invented.
 
-O detector nunca sabe onde a saída está. Ele sabe que viu um painel magenta,
-quantas vezes seguidas, e a que distância -- e é só isso que ele diz.
+The detector never knows where the exit is. It knows it saw a magenta panel,
+how many times in a row, and at what distance -- and that is all it says.
 """
 
 from demo_perception.maze_exit_detector import MazeExitDetector
@@ -23,7 +23,7 @@ PANEL = (255, 0, 255)
 def image_with_panel(width: int = 64, height: int = 48,
                      box: tuple[int, int, int, int] = (16, 12, 48, 36),
                      encoding: str = 'rgb8') -> Image:
-    """Um quadro com um retângulo magenta saturado, como o painel no Gazebo."""
+    """Build a frame with a saturated magenta rectangle, like the panel in Gazebo."""
     message = Image()
     message.header.frame_id = 'front_camera'
     message.width = width
@@ -41,7 +41,7 @@ def image_with_panel(width: int = 64, height: int = 48,
 
 
 def blank_image() -> Image:
-    """O mesmo quadro sem painel nenhum."""
+    """Return the same frame with no panel at all."""
     image = image_with_panel()
     image.data = bytes(len(image.data))
     return image
@@ -49,11 +49,11 @@ def blank_image() -> Image:
 
 def camera_info(fx: float = 40.0) -> CameraInfo:
     """
-    Intrínsecos para a câmera de 64 px deste teste.
+    Intrinsics for this test's 64 px camera.
 
-    `fx` é parâmetro porque a distância estimada é `fx * 0,8 / largura_px`: qual
-    largura cai fora da banda útil depende da lente, e testar os extremos exige
-    escolher a lente em que aquele extremo existe.
+    `fx` is a parameter because the estimated distance is `fx * 0.8 / width_px`:
+    which width falls outside the usable band depends on the lens, and testing
+    the extremes requires choosing the lens in which that extreme exists.
     """
     info = CameraInfo()
     info.k = [fx, 0.0, 32.0, 0.0, fx, 24.0, 0.0, 0.0, 1.0]
@@ -63,12 +63,12 @@ def camera_info(fx: float = 40.0) -> CameraInfo:
 @pytest.fixture
 def node():
     """
-    Detector com stride 1 e as saídas capturadas em vez de publicadas.
+    Detector with stride 1 and the outputs captured instead of published.
 
-    `detector_backend` fixado em 'magenta' porque este arquivo testa
-    especificamente o portão de confirmação e a geometria do painel magenta
-    (`test_maze_exit_detector.py` cobre o backend fiducial); o default do nó
-    mudou para 'fiducial' quando a tag foi adicionada.
+    `detector_backend` pinned to 'magenta' because this file specifically
+    tests the confirmation gate and the magenta panel geometry
+    (`test_maze_exit_detector.py` covers the fiducial backend); the node's
+    default changed to 'fiducial' when the tag was added.
     """
     rclpy.init()
     detector = MazeExitDetector()
@@ -87,24 +87,24 @@ def node():
 
 
 def confirmed(detector) -> list:
-    """As mensagens de detecção que de fato carregam uma caixa."""
+    """Return the detection messages that actually carry a box."""
     return [message for message in detector.detections if message.detections]
 
 
 def test_one_frame_is_not_enough_to_interrupt_the_explorer(node) -> None:
     """
-    Um quadro só é ruído, e cancelar a meta de fronteira por ruído custa caro.
+    A single frame is only noise, and cancelling the frontier goal over noise is expensive.
 
-    O explorador cancela a meta em voo assim que a pose fica fresca. Se um
-    reflexo bastasse, ele oscilaria entre `navigating` e `homing_exit` e o robô
-    pararia a cada falso positivo.
+    The explorer cancels the in-flight goal as soon as the pose is fresh. If
+    a reflection were enough, it would oscillate between `navigating` and
+    `homing_exit` and the robot would stop at every false positive.
     """
     node._on_image(image_with_panel())
     assert confirmed(node) == []
 
 
 def test_three_frames_in_the_window_confirm(node) -> None:
-    """3 de 5 é o critério declarado; o terceiro quadro é o que publica."""
+    """3 out of 5 is the declared criterion; the third frame is what publishes."""
     for _ in range(2):
         node._on_image(image_with_panel())
     assert confirmed(node) == []
@@ -113,7 +113,7 @@ def test_three_frames_in_the_window_confirm(node) -> None:
 
 
 def test_a_gap_inside_the_window_still_confirms(node) -> None:
-    """O critério é 3 EM 5, não 3 seguidos: o painel pisca com a marcha."""
+    """The criterion is 3 IN 5, not 3 in a row: the panel flickers with gait."""
     node._on_image(image_with_panel())
     node._on_image(blank_image())
     node._on_image(image_with_panel())
@@ -123,7 +123,7 @@ def test_a_gap_inside_the_window_still_confirms(node) -> None:
 
 
 def test_losing_the_panel_drops_below_the_threshold_again(node) -> None:
-    """Sair da janela é como o detector diz que perdeu o marcador."""
+    """Falling out of the window is how the detector says it lost the marker."""
     for _ in range(3):
         node._on_image(image_with_panel())
     assert len(confirmed(node)) == 1
@@ -134,10 +134,11 @@ def test_losing_the_panel_drops_below_the_threshold_again(node) -> None:
 
 def test_the_current_frame_must_itself_be_valid(node) -> None:
     """
-    Três confirmações antigas não autorizam publicar sobre um quadro vazio.
+    Three old confirmations do not authorize publishing over an empty frame.
 
-    A caixa publicada tem de vir do quadro que acabou de chegar; herdar a
-    anterior daria ao explorador uma direção que ninguém está mais vendo.
+    The published box must come from the frame that just arrived; inheriting
+    the previous one would give the explorer a direction nobody is seeing
+    anymore.
     """
     for _ in range(3):
         node._on_image(image_with_panel())
@@ -147,7 +148,7 @@ def test_the_current_frame_must_itself_be_valid(node) -> None:
 
 
 def test_detections_are_published_every_frame_even_when_empty(node) -> None:
-    """Silêncio e "não vejo nada" têm de ser distinguíveis do lado do consumidor."""
+    """Silence and "I see nothing" must be distinguishable on the consumer side."""
     for _ in range(4):
         node._on_image(blank_image())
     assert len(node.detections) == 4
@@ -156,10 +157,10 @@ def test_detections_are_published_every_frame_even_when_empty(node) -> None:
 
 def test_a_panel_too_small_is_refused_even_when_repeated(node) -> None:
     """
-    Abaixo da caixa mínima a distância estimada não tem precisão nenhuma.
+    Below the minimum box the estimated distance has no precision at all.
 
-    A distância sai da LARGURA em pixels; a poucos pixels, um pixel de erro na
-    borda vira metros de erro no alvo.
+    The distance comes from the WIDTH in pixels; at few pixels, one pixel of
+    error at the edge turns into metres of error on the target.
     """
     tiny = image_with_panel(box=(30, 22, 36, 28))
     for _ in range(5):
@@ -169,12 +170,13 @@ def test_a_panel_too_small_is_refused_even_when_repeated(node) -> None:
 
 def test_no_pose_without_camera_info(node) -> None:
     """
-    Sem intrínsecos não há distância, e inventar uma é pior do que não publicar.
+    Without intrinsics there is no distance, and inventing one is worse than not publishing.
 
-    Isto NÃO é hipotético no HIL: a imagem chega ao módulo por um caminho
-    próprio (comprimida, religada por remap de launch) e o `camera_info` chega
-    por outro. Se só um dos dois atravessar, a detecção aparece e a pose nunca
-    sai -- e este é o teste que nomeia esse modo de falha.
+    This is NOT hypothetical on the HIL: the image reaches the module by its
+    own path (compressed, rewired by a launch remap) and `camera_info` arrives
+    by another. If only one of the two gets through, the detection appears
+    and the pose never comes out -- and this is the test that names that
+    failure mode.
     """
     for _ in range(4):
         node._on_image(image_with_panel())
@@ -183,7 +185,7 @@ def test_no_pose_without_camera_info(node) -> None:
 
 
 def test_pose_is_published_in_the_camera_frame_once_intrinsics_arrive(node) -> None:
-    """A pose sai no frame do quadro; quem a transforma para `map` é o explorador."""
+    """The pose comes out in the frame's frame; the explorer transforms it to `map`."""
     node._on_info(camera_info())
     for _ in range(3):
         node._on_image(image_with_panel())
@@ -195,10 +197,10 @@ def test_pose_is_published_in_the_camera_frame_once_intrinsics_arrive(node) -> N
 
 def test_a_panel_filling_the_frame_is_too_near_to_be_the_exit(node) -> None:
     """
-    Abaixo de 0,3 m o que se vê é uma parede colada na lente, não a saída.
+    Below 0.3 m what is seen is a wall pressed against the lens, not the exit.
 
-    fx = 20 numa imagem de 64 px é a lente em que "quadro inteiro" cai abaixo
-    da banda: 20 x 0,8 / 64 = 0,25 m.
+    fx = 20 on a 64 px image is the lens where "full frame" falls below the
+    band: 20 x 0.8 / 64 = 0.25 m.
     """
     node._on_info(camera_info(fx=20.0))
     full_frame = image_with_panel(box=(0, 0, 64, 48))
@@ -210,12 +212,12 @@ def test_a_panel_filling_the_frame_is_too_near_to_be_the_exit(node) -> None:
 
 def test_a_panel_at_the_horizon_is_too_far_to_be_trusted(node) -> None:
     """
-    Acima de 8 m a largura em pixels não sustenta a estimativa.
+    Above 8 m the width in pixels no longer supports the estimate.
 
-    fx = 200 com uma caixa de 12 px -- a menor que o detector aceita -- dá
-    13,3 m: a detecção é publicada, a pose não. A distinção importa: o
-    explorador não deve abandonar a fronteira por um marcador que ele ainda não
-    consegue medir.
+    fx = 200 with a 12 px box -- the smallest the detector accepts -- gives
+    13.3 m: the detection is published, the pose is not. The distinction
+    matters: the explorer must not abandon the frontier over a marker it still
+    cannot measure.
     """
     node._on_info(camera_info(fx=200.0))
     distant = image_with_panel(box=(26, 18, 38, 30))
@@ -227,11 +229,11 @@ def test_a_panel_at_the_horizon_is_too_far_to_be_trusted(node) -> None:
 
 def test_the_marker_detections_never_reach_the_costmap_topic(node) -> None:
     """
-    O painel é uma pista visual, não um obstáculo.
+    The panel is a visual cue, not an obstacle.
 
-    `detections_to_cloud` assina `/demo/perception/detections`. Publicar o
-    marcador ali o transformaria em obstáculo no costmap, exatamente em frente
-    à abertura que o robô precisa atravessar.
+    `detections_to_cloud` subscribes to `/demo/perception/detections`.
+    Publishing the marker there would turn it into an obstacle in the
+    costmap, right in front of the opening the robot needs to cross.
     """
     topic = node._detections_pub.topic_name
     assert topic.endswith('/demo/perception/maze_exit/detections')

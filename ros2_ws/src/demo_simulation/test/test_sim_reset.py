@@ -1,37 +1,43 @@
 """
-Trava a semantica do botao de reset do cockpit.
+Locks down the semantics of the cockpit reset button.
 
-POR QUE ESTE ARQUIVO EXISTE
+WHY THIS FILE EXISTS
 
-O reset ja foi `ControlWorld.reset.all`, e essa variante APAGA O ROBO. Medido em
-26/08/2026 no mundo `quadruped_maze11`, com uma unica chamada a /demo/sim/reset:
+The reset used to be `ControlWorld.reset.all`, and that variant DELETES THE
+ROBOT. Measured on 26/08/2026 in the `quadruped_maze11` world, with a single
+call to /demo/sim/reset:
 
-    /joint_states  999 Hz -> morto        gz model -m demo_robot
-    /demo/imu      996 Hz -> morto        =>  No model named <demo_robot>
-    /demo/odom    49,6 Hz -> morto
-    /demo/scan      10 Hz -> 10 Hz        (sensor orfao, segue publicando)
+    /joint_states  999 Hz -> dead         gz model -m demo_robot
+    /demo/imu      996 Hz -> dead         =>  No model named <demo_robot>
+    /demo/odom    49.6 Hz -> dead
+    /demo/scan      10 Hz -> 10 Hz        (orphan sensor, keeps publishing)
     /clock         999 Hz -> 997 Hz
 
-O robo e INSERIDO depois da carga do mundo (`ros_gz_sim create`), e `reset.all`
-devolve o mundo ao SDF de origem -- que nao o contem. O modo de falha e o pior
-que este projeto conhece: o cockpit fica inteiro verde (relogio, camera, cena)
-apontando para uma planta que nao existe mais, sem uma linha de log.
+The robot is INSERTED after the world loads (`ros_gz_sim create`), and
+`reset.all` returns the world to its source SDF -- which does not contain it.
+The failure mode is the worst this project knows: the cockpit stays entirely
+green (clock, camera, scene) pointing at a plant that no longer exists, with
+not a single line of log.
 
-Dois guardas, e nenhum precisa de Gazebo:
+Two guards, and neither needs Gazebo:
 
-  1. o relay nao sabe montar `reset` no WorldControl -- se alguem reabrir esse
-     caminho, `_request('reset')` volta a existir e o teste cai;
-  2. o launch resolve a pose de reposicao pela TABELA DO CENARIO, nao por (0,0).
-     No labirinto (0,0) nao e a origem da area util, e repor ali devolveria o
-     robo para dentro de uma parede -- em silencio;
-  3. o reset PARA o robo antes de teleportar e o reancora depois. Os dois
-     defeitos seguintes, medidos no mesmo dia, e os dois silenciosos:
-       - teleportar sem reancorar: o StateTrotting segue perseguindo a pose
-         anterior, o eixo de guinada satura em 100% dos ticks, o robo se
-         arrasta 0,87 m e COLAPSA a z=0,131 m contra 0,353 m de marcha;
-       - teleportar sem parar: `SetEntityPose` preserva a VELOCIDADE, e um robo
-         em marcha e solto de 0,15 m ainda viajando -- z de 0,337 m para
-         0,162 m em um segundo, com o fluxo de cmd_vel vivo.
+  1. the relay does not know how to assemble `reset` on the WorldControl --
+     if anyone reopens that path, `_request('reset')` starts working again
+     and the test fails;
+  2. launch resolves the reset pose from the SCENARIO TABLE, not (0,0). In
+     the maze (0,0) is not the origin of the usable area, and resetting
+     there would put the robot back inside a wall -- silently;
+  3. the reset STOPS the robot before teleporting and re-anchors it
+     afterwards. The two following defects, measured on the same day, are
+     both silent:
+       - teleporting without re-anchoring: StateTrotting keeps chasing the
+         previous pose, the yaw axis saturates at 100% of ticks, the robot
+         drags 0.87 m and COLLAPSES to z=0.131 m against a 0.353 m gait
+         height;
+       - teleporting without stopping: `SetEntityPose` preserves VELOCITY,
+         and a robot mid-gait is dropped 0.15 m while still travelling -- z
+         from 0.337 m to 0.162 m in one second, with the cmd_vel stream
+         still alive.
 """
 
 import importlib.util
@@ -62,12 +68,12 @@ def sim_control():
 
 
 def _context(world: str, **overrides) -> LaunchContext:
-    """Contexto como a planta do quadrupede o entrega ao fragmento incluido."""
+    """Context as the quadruped plant hands it to the included fragment."""
     context = LaunchContext()
     context.launch_configurations.update({
         'world': str(WORLDS_DIR / world),
         'robot_name': 'demo_robot',
-        # Vazio = "pergunte a tabela", igual ao ScenarioPose da planta.
+        # Empty = "ask the table", same as the plant's ScenarioPose.
         'x': '', 'y': '', 'yaw': '',
         'height': '0.5',
     })
@@ -75,7 +81,7 @@ def _context(world: str, **overrides) -> LaunchContext:
     return context
 
 
-# --- guarda 1: o WorldControl nao aceita mais reset ------------------------
+# --- guard 1: the WorldControl no longer accepts reset ----------------------
 
 def test_world_control_nao_monta_reset():
     with pytest.raises(ValueError):
@@ -86,13 +92,13 @@ def test_world_control_nao_monta_reset():
 def test_play_e_pause_seguem_no_world_control(action, paused):
     request = _request(action)
     assert request.world_control.pause is paused
-    # O que nao pode acontecer nunca: pausar/retomar reiniciando o mundo.
+    # What must never happen: pausing/resuming by restarting the world.
     assert request.world_control.reset.all is False
     assert request.world_control.reset.model_only is False
     assert request.world_control.reset.time_only is False
 
 
-# --- guarda 2: a pose de reposicao vem da tabela do cenario ----------------
+# --- guard 2: the reset pose comes from the scenario table ------------------
 
 def test_reposicao_usa_a_pose_do_cenario_do_labirinto(sim_control):
     world = 'quadruped_maze11.sdf'
@@ -101,8 +107,8 @@ def test_reposicao_usa_a_pose_do_cenario_do_labirinto(sim_control):
 
     assert params['spawn_x'] == pytest.approx(esperado['x'])
     assert params['spawn_y'] == pytest.approx(esperado['y'])
-    # O yaw do labirinto NAO e zero: nasce olhando para o corredor. Repor com
-    # yaw 0 poe o robo de frente para a parede.
+    # The maze yaw is NOT zero: it is born facing the corridor. Resetting
+    # with yaw 0 puts the robot facing the wall.
     assert params['spawn_yaw'] == pytest.approx(esperado['yaw'])
     assert params['spawn_yaw'] != 0.0
     assert params['robot_name'] == 'demo_robot'
@@ -118,7 +124,7 @@ def test_argumento_explicito_vence_a_tabela(sim_control):
 
 
 def test_altura_de_reposicao_segue_a_da_planta(sim_control):
-    """O quadrupede repoe na altura de NASCIMENTO, nao na de marcha."""
+    """The quadruped resets at its BIRTH height, not its gait height."""
     assert sim_control._reset_pose(
         _context('quadruped_maze11.sdf'))['spawn_z'] == pytest.approx(0.5)
     assert sim_control._reset_pose(
@@ -128,10 +134,11 @@ def test_altura_de_reposicao_segue_a_da_planta(sim_control):
 
 def test_planta_sem_height_cai_no_default_do_diffdrive(sim_control):
     """
-    `height` so existe na planta do quadrupede.
+    `height` only exists on the quadruped plant.
 
-    A diff-drive nasce com `-z 0.1` cravado no `create`; repo-la a 0,5 m seria
-    uma queda gratuita, e repor um quadrupede a 0,1 m mete as pernas no chao.
+    The diff-drive is born with `-z 0.1` hard-coded in `create`; resetting it
+    to 0.5 m would be a gratuitous fall, and resetting a quadruped to 0.1 m
+    drives its legs into the ground.
     """
     context = _context('quadruped_maze11.sdf')
     del context.launch_configurations['height']
@@ -140,7 +147,7 @@ def test_planta_sem_height_cai_no_default_do_diffdrive(sim_control):
     assert params['spawn_z'] == pytest.approx(0.1)
 
 
-# --- guarda 3: teleportar sem reancorar o gait ---------------------------
+# --- guard 3: teleporting without re-anchoring the gait ---------------------
 
 RELAY = (
     Path(__file__).resolve().parents[1]
@@ -150,11 +157,12 @@ RELAY = (
 
 def test_o_robo_para_antes_do_teleporte_e_retoma_depois():
     """
-    A ordem e o conteudo desta correcao, nao um detalhe de estilo.
+    The order and content of this fix, not a matter of style.
 
-    Parar DEPOIS de teleportar nao serve: o teleporte preserva a velocidade, e
-    quem cai e o robo em marcha. Reancorar ANTES nao serve: o
-    StateTrotting::enter() le a pose corrente, que ainda e a velha.
+    Stopping AFTER teleporting does not work: the teleport preserves
+    velocity, and it is the robot mid-gait that falls. Re-anchoring BEFORE
+    does not work either: StateTrotting::enter() reads the current pose,
+    which is still the old one.
     """
     assert 'HOLD_SERVICE' in RELAY
     assert 'RESUME_SERVICE' in RELAY
@@ -166,7 +174,7 @@ def test_o_robo_para_antes_do_teleporte_e_retoma_depois():
 
 
 def test_o_reset_espera_o_robo_parar_de_verdade():
-    """Sem espera, o hold e so uma chamada: o robo ainda esta em movimento."""
+    """Without a wait, the hold is just a call: the robot is still moving."""
     assert 'GAIT_STOP_S' in RELAY
     assert 'time.sleep(GAIT_STOP_S)' in RELAY
 
@@ -178,10 +186,10 @@ def test_o_reset_espera_o_robo_parar_de_verdade():
 
 def test_a_ausencia_do_gait_nao_reprova_o_reset():
     """
-    Na planta diferencial nao existe gait, e isso e caminho normal.
+    On the differential-drive plant there is no gait, and that is a normal path.
 
-    Se a reancoragem virar obrigatoria, o reset do diffdrive passa a falhar --
-    e o cockpit passa a mostrar erro num reset que funcionou.
+    If re-anchoring became mandatory, the diffdrive reset would start
+    failing -- and the cockpit would show an error on a reset that worked.
     """
     assert 'GAIT_TIMEOUT_S' in RELAY
     assert 'nothing to stop' in RELAY
@@ -189,18 +197,18 @@ def test_a_ausencia_do_gait_nao_reprova_o_reset():
 
 def test_a_falha_de_teleporte_nao_deixa_o_robo_preso_em_fixed_stand():
     """
-    Todo caminho de saida depois do hold tem de retomar.
+    Every exit path after the hold must resume.
 
-    Um robo deixado em FIXEDSTAND nao aceita comando nenhum, e nada em log diz
-    por que a demo parou de responder.
+    A robot left in FIXEDSTAND accepts no command at all, and nothing in the
+    log says why the demo stopped responding.
     """
     saidas = RELAY.count('self._resume_gait(gait)')
     assert saidas == 3, (
-        f'esperados 3 caminhos de retomada (timeout, recusa, sucesso), '
-        f'encontrados {saidas}'
+        f'expected 3 resume paths (timeout, refusal, success), '
+        f'found {saidas}'
     )
 
 
 def test_a_falha_de_reancoragem_nao_pode_ser_silenciosa():
-    """Um reset que teleporta e nao reancora deixa o robo se arrastando."""
+    """A reset that teleports and does not re-anchor leaves the robot dragging."""
     assert 'the gait was NOT re-anchored' in RELAY

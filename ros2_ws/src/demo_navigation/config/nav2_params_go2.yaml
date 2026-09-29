@@ -1,128 +1,140 @@
-# Parametros do Nav2 para o QUADRUPEDE Go2 (ML3.5 F5).
+# Nav2 parameters for the Go2 QUADRUPED (ML3.5 F5).
 #
-# Derivado de nav2_params.yaml, que e do TurtleBot 4 e continua valendo para o
-# diff-drive.  Sao dois robos com envelopes diferentes; um arquivo so nao serve
-# aos dois, e sobrescrever o do TB4 apagaria a sintonia dele.  A duplicacao e
-# deliberada e o preco de manter os dois caminhos vivos.
+# Derived from nav2_params.yaml, which is the TurtleBot 4's and remains valid
+# for the diff-drive robot. These are two robots with different envelopes; a
+# single file does not serve both, and overwriting the TB4's would erase its
+# tuning. The duplication is deliberate and is the price of keeping both paths
+# alive.
 #
-# TODOS os deltas em relacao ao arquivo do TB4 estao listados aqui, com a medicao
-# que os justifica.  Se voce mudar um, mude a razao junto.
+# ALL deltas relative to the TB4 file are listed here, with the measurement
+# that justifies them. If you change one, change the rationale along with it.
 #
 # ---------------------------------------------------------------------------
 # 1. robot_base_frame: base_link -> base
 #
-# O URDF do Go2 nao tem base_link.  Medido em 20/08/2026: a arvore tem raiz
-# `base`, e `base` -> `trunk` -> {lidar, imu_link, front_camera, 4 pernas}.
-# go2_description e vendorizado com garantia byte-a-byte que sustenta o argumento
-# de licenca (ver o README dele), entao o nome do frame e dado.  Quem cede e este
-# arquivo, que e do projeto.
+# The Go2's URDF has no base_link. Measured on 20/08/2026: the tree is rooted
+# at `base`, and `base` -> `trunk` -> {lidar, imu_link, front_camera, 4 legs}.
+# go2_description is vendored with a byte-for-byte guarantee that backs the
+# licensing argument (see its README), so the frame name is a given. This file
+# is the one that yields, since it belongs to the project.
 #
-# 2. robot_radius: 0.18 (TB4) -> pegada poligonal [+/-0.37, +/-0.18] (Go2)
+# 2. robot_radius: 0.18 (TB4) -> polygonal footprint [+/-0.37, +/-0.18] (Go2)
 #
-# O tronco do Go2 tem ~0,70 x 0,31 m. Ate 29/08/2026 este arquivo usava
-# `robot_radius: 0.38`, o raio CIRCUNSCRITO (sqrt(0.35^2 + 0.155^2) = 0.383).
-# Promovido em codigo para a pegada retangular real, medida em
-# `docs/results/ml35-f5-footprint-ab.md` como `nav2_params_go2_footprint.yaml` --
-# ver a nota no bloco `footprint` de cada costmap abaixo para os numeros e o
-# estado da validacao HIL. Nao baixe a pegada pensando em passar em vao mais
-# estreito: as PERNAS varrem para fora do tronco durante o trote, e uma forma
-# menor que o tronco planeja caminho que a perna nao cabe.
+# The Go2's trunk is ~0.70 x 0.31 m. Until 29/08/2026 this file used
+# `robot_radius: 0.38`, the CIRCUMSCRIBED radius (sqrt(0.35^2 + 0.155^2) =
+# 0.383). Promoted in code to the real rectangular footprint, measured in
+# `docs/results/ml35-f5-footprint-ab.md` as `nav2_params_go2_footprint.yaml` --
+# see the note in the `footprint` block of each costmap below for the numbers
+# and the HIL validation status. Do not shrink the footprint thinking it will
+# fit through a narrower gap: the LEGS sweep outside the trunk during the
+# trot, and a shape smaller than the trunk plans a path the leg does not fit
+# through.
 #
-# 3. Fonte de obstaculo: /demo/scan (LaserScan) -> /demo/scan_cloud (PointCloud2)
+# 3. Obstacle source: /demo/scan (LaserScan) -> /demo/scan_cloud (PointCloud2)
 #
-# ESTE E O DELTA QUE FAZ O ROBO DESVIAR.  O L1_lidar do Go2 e um gpu_lidar 3D de
-# 640 x 16 raios; sensor_msgs/LaserScan e 2D e a travessia entrega UM anel dos 16.
+# THIS IS THE DELTA THAT MAKES THE ROBOT DODGE. The Go2's L1_lidar is a 3D
+# gpu_lidar with 640 x 16 rays; sensor_msgs/LaserScan is 2D and the crossing
+# delivers ONE of the 16 rings.
 #
-# Medido em 20/08/2026, robo parado na origem do mundo quadruped_objects.sdf, com
-# quatro objetos de 0,30 a 0,80 m de altura a 1,5-4,5 m a frente:
+# Measured on 20/08/2026, robot stationary at the origin of the
+# quadruped_objects.sdf world, with four objects 0.30 to 0.80 m tall at
+# 1.5-4.5 m ahead:
 #
-#   /demo/scan       (1 anel)   46 de 640 feixes validos, ZERO obstaculos --
-#                               numericamente identico ao mundo vazio
-#   /demo/scan_cloud (16 aneis) 2097 pontos, 249 acima do chao a frente,
-#                               a 1,31-4,43 m: 15 na caixa a ~1,5 m,
-#                               190 no par a ~3,0 m, 44 no cilindro a ~4,5 m
+#   /demo/scan       (1 ring)   46 of 640 valid beams, ZERO obstacles --
+#                               numerically identical to the empty world
+#   /demo/scan_cloud (16 rings) 2097 points, 249 above the floor ahead,
+#                               at 1.31-4.43 m: 15 on the box at ~1.5 m,
+#                               190 on the pair at ~3.0 m, 44 on the cylinder
+#                               at ~4.5 m
 #
-# No corredor: 5749 pontos, 2422 obstaculos a partir de 1,06 m.
+# In the corridor: 5749 points, 2422 obstacles starting at 1.06 m.
 #
-# min_obstacle_height existe para descartar o chao.  Os 16 aneis apontam para
-# baixo: dos 2097 pontos, 1848 sao chao.  Sem esse filtro o costmap se enche do
-# proprio piso e o robo nao sai do lugar.  No frame odom o chao esta em z ~ 0 e os
-# obstaculos entre 0,05 e 0,80 m, por isso o corte em 0,12 m.
+# min_obstacle_height exists to discard the floor. The 16 rings point
+# downward: of the 2097 points, 1848 are floor. Without this filter the
+# costmap fills up with the floor itself and the robot does not move. In the
+# odom frame the floor sits at z ~ 0 and the obstacles between 0.05 and
+# 0.80 m, hence the cutoff at 0.12 m.
 #
-# 4. Alcances do lidar: 20.0/15.0/0.17 -> 9.0/8.0/0.10
+# 4. Lidar ranges: 20.0/15.0/0.17 -> 9.0/8.0/0.10
 #
-# O L1 declara range 0.05-10.0 m (gazebo.xacro).  raytrace acima do alcance real
-# faz a camada parar de limpar celulas que nunca foram observadas, e o obstaculo
-# fica congelado no costmap.  obstacle_max_range fica ABAIXO de raytrace de
-# proposito: marcar conservador, limpar generoso.
+# The L1 declares a range of 0.05-10.0 m (gazebo.xacro). raytrace above the
+# real range makes the layer stop clearing cells that were never observed,
+# and the obstacle stays frozen in the costmap. obstacle_max_range stays
+# BELOW raytrace on purpose: mark conservatively, clear generously.
 #
-# 5. Envelope de velocidade: vx 0.5 -> 0.15, wz 1.9 -> 0.12
+# 5. Velocity envelope: vx 0.5 -> 0.15, wz 1.9 -> 0.12
 #
-# Nao e conservadorismo, e o limite fisico medido do controlador de marcha:
+# This is not conservatism, it's the measured physical limit of the gait
+# controller:
 #
-#   - 0,20 m/s e o teto do clamp de stick (twist_to_inputs); 0,10 m/s e o ponto
-#     validado (docs/results/ml35-f4-parcial.md).  0,15 e o meio, com margem.
-#   - Abaixo de ~0,05 m/s o passo fica milimetrico sob elevacao de pe de 8 cm e o
-#     robo marcha no lugar e desestabiliza -- por isso ha um minimo, nao so um
-#     maximo.
-#   - 0,13 rad/s e onde o momento de guinada da QP de equilibrio SATURA
-#     (docs/results/ml35-caminhada-reta.md).  Pedir mais nao entrega mais: arrasta
-#     os pes e derruba.  wz_max 0.12 fica logo abaixo.
-#   - vy_max fica 0.0 e motion_model segue "DiffDrive" embora o Go2 saiba andar de
-#     lado.  O strafe foi medido (0,08-0,10 m/s) mas nunca sob planejamento, e
-#     habilitar holonomia sem essa medicao trocaria um problema conhecido por um
-#     desconhecido.
+#   - 0.20 m/s is the ceiling of the stick clamp (twist_to_inputs); 0.10 m/s
+#     is the validated point (docs/results/ml35-f4-parcial.md). 0.15 is the
+#     midpoint, with margin.
+#   - Below ~0.05 m/s the step becomes millimetric under an 8 cm foot-lift
+#     and the robot marches in place and destabilizes -- hence there is a
+#     minimum, not just a maximum.
+#   - 0.13 rad/s is where the yaw moment of the balance QP SATURATES
+#     (docs/results/ml35-caminhada-reta.md). Asking for more does not deliver
+#     more: it drags the feet and falls. wz_max 0.12 sits just below it.
+#   - vy_max stays 0.0 and motion_model stays "DiffDrive" even though the Go2
+#     knows how to walk sideways. Strafe was measured (0.08-0.10 m/s) but
+#     never under planning, and enabling holonomy without that measurement
+#     would trade a known problem for an unknown one.
 #
-# 6. Aceleracoes: ax 2.0 -> 0.5, az 3.0 -> 0.8
+# 6. Accelerations: ax 2.0 -> 0.5, az 3.0 -> 0.8
 #
-# O clamp de aceleracao horizontal do controlador de marcha e 3 m/s^2 e o de
-# guinada 10 rad/s^2, mas esses sao os limites onde ele CAI.  Um degrau de
-# comando grande vira degrau de forca pedido a QP.
+# The gait controller's horizontal acceleration clamp is 3 m/s^2 and its yaw
+# clamp is 10 rad/s^2, but those are the limits where it FALLS. A large
+# command step becomes a force step requested from the QP.
 #
-# 7. collision_monitor: fonte "scan" -> "pointcloud" na nuvem
+# 7. collision_monitor: source "scan" -> "pointcloud" on the cloud
 #
-# Mesma razao do item 3: um monitor de colisao alimentado pelo anel unico nao ve
-# o obstaculo e a parada de emergencia nunca dispara.
+# Same reason as item 3: a collision monitor fed by the single ring does not
+# see the obstacle and the emergency stop never triggers.
 #
-# 8. Janela do costmap local: 3 x 3 -> 6 x 6 m
+# 8. Local costmap window: 3 x 3 -> 6 x 6 m
 #
-# O L1 mede obstaculo a 4,43 m; uma janela de 3 m so revela o obstaculo a 1,5 m
-# e joga fora o alcance que o sensor ja entrega.
+# The L1 measures an obstacle at 4.43 m; a 3 m window only reveals the
+# obstacle at 1.5 m and throws away the range the sensor already delivers.
 #
-# 9. costmap global: rolante, com static_layer do mapa vivo
+# 9. Global costmap: rolling, with a static_layer fed by the live map
 #
-# O slam_toolbox e o unico autor de map -> odom e preserva livre/ocupado; a
-# janela mestre continua rolante para nao encolher ate o primeiro mapa parcial.
+# slam_toolbox is the sole author of map -> odom and preserves free/occupied;
+# the master window stays rolling so it does not shrink down to the first
+# partial map.
 #
 # 10. inflation_radius: 0.35 -> 0.55
 #
-# Consequencia direta do item 2, nao uma escolha independente: inflacao menor que
-# robot_radius (0.38) deixa o planejador tracar curva cujo canto raspa o
-# obstaculo.  0.55 = 0.38 + 0,17 m de folga.
+# Direct consequence of item 2, not an independent choice: inflation smaller
+# than robot_radius (0.38) lets the planner trace a curve whose corner grazes
+# the obstacle. 0.55 = 0.38 + 0.17 m of margin.
 #
-# 13. Horizonte do MPPI: 56 x 0.05 s -> 96 x 0.1 s; batch 2000 -> 1000;
+# 13. MPPI horizon: 56 x 0.05 s -> 96 x 0.1 s; batch 2000 -> 1000;
 #     controller_frequency 20 -> 10
 #
-# O DELTA QUE FAZ O ROBO ANDAR.  Horizonte se mede em DISTANCIA: 2,8 s cobrem
-# 1,4 m no TB4 e 0,42 m no Go2, que nao alcanca a referencia do proprio
-# PathAlignCritic (peso 14, offset 20 pontos ~ 1 m).  Com o campo de custo quase
-# plano o comando sai como ruido em torno de zero -- medido, com costmap limpo.
+# THE DELTA THAT MAKES THE ROBOT MOVE. Horizon is measured in DISTANCE: 2.8 s
+# cover 1.4 m on the TB4 and 0.42 m on the Go2, which does not reach the
+# PathAlignCritic's own reference (weight 14, offset 20 points ~ 1 m). With
+# the cost field nearly flat, the command comes out as noise around zero --
+# measured, with a clean costmap.
 #
 # 12. progress_checker: 0.5 m/10 s -> 0.20 m/40 s
 #
-# Medido: os valores do TB4 dao 13 abortos em 5 min e nenhuma meta concluida, com
-# ZERO quedas.  Girar 90 graus a 0,12 rad/s leva 13 s sem avanco, entao exigir
-# 0,5 m em 10 s reprova manobra que o robo esta executando corretamente.
+# Measured: the TB4 values produce 13 aborts in 5 min and no goal completed,
+# with ZERO falls. Turning 90 degrees at 0.12 rad/s takes 13 s with no
+# advance, so requiring 0.5 m in 10 s fails a maneuver the robot is executing
+# correctly.
 #
 # 11. behavior_server: max_rotational_vel 1.5 -> 0.12
 #
-# O delta mais perigoso de esquecer.  As recuperacoes publicam velocidade DIRETO,
-# sem passar pelo velocity_smoother nem pelos limites do MPPI, entao os itens 5 e
-# 6 nao as cobrem.  Com 1.5 rad/s o robo cai durante a recuperacao.
+# The most dangerous delta to forget. Recoveries publish velocity DIRECTLY,
+# without going through velocity_smoother or the MPPI limits, so items 5 and
+# 6 do not cover them. At 1.5 rad/s the robot falls during recovery.
 #
 # ---------------------------------------------------------------------------
-# NAO VALIDADO EM HARDWARE.  Todo numero aqui vem de simulacao Gazebo Harmonic na
-# estacao x86.  Emulacao arm64 nao mede desempenho (CLAUDE.md, regra 5).
+# NOT VALIDATED ON HARDWARE. Every number here comes from Gazebo Harmonic
+# simulation on the x86 workstation. arm64 emulation does not measure
+# performance (CLAUDE.md, rule 5).
 
 # Nav2 parameters — ML3.
 #
@@ -131,28 +143,29 @@
 #
 # Derived from the Nav2 Jazzy defaults, changed only where this robot differs:
 #   - topics live in the /demo namespace (topic contract, CLAUDE.md)
-#   - robot_base_frame is `base` (o URDF do Go2 nao tem base_link)
-#   - a fonte de obstaculo e a nuvem 3D, nao o LaserScan de um anel
-#   - pegada e limites de velocidade sao do Go2, medidos
-#   - ambos os costmaps tem camada de percepcao alimentada por demo_perception
+#   - robot_base_frame is `base` (the Go2's URDF has no base_link)
+#   - the obstacle source is the 3D cloud, not the single-ring LaserScan
+#   - footprint and velocity limits are the Go2's, measured
+#   - both costmaps have a perception layer fed by demo_perception
 #
-# QUEM PUBLICA CADA ARESTA DA TF NESTE CAMINHO:
+# WHO PUBLISHES EACH TF EDGE ON THIS PATH:
 #
-#   map -> odom    demo_bringup/odom_tf com publish_map_identity:=true (identidade)
-#   odom -> base   demo_bringup/odom_tf a partir de /demo/odom
-#   base -> ...    robot_state_publisher, do URDF vendorizado
+#   map -> odom    demo_bringup/odom_tf with publish_map_identity:=true (identity)
+#   odom -> base   demo_bringup/odom_tf from /demo/odom
+#   base -> ...    robot_state_publisher, from the vendored URDF
 #
-# O amcl abaixo TAMBEM publica map -> odom (tf_broadcast: true).  Os dois juntos
-# dao dois publicadores na mesma aresta, e isso NAO da erro: o consumidor recebe
-# as duas e usa a ultima que chegou, alternando entre duas crencas de onde o robo
-# esta.  Por isso: no desvio reativo suba odom_tf e NAO suba o amcl; para navegar
-# sobre mapa salvo suba o amcl e ponha publish_map_identity:=false.
-# Nunca os dois com a identidade ligada.
+# The amcl below ALSO publishes map -> odom (tf_broadcast: true). The two
+# together give two publishers on the same edge, and that does NOT error out:
+# the consumer receives both and uses whichever arrived last, alternating
+# between two beliefs of where the robot is. Hence: for reactive avoidance,
+# bring up odom_tf and do NOT bring up amcl; to navigate over a saved map,
+# bring up amcl and set publish_map_identity:=false.
+# Never both with identity enabled.
 #
-# Os limites de velocidade aqui sao o teto FISICO do controlador de marcha, nao
-# uma preferencia.  Pedir acima deles nao anda mais rapido: acima de ~0,13 rad/s
-# o momento de guinada satura na QP de equilibrio, o robo arrasta os pes e cai.
-# Isso se le como problema de sintonia do controlador e nao e.
+# The velocity limits here are the gait controller's PHYSICAL ceiling, not a
+# preference. Asking above them does not go faster: above ~0.13 rad/s the yaw
+# moment saturates in the balance QP, the robot drags its feet and falls.
+# This reads like a controller tuning problem, and it is not one.
 #
 # Keep parameters here, never in code — project convention.
 
@@ -213,11 +226,12 @@ bt_navigator:
     robot_base_frame: base
     odom_topic: /demo/odom
     bt_loop_duration: 10
-    # ============ MEDIDO NO AQUILA AM69, NAO NO HOST (21/08/2026) ============
+    # ============ MEASURED ON THE AQUILA AM69, NOT ON THE HOST (21/08/2026) ============
     #
-    # 20 ms e o default do Nav2 e funciona no host x86. No modulo NAO funciona, e
-    # a falha nao se parece com timeout: toda meta e ACEITA e falha em 4-9 s, e o
-    # robo nao sai do lugar. O que o log do modulo diz e:
+    # 20 ms is the Nav2 default and works on the x86 host. On the module it
+    # does NOT work, and the failure does not look like a timeout: every goal
+    # is ACCEPTED and fails in 4-9 s, and the robot does not move. What the
+    # module's log says is:
     #
     #   Timed out while waiting for action server to acknowledge goal request
     #     for compute_path_to_pose
@@ -225,32 +239,36 @@ bt_navigator:
     #     for smooth_path
     #   Failed to cancel action server for follow_path
     #
-    # O `bt_navigator` nao alcanca os PROPRIOS servidores irmaos, todos no mesmo
-    # container, na mesma maquina. Nao e rede entre host e modulo: e o custo de
-    # ida e volta de uma action do rclcpp num Cortex-A72 com CycloneDDS em
-    # AllowMulticast=false e peers explicitos, que passa dos 20 ms.
+    # `bt_navigator` cannot reach its OWN sibling servers, all in the same
+    # container, on the same machine. It is not network between host and
+    # module: it is the round-trip cost of an rclcpp action on a Cortex-A72
+    # with CycloneDDS at AllowMulticast=false and explicit peers, which
+    # exceeds 20 ms.
     #
-    # Isto e observacao de LATENCIA em hardware real, o que a regra 5 permite --
-    # ela proibe concluir desempenho a partir de EMULACAO. Nao extrapole daqui
-    # para outro modulo nem para outra configuracao de DDS.
+    # This is a LATENCY observation on real hardware, which rule 5 allows --
+    # it forbids concluding performance from EMULATION. Do not extrapolate
+    # from here to another module or to a different DDS configuration.
     #
-    # 200 ms da uma ordem de grandeza de margem e nao atrasa nada em regime: e
-    # prazo de espera, nao periodo. O `bt_loop_duration` de 10 ms nao muda.
+    # 200 ms gives an order of magnitude of margin and does not delay anything
+    # in steady state: it is a wait deadline, not a period. The 10 ms
+    # `bt_loop_duration` does not change.
     default_server_timeout: 200
-    # Descoberta inicial de servico. O default de 1000 ms conta com todos os
-    # servidores ja no ar; no modulo os 13 processos do Nav2 sobem juntos e
-    # concorrem por 8 nucleos, e quem tenta primeiro pode nao achar o vizinho.
+    # Initial service discovery. The 1000 ms default assumes all servers are
+    # already up; on the module the Nav2's 13 processes come up together and
+    # compete for 8 cores, and whichever tries first may not find its
+    # neighbor yet.
     wait_for_service_timeout: 5000
     navigators: ["navigate_to_pose", "navigate_through_poses"]
-    # Arvore com SmoothPath. O valor aqui e PLACEHOLDER: `nav_quadruped.launch.py`
-    # reescreve esta chave com o caminho absoluto em share/, via RewrittenYaml.
-    # A chave precisa EXISTIR neste arquivo para ser reescrita -- o RewrittenYaml
-    # do nav2_common substitui chave que encontra, e nao acrescenta chave nova.
+    # Tree with SmoothPath. The value here is a PLACEHOLDER:
+    # `nav_quadruped.launch.py` rewrites this key with the absolute path in
+    # share/, via RewrittenYaml. The key needs to EXIST in this file to be
+    # rewritten -- nav2_common's RewrittenYaml substitutes a key it finds, and
+    # does not add a new key.
     #
-    # Nenhuma arvore que acompanha o Nav2 Jazzy chama SmoothPath, entao sem esta
-    # troca o `smoother_server` abaixo fica ativo e ocioso, e o MPPI persegue a
-    # escada crua do NavFn. Ver o cabecalho de behavior_trees/
-    # nav_to_pose_smoothed.xml.
+    # No tree shipped with Nav2 Jazzy calls SmoothPath, so without this swap
+    # the `smoother_server` below stays active and idle, and the MPPI chases
+    # NavFn's raw staircase. See the header of
+    # behavior_trees/nav_to_pose_smoothed.xml.
     default_nav_to_pose_bt_xml: "SUBSTITUIDO_PELO_LAUNCH"
     navigate_to_pose:
       plugin: "nav2_bt_navigator::NavigateToPoseNavigator"
@@ -260,10 +278,10 @@ bt_navigator:
 controller_server:
   ros__parameters:
     use_sim_time: true
-    # 10 Hz e nao 20. A 0,15 m/s o robo anda 1,5 cm por ciclo a 10 Hz, que e
-    # resolucao de sobra, e o MPPI com model_dt 0.1 quer o laco em 10 Hz -- os
-    # dois tem de casar. Medido a 20 Hz: "Control loop missed its desired rate
-    # of 20.0000 Hz. Current loop rate is 12.0482 Hz."
+    # 10 Hz, not 20. At 0.15 m/s the robot travels 1.5 cm per cycle at 10 Hz,
+    # which is resolution to spare, and the MPPI with model_dt 0.1 wants the
+    # loop at 10 Hz -- the two have to match. Measured at 20 Hz: "Control loop
+    # missed its desired rate of 20.0000 Hz. Current loop rate is 12.0482 Hz."
     controller_frequency: 10.0
     odom_topic: /demo/odom
     min_x_velocity_threshold: 0.001
@@ -276,52 +294,56 @@ controller_server:
 
     progress_checker:
       plugin: "nav2_controller::SimpleProgressChecker"
-      # OS VALORES DO TB4 (0.5 m em 10 s) ABORTAM TODA META NESTE ROBO.
+      # THE TB4 VALUES (0.5 m in 10 s) ABORT EVERY GOAL ON THIS ROBOT.
       #
-      # Medido em 20/08/2026, mundo quadruped_objects.sdf: 13 ocorrencias de
-      # "Failed to make progress" em ~5 min, a primeira 10 s depois da primeira
-      # meta, e a meta 1 nunca concluiu. Zero quedas -- o robo estava bem, o
-      # verificador e que reprovava.
+      # Measured on 20/08/2026, quadruped_objects.sdf world: 13 occurrences of
+      # "Failed to make progress" in ~5 min, the first 10 s after the first
+      # goal, and goal 1 never completed. Zero falls -- the robot was fine, it
+      # was the checker that was failing it.
       #
-      # A aritmetica: o Go2 gira a 0,12 rad/s de teto (saturacao do momento de
-      # guinada na QP de equilibrio). Reorientar 90 graus leva 13 s, e nesses 13 s
-      # o avanco e quase zero porque o MPPI gasta a autoridade toda em guinada.
-      # Exigir 0,5 m em 10 s e portanto exigir algo que a fisica do robo proibe
-      # sempre que a meta nao esta ja a frente.
+      # The arithmetic: the Go2 turns at a ceiling of 0.12 rad/s (yaw-moment
+      # saturation in the balance QP). Reorienting 90 degrees takes 13 s, and
+      # in those 13 s the advance is nearly zero because the MPPI spends its
+      # whole authority on yaw. Requiring 0.5 m in 10 s is therefore requiring
+      # something the robot's physics forbids whenever the goal is not
+      # already ahead.
       #
-      # 0.20 m em 40 s quase nunca dispara: em R5+R6 pegou 2 de 9 metas
-      # perdidas e devolveu 29 s. O prazo fixo por meta tambem nao resolve --
-      # baixar `goal_timeout_s` de 90 para 45 apenas dobrou o numero de
-      # expiracoes (3x90 = 6x45 = 270 s nas duas rodadas), porque prazo mede
-      # tempo decorrido e nao progresso.
+      # 0.20 m in 40 s almost never triggers: in R5+R6 it caught 2 of 9 lost
+      # goals and gave back 29 s. A fixed per-goal deadline also does not
+      # solve it -- lowering `goal_timeout_s` from 90 to 45 merely doubled
+      # the number of expirations (3x90 = 6x45 = 270 s across the two runs),
+      # because a deadline measures elapsed time, not progress.
       #
-      # Dimensionado simulando o SimpleProgressChecker sobre as poses gravadas
-      # de R5+R6 (2 Hz, 45 metas). O prazo domina; o raio pouco importa entre
-      # 0,25 e 0,40:
+      # Sized by simulating the SimpleProgressChecker over the recorded poses
+      # from R5+R6 (2 Hz, 45 goals). The deadline dominates; the radius
+      # matters little between 0.25 and 0.40:
       #
-      #   raio  prazo   metas perdidas cortadas   tempo devolvido   bons abortados
+      #   radius deadline  lost goals caught   time given back   good aborts
       #   0.20   40 s          2/9                    29 s               0
       #   0.30   25 s          6/9                   107 s               0
       #   0.20   20 s          7/9                   188 s               1
-      #   0.50   10 s          9/9                   427 s               9  <-- padrao do Nav2
+      #   0.50   10 s          9/9                   427 s               9  <-- Nav2 default
       #
-      # 25 s e o joelho: abaixo disso comeca a reprovar meta boa. O padrao do
-      # Nav2 (0,5 m em 10 s) abortaria TODAS as 9 metas bem sucedidas -- e a
-      # medicao que confirma o paragrafo acima sobre a guinada de 0,12 rad/s.
+      # 25 s is the knee: below that it starts failing good goals. The Nav2
+      # default (0.5 m in 10 s) would abort ALL 9 successful goals -- the
+      # measurement that confirms the paragraph above about the 0.12 rad/s
+      # yaw.
       required_movement_radius: 0.30
       movement_time_allowance: 25.0
 
     general_goal_checker:
       plugin: "nav2_controller::SimpleGoalChecker"
       xy_goal_tolerance: 0.25
-      # 0.5 rad (28,6 graus) e nao 0.25. A 0,12 rad/s de teto, fechar os ultimos
-      # 14 graus leva 2 s de giro parado -- e girar parado NAO fica parado: medido
-      # em 20/08/2026, o robo derivou 0,78 m em y girando para satisfazer a
-      # orientacao e saiu da tolerancia de POSICAO, que ja estava satisfeita a
-      # 3,8 cm. A meta reprovou por prazo depois de ter chegado.
+      # 0.5 rad (28.6 degrees), not 0.25. At a ceiling of 0.12 rad/s, closing
+      # the last 14 degrees takes 2 s of stationary turning -- and turning in
+      # place does NOT stay in place: measured on 20/08/2026, the robot
+      # drifted 0.78 m in y while turning to satisfy orientation and left the
+      # POSITION tolerance, which was already satisfied at 3.8 cm. The goal
+      # failed on deadline after having arrived.
       #
-      # Numa patrulha a orientacao final nao tem proposito; o que importa e chegar.
-      # 28,6 graus ainda e restricao de rumo, mas nao paga giro parado por ela.
+      # On a patrol, final orientation serves no purpose; what matters is
+      # arriving. 28.6 degrees is still a heading constraint, but it does not
+      # pay for a stationary turn to satisfy it.
       yaw_goal_tolerance: 0.5
       stateful: true
 
@@ -349,51 +371,56 @@ controller_server:
     # than halving the control rate.
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
-      # HORIZONTE SE MEDE EM DISTANCIA, NAO EM TEMPO. Este e o delta que faz o
-      # robo sair do lugar, e o mais facil de errar por copiar do TB4.
+      # HORIZON IS MEASURED IN DISTANCE, NOT IN TIME. This is the delta that
+      # makes the robot move, and the easiest one to get wrong by copying
+      # from the TB4.
       #
-      # 56 x 0.05 = 2,8 s. No TB4, a 0,5 m/s, isso cobre 1,4 m. No Go2, a
-      # 0,15 m/s, cobre 0,42 m -- 30% da antecipacao, com os MESMOS numeros.
+      # 56 x 0.05 = 2.8 s. On the TB4, at 0.5 m/s, that covers 1.4 m. On the
+      # Go2, at 0.15 m/s, it covers 0.42 m -- 30% of the lookahead, with the
+      # SAME numbers.
       #
-      # 0,42 m nao alcanca as referencias dos proprios criticos: o PathAlignCritic
-      # tem peso 14 (o maior de todos) e busca referencia `offset_from_furthest`
-      # = 20 pontos de caminho a frente, ~1 m; o PathFollowCritic busca 5 pontos.
-      # O critico dominante nao chega na propria referencia, e o que sobra e um
-      # campo de custo quase plano: a media ponderada das amostras tende a zero e
-      # o comando sai como RUIDO em torno de zero.
+      # 0.42 m does not reach the critics' own references: PathAlignCritic
+      # has weight 14 (the highest of all) and seeks a reference
+      # `offset_from_furthest` = 20 path points ahead, ~1 m; PathFollowCritic
+      # seeks 5 points. The dominant critic does not reach its own reference,
+      # and what remains is a nearly flat cost field: the weighted average of
+      # the samples tends to zero and the command comes out as NOISE around
+      # zero.
       #
-      # Medido em 20/08/2026 com 56 x 0.05, costmap comprovadamente limpo
-      # (custo 0 na celula do robo, 0 dentro de 0,6 m): em 300 s o robo andou
-      # 4,16 m de caminho para 0,73 m de deslocamento, `cmd_vx` entre -0,100 e
-      # +0,040 com 39% das amostras NEGATIVAS, e girou para 97 graus quando o
-      # rumo pedido era 20,6. Zero quedas -- o robo estava bem, o comando nao.
+      # Measured on 20/08/2026 with 56 x 0.05, costmap verifiably clean
+      # (cost 0 at the robot's cell, 0 within 0.6 m): in 300 s the robot
+      # walked 4.16 m of path for 0.73 m of net displacement, `cmd_vx`
+      # between -0.100 and +0.040 with 39% of samples NEGATIVE, and turned to
+      # 97 degrees when the requested heading was 20.6. Zero falls -- the
+      # robot was fine, the command was not.
       #
-      # 96 x 0.1 = 9,6 s = 1,44 m a 0,15 m/s, equivalente ao horizonte que o TB4
-      # tem em distancia. Custo de amostragem: 1000 x 96 = 96k pontos contra
-      # 2000 x 56 = 112k, ou seja MENOS que antes.
-      # A/B DE 25/08/2026 (noite), EXECUTADO NO AM69 REAL: 64 x 0,15 REPROVADO
-      # NO SEU PROPRIO CRITERIO. Os valores default abaixo sao o baseline.
+      # 96 x 0.1 = 9.6 s = 1.44 m at 0.15 m/s, equivalent to the horizon the
+      # TB4 has in distance. Sampling cost: 1000 x 96 = 96k points against
+      # 2000 x 56 = 112k, i.e. LESS than before.
+      # A/B FROM 25/08/2026 (night), RUN ON THE REAL AM69: 64 x 0.15 FAILED
+      # ITS OWN CRITERION. The default values below are the baseline.
       #
-      # A hipotese era cortar CPU do Nav2 sem encurtar o horizonte: horizonte e
-      # time_steps x model_dt (9,6 s nos dois casos) e custo e
-      # batch_size x time_steps (96k -> 64k pontos, 33% menos amostragem).
+      # The hypothesis was to cut Nav2 CPU without shortening the horizon:
+      # horizon is time_steps x model_dt (9.6 s in both cases) and cost is
+      # batch_size x time_steps (96k -> 64k points, 33% less sampling).
       #
-      # MEDIDO, e o resultado derruba a hipotese: a CPU do container `nav` ficou
-      # em ~439% contra ~437% da corrida anterior. Trinta e tres por cento menos
-      # pontos de amostragem NAO reduziram CPU. O custo do MPPI aqui nao e
-      # dominado por batch_size x time_steps, ao contrario do que o comentario de
-      # CUSTO acima assume. Quem for atacar CPU do Nav2 de novo: comece medindo
-      # ONDE ela e gasta, nao mexendo neste par.
+      # MEASURED, and the result kills the hypothesis: the `nav` container's
+      # CPU stood at ~439% against ~437% of the previous run. Thirty-three
+      # percent fewer sampling points did NOT reduce CPU. The MPPI's cost
+      # here is not dominated by batch_size x time_steps, contrary to what
+      # the COST comment above assumes. Whoever attacks Nav2 CPU again:
+      # start by measuring WHERE it is spent, not by touching this pair.
       #
-      # As demais metricas da corrida vieram melhores (0,0353 m/s, razao de
-      # trabalho 6,7%, `vx` zerado em 75,7% contra 85-92%), e mesmo assim isso
-      # NAO sustenta adotar: duas corridas na configuracao IDENTICA anterior
-      # deram 0,0109 e 0,0265 m/s, dispersao de 2,4x. O ruido entre corridas e
-      # maior que o efeito que se quer medir, entao n=1 nao decide nada aqui.
+      # The run's other metrics came out better (0.0353 m/s, work ratio
+      # 6.7%, `vx` zeroed at 75.7% against 85-92%), and even so that does
+      # NOT support adopting it: two runs on the previous IDENTICAL
+      # configuration gave 0.0109 and 0.0265 m/s, a 2.4x spread. The noise
+      # between runs is larger than the effect one wants to measure, so n=1
+      # decides nothing here.
       #
-      # Fica documentado e FORA do default, mesma politica do no de
-      # estrangulamento do /clock. Para retomar, mude os dois valores abaixo para
-      # 64 / 0.15 e rode n>=3 POR CONDICAO -- ver
+      # This stays documented and OUTSIDE the default, the same policy as
+      # the /clock throttling node. To resume, change the two values below
+      # to 64 / 0.15 and run n>=3 PER CONDITION -- see
       # docs/results/ml35-f5-mppi-amostragem.md.
       time_steps: 96
       model_dt: 0.1
@@ -402,83 +429,91 @@ controller_server:
       # but not so wide that most samples are immediately rejected as invalid.
       vx_std: 0.06
       vy_std: 0.0
-      # 0.15, subido de 0.08 (que ja vinha de 0.05). Rotacao so e alternativa
-      # real a re se o amostrador de fato a explorar: com wz_std 0.05 contra um
-      # wz_max de 0.20, a nuvem de amostras quase nao alcanca o teto novo.
+      # 0.15, raised from 0.08 (which itself came from 0.05). Rotation is
+      # only a real alternative to reversing if the sampler actually explores
+      # it: with wz_std 0.05 against a wz_max of 0.20, the sample cloud
+      # barely reaches the new ceiling.
       #
-      # O 0.08 foi na direcao certa e NAO BASTOU. Medido no HIL em 27/08/2026
-      # (`docs/results/ml35-f5-slam-exploration.md`), rota de 19 metas, 240 s:
+      # The 0.08 was in the right direction and WAS NOT ENOUGH. Measured on
+      # HIL on 27/08/2026 (`docs/results/ml35-f5-slam-exploration.md`), a
+      # 19-goal, 240 s route:
       #
-      #   cmd_wz medio assinado  +0.01344 rad/s  (6.7% do wz_max de 0.20)
-      #   giro integrado do comando        +184.7 graus
-      #   giro REAL do robo                  -2.4 graus  (yaw 90.0 -> 87.6)
+      #   median signed cmd_wz             +0.01344 rad/s  (6.7% of wz_max 0.20)
+      #   integrated command turn          +184.7 degrees
+      #   robot's REAL turn                  -2.4 degrees  (yaw 90.0 -> 87.6)
       #
-      # O MPPI manda girar na direcao certa e a planta nao gira: 0.0134 rad/s
-      # dividido por WZ_PER_STICK (0.5) chega ao supervisor de marcha como 0.027
-      # unidades de manche, 5.4% do STICK_CLAMP. Com o rumo travado a ~88 graus
-      # de erro, `vx` FICA em zero -- os critics de alinhamento nao premiam
-      # avancar perpendicular ao plano, e vx_min: 0.0 proibe re. O robo andou
-      # 0.06 m em 240 s e cumpriu 0 de 7 metas.
+      # The MPPI commands a turn in the right direction and the plant does
+      # not turn: 0.0134 rad/s divided by WZ_PER_STICK (0.5) reaches the gait
+      # supervisor as 0.027 stick units, 5.4% of STICK_CLAMP. With the
+      # heading locked at ~88 degrees of error, `vx` STAYS at zero -- the
+      # alignment critics do not reward advancing perpendicular to the plan,
+      # and vx_min: 0.0 forbids reversing. The robot walked 0.06 m in 240 s
+      # and completed 0 of 7 goals.
       wz_std: 0.15
       # HARD CEILING: upstream's DiffDrive plugin clamps to 0.5 m/s and
       # 2.0 rad/s. Raising these makes MPPI plan trajectories the simulator
       # silently refuses to execute, which looks like a tracking bug.
       vx_max: 0.15
       #
-      # ======================= POR QUE vx_min E ZERO =======================
+      # ======================= WHY vx_min IS ZERO =======================
       #
-      # Era -0.10, e isso produzia DEADLOCK, medido no maze11 em 21/08/2026.
+      # It used to be -0.10, and that produced a DEADLOCK, measured in maze11
+      # on 21/08/2026.
       #
-      # A cadeia: num corredor de 1.20 m o PathAlignCritic (peso 14, o maior)
-      # acha otimo recuar para realinhar; o robo recua; encosta na parede de
-      # tras; e re CONTINUA otima, porque a geometria que a tornou otima nao
-      # mudou. O robo fica comandando re contra a parede indefinidamente.
+      # The chain: in a 1.20 m corridor the PathAlignCritic (weight 14, the
+      # highest) finds it optimal to reverse to realign; the robot reverses;
+      # it hits the wall behind it; and reversing STAYS optimal, because the
+      # geometry that made it optimal has not changed. The robot ends up
+      # commanding reverse against the wall indefinitely.
       #
-      # Medido com sensor_check.py, janela de 20 s: `/demo/cmd_vel_si` com
-      # vx < 0 em 100% das amostras, e o robo andou 0.00 m em 25 s. Nas
-      # corridas de 180 s antes disso, 11% a 62% das amostras eram negativas e
-      # a MEDIA do comando era ~zero (-0.011 a +0.017 m/s).
+      # Measured with sensor_check.py, a 20 s window: `/demo/cmd_vel_si` with
+      # vx < 0 in 100% of samples, and the robot walked 0.00 m in 25 s. In
+      # the 180 s runs before that, 11% to 62% of samples were negative and
+      # the command's MEAN was ~zero (-0.011 to +0.017 m/s).
       #
-      # Nao foi sensor. Na mesma janela: odom identico a TF (erro 0.0000 m),
-      # scan_cloud a 9.9 Hz, odom a 49.8 Hz, e os retornos proximos ajustam
-      # d/cos(theta-theta0) de uma parede reta a 0.372 m -- sem auto-colisao do
-      # lidar. O defeito era de DECISAO, e a decisao errada so existia porque
-      # havia re para amostrar.
+      # It was not the sensor. In the same window: odom identical to TF
+      # (error 0.0000 m), scan_cloud at 9.9 Hz, odom at 49.8 Hz, and the
+      # nearby returns fit d/cos(theta-theta0) of a straight wall at 0.372 m
+      # -- no lidar self-collision. The defect was one of DECISION, and the
+      # wrong decision only existed because reverse was there to sample.
       #
-      # Com 0.0 o MPPI nao consegue amostrar re: para corrigir rumo ele precisa
-      # GIRAR, que e o que este robo deve fazer. Recuo de verdade continua
-      # possivel -- o `backup` do behavior_server publica cmd_vel direto e nao
-      # passa por estes limites -- entao beco sem saida ainda tem saida.
+      # With 0.0 the MPPI cannot sample reverse: to correct heading it needs
+      # to TURN, which is what this robot should do. A true backup is still
+      # possible -- the behavior_server's `backup` publishes cmd_vel directly
+      # and does not go through these limits -- so a dead end still has a way
+      # out.
       vx_min: 0.0
       vy_max: 0.0
-      # 0.20, subido de 0.12. O 0.12 foi dimensionado com k_yaw = 0.25, quando o
-      # eixo de guinada vivia no batente (yawSat de pico 90-94%). Com k_yaw 0.35
-      # o pico medido caiu para 70%, ou seja apareceu folga -- e proibir re sem
-      # dar autoridade de giro troca um travamento por outro. Continua muito
-      # abaixo do clamp de 2.0 rad/s do plugin.
+      # 0.20, raised from 0.12. The 0.12 was sized with k_yaw = 0.25, when the
+      # yaw axis lived at the stop (yawSat peaking at 90-94%). With k_yaw 0.35
+      # the measured peak dropped to 70%, i.e. headroom appeared -- and
+      # forbidding reverse without giving turning authority would trade one
+      # lockup for another. Still well below the plugin's 2.0 rad/s clamp.
       wz_max: 0.20
       ax_max: 0.5
       ax_min: -0.5
       az_max: 0.8
-      # 2, subido de 1. Com uma unica iteracao por ciclo a sequencia de
-      # controle parte do resultado anterior (~zero) e so pode se deslocar uma
-      # fracao de um desvio-padrao por ciclo -- e um `wz_std` maior sozinho nao
-      # resolve isso, porque o problema e quantas vezes a media e reavaliada,
-      # nao a largura da nuvem. As duas alavancas sobem juntas de proposito.
+      # 2, raised from 1. With a single iteration per cycle the control
+      # sequence starts from the previous result (~zero) and can only move by
+      # a fraction of a standard deviation per cycle -- and a larger `wz_std`
+      # alone does not fix this, because the problem is how many times the
+      # mean is re-evaluated, not the width of the cloud. Both levers are
+      # raised together on purpose.
       #
-      # CUSTO PREVISTO QUE NAO SE MATERIALIZOU. A previsao era que dobrar a
-      # iteracao dobraria o custo do otimizador, com gatilho de reverter para 1
-      # abaixo de ~5 Hz. Medido nos logs do `controller_server`
-      # (`docs/results/ml35-f5-slam-giro.md` §4):
+      # PREDICTED COST THAT DID NOT MATERIALIZE. The prediction was that
+      # doubling the iteration count would double the optimizer's cost, with
+      # a trigger to revert to 1 below ~5 Hz. Measured in the
+      # `controller_server` logs (`docs/results/ml35-f5-slam-giro.md` §4):
       #
       #                      iteration_count: 1   iteration_count: 2
-      #   taxa mediana              7.58 Hz              8.13 Hz
-      #   taxa minima               4.65 Hz              4.00 Hz
+      #   median rate                7.58 Hz              8.13 Hz
+      #   minimum rate                4.65 Hz              4.00 Hz
       #
-      # A MEDIANA SUBIU. O laco ja nao fechava os 10 Hz nominais antes da
-      # mudanca, entao a perda de taxa no AM69 nao vem do otimizador e este
-      # parametro NAO e o culpado. Nao reverta para 1 com base em taxa baixa
-      # sem antes achar a causa real -- que continua em aberto.
+      # THE MEDIAN WENT UP. The loop was already not closing the nominal
+      # 10 Hz before the change, so the rate loss on the AM69 does not come
+      # from the optimizer and this parameter is NOT the culprit. Do not
+      # revert to 1 based on a low rate without first finding the real
+      # cause -- which remains open.
       iteration_count: 2
       prune_distance: 1.7
       transform_tolerance: 0.2
@@ -533,37 +568,39 @@ controller_server:
         cost_power: 1
         cost_weight: 3.81
         critical_cost: 300.0
-        # Promovido para true em 30/08/2026: em simulacao (host, amd64) o
-        # robo raspava paredes laterais em corredores estreitos com
-        # `consider_footprint: false`. Com false o critic amostra o custo
-        # da celula no PONTO da trajetoria e confia no gradiente de
-        # inflacao (0.55 local / 0.85 global) como margem -- mas o
-        # gradiente foi calibrado sobre o raio CIRCUNSCRITO (0.411 m), e o
-        # ponto amostrado fica no centro do tronco, nao no canto do
-        # retangulo. Numa curva junto a parede, o canto alcanca alem do
-        # que aquele raio cobre enquanto o ponto central ainda mede custo
-        # baixo -- o critic aprova a trajetoria e o canto ainda assim
-        # roça o obstaculo real que o lidar ja tinha marcado no costmap.
+        # Promoted to true on 30/08/2026: in simulation (host, amd64) the
+        # robot grazed side walls in narrow corridors with
+        # `consider_footprint: false`. With false the critic samples the
+        # cost of the cell at the trajectory's POINT and trusts the
+        # inflation gradient (0.55 local / 0.85 global) as margin -- but the
+        # gradient was calibrated on the CIRCUMSCRIBED radius (0.411 m), and
+        # the sampled point sits at the trunk's center, not at the
+        # rectangle's corner. In a turn along a wall, the corner reaches
+        # beyond what that radius covers while the center point still reads
+        # low cost -- the critic approves the trajectory and the corner
+        # still grazes the real obstacle the lidar had already marked in the
+        # costmap.
         #
-        # true faz o critic checar a poligonal real contra as celulas do
-        # costmap (que carregam o obstaculo do lidar via `obstacle_layer`,
-        # nao uma estimativa por odometria) em vez de um unico ponto mais
-        # margem fixa -- e essa poligonal so pode ser usada com seguranca
-        # porque os dois costmaps ja publicam `footprint` (retangulo), nao
-        # `robot_radius` (circulo). Antes da promocao do footprint em
-        # codigo, ambos os costmaps declaravam `robot_radius` e nunca
-        # publicavam poligonal, entao o critic dereferenciava uma vazia e
-        # o `nav2_container` inteiro morria com SIGSEGV alguns ms depois de
-        # "Created controller : MPPIController" (o Nav2 avisa antes --
+        # true makes the critic check the real polygon against the costmap's
+        # cells (which carry the lidar's obstacle via `obstacle_layer`, not
+        # an odometry-based estimate) instead of a single point plus fixed
+        # margin -- and that polygon can only be used safely because both
+        # costmaps already publish `footprint` (rectangle), not
+        # `robot_radius` (circle). Before the footprint's promotion in code,
+        # both costmaps declared `robot_radius` and never published a
+        # polygon, so the critic dereferenced an empty one and the entire
+        # `nav2_container` died with SIGSEGV a few ms after
+        # "Created controller : MPPIController" (Nav2 warns beforehand --
         # "Inconsistent configuration in collision checking. Please verify
         # the robot's shape settings in both the costmap and the cost
-        # critic" -- e so depois trava; o aviso e a unica pista, e nao
-        # nomeia este parametro). Essa precondicao do crash nao vale mais.
+        # critic" -- and only then crashes; the warning is the only clue,
+        # and it does not name this parameter). That crash precondition no
+        # longer holds.
         #
-        # Medido so em simulacao ate agora -- falta a rodada HIL na Aquila
-        # confirmando que o mesmo ganho de folga se sustenta sob a dinamica
-        # real do trote (a simulacao nao mede desempenho de hardware, so
-        # geometria de colisao; ver CLAUDE.md regra 5).
+        # Measured only in simulation so far -- still missing the HIL run on
+        # the Aquila confirming that the same margin gain holds under the
+        # real dynamics of the trot (simulation does not measure hardware
+        # performance, only collision geometry; see CLAUDE.md rule 5).
         consider_footprint: true
         collision_cost: 1000000.0
         near_goal_distance: 1.0
@@ -571,58 +608,59 @@ controller_server:
       PathAlignCritic:
         enabled: true
         cost_power: 1
-        # 14.0. TENTADO 7.0 em R14b (30/08/2026, confundido por processo) E
-        # em R14c (30/08/2026, retest isolado contra o codigo pre-R15) --
-        # REVERTIDO nas duas. R14c e a leitura que conta (variavel unica de
-        # verdade): contra o mesmo subconjunto "corredor reto genuino"
-        # (docs/results/ml35-f5-exploration-r14c.md), `cmd_wz` mediano
-        # (0.048 rad/s) e amplitude de guinada/5s (mediana 10.2 graus) ficaram
-        # levemente MELHORES que o baseline R13 (0.056 rad/s, 10.7 graus), e a
-        # assimetria de parede voltou ao patamar de R13 (mediana 0.25 m, 45%
-        # esq/31% dir/25% centro -- distribuicao quase identica a de R13, nao
-        # o vies fixo de 57% que R14b mediu sob o erro de processo). Isso
-        # indica que o vies severo de R14b nao era efeito isolado de
-        # cost_weight -- nao prova que a causa era especificamente o codigo
-        # de R15 junto (geometria de labirinto diferente a cada rodada,
-        # n=1 por configuracao); a contribuicao real de R15 fica em aberto
-        # ate a validacao integrada em R16.
+        # 14.0. TRIED 7.0 in R14b (30/08/2026, confounded by process) AND in
+        # R14c (30/08/2026, isolated retest against the pre-R15 code) --
+        # REVERTED in both. R14c is the reading that counts (single variable
+        # of truth): against the same "genuine straight corridor" subset
+        # (docs/results/ml35-f5-exploration-r14c.md), median `cmd_wz`
+        # (0.048 rad/s) and yaw amplitude/5s (median 10.2 degrees) came out
+        # slightly BETTER than the R13 baseline (0.056 rad/s, 10.7 degrees),
+        # and the wall asymmetry returned to R13's level (median 0.25 m, 45%
+        # left/31% right/25% center -- a distribution nearly identical to
+        # R13's, not the fixed 57% bias that R14b measured under the
+        # process error). This indicates that R14b's severe bias was not an
+        # isolated effect of cost_weight -- it does not prove the cause was
+        # specifically the R15 code bundled with it (different maze geometry
+        # each run, n=1 per configuration); R15's real contribution remains
+        # open until the integrated validation in R16.
         #
-        # Mas `plan_straightness` piorou (fracao abaixo de 0.9: 12,4% -> 31,7%),
-        # a rodada teve MAIS janelas de imobilidade que qualquer rodada
-        # anterior (7 contra 5 em R13), e a taxa de metas concluidas caiu
-        # (70% -> 52%, 11/21). Resultado misto: melhora marginal nas metricas
-        # de suavidade, piora nos indicadores de missao. Nao e uma vitoria
-        # clara o suficiente para justificar desviar do baseline com n=1 por
-        # configuracao -- revertido pelo mesmo motivo de R14/R14b: nao
-        # empilhar mudanca nao demonstrada. Duas tentativas no mesmo critico
-        # dominante (offset_from_furthest, cost_weight) sem ganho liquido
-        # claro; proximo passo nao e um terceiro peso de MPPI, ver
-        # recomendacao em docs/results/ml35-f5-exploration-r14c.md.
+        # But `plan_straightness` got worse (fraction below 0.9: 12.4% ->
+        # 31.7%), the run had MORE stillness windows than any previous run
+        # (7 against 5 in R13), and the goal completion rate dropped (70% ->
+        # 52%, 11/21). Mixed result: marginal improvement in smoothness
+        # metrics, worse mission indicators. Not a clear enough win to
+        # justify deviating from the baseline with n=1 per configuration --
+        # reverted for the same reason as R14/R14b: do not stack an
+        # unproven change. Two attempts on the same dominant critic
+        # (offset_from_furthest, cost_weight) with no clear net gain; the
+        # next step is not a third MPPI weight, see the recommendation in
+        # docs/results/ml35-f5-exploration-r14c.md.
         cost_weight: 14.0
         max_path_occupancy_ratio: 0.05
         trajectory_point_step: 4
         threshold_to_consider: 0.5
-        # 20. TENTADO 10 em R14 (30/08/2026) e REVERTIDO -- medido, nao
-        # ajudou. A hipotese (R13,
-        # docs/results/ml35-f5-exploration-r13.md): oscilacao do critico
-        # dominante (peso 14, o maior) em torno de uma referencia LONGE
-        # (offset 20 ~ 1 m) faria sentido encurtar para ~0.5 m (offset 10).
+        # 20. TRIED 10 in R14 (30/08/2026) and REVERTED -- measured, it did
+        # not help. The hypothesis (R13,
+        # docs/results/ml35-f5-exploration-r13.md): oscillation of the
+        # dominant critic (weight 14, the highest) around a FAR reference
+        # (offset 20 ~ 1 m) suggested shortening to ~0.5 m (offset 10) made
+        # sense.
         #
-        # Medido no HIL real (docs/results/ml35-f5-exploration-r14.md),
-        # mesmo subconjunto "corredor reto genuino" de R13: `cmd_wz` mediano
-        # SUBIU (0.052 -> 0.079 rad/s), `plan_straightness` piorou (fracao
-        # abaixo de 0.9: 12,4% -> 39,1%), amplitude de guinada real por
-        # janela de 5 s piorou (mediana 10,7 -> 16,9 graus), e a assimetria
-        # de parede trocou de "oscila 50/50" para "vies fixo pra esquerda"
-        # (63% esquerda) -- nao o padrao que a hipotese previa se tivesse
-        # funcionado. Taxa de metas concluidas tambem caiu (70% -> 56%),
-        # ainda que confundida com geometria de exploracao diferente entre
-        # as duas rodadas (n=1 de cada lado). Zero quedas nas duas.
+        # Measured on real HIL (docs/results/ml35-f5-exploration-r14.md),
+        # same "genuine straight corridor" subset as R13: median `cmd_wz`
+        # WENT UP (0.052 -> 0.079 rad/s), `plan_straightness` got worse
+        # (fraction below 0.9: 12.4% -> 39.1%), real yaw amplitude per 5 s
+        # window got worse (median 10.7 -> 16.9 degrees), and the wall
+        # asymmetry switched from "oscillates 50/50" to "fixed bias to the
+        # left" (63% left) -- not the pattern the hypothesis predicted had
+        # it worked. Goal completion rate also dropped (70% -> 56%), though
+        # confounded by different exploration geometry between the two runs
+        # (n=1 on each side). Zero falls in both.
         #
-        # Revertido para nao empilhar uma mudanca nao demonstrada sob o
-        # proximo A/B do lado do MPPI -- ainda em aberto: peso do
-        # PathAlignCritic, peso do PathAngleCritic, ou frequencia de
-        # substituicao do plano ativo (docs/ml35/estado-fases.md, R14).
+        # Reverted so as not to stack an unproven change under the next
+        # A/B on the MPPI side -- still open: PathAlignCritic weight,
+        # PathAngleCritic weight, or the active plan's replacement frequency
+        # (docs/ml35/estado-fases.md, R14).
         offset_from_furthest: 20
         use_path_orientations: false
 
@@ -651,36 +689,38 @@ local_costmap:
       global_frame: odom
       robot_base_frame: base
       rolling_window: true
-      # 6 x 6 e nao 3 x 3 (valor do TB4). A janela de 3 m centrada no robo tem
-      # 1,5 m de raio, e o L1 mede obstaculo a 4,43 m (medido em
-      # quadruped_objects.sdf). Com 3 m o robo so ve a caixa quando ela esta a
-      # 1,5 m; ao envelope de 0,15 m/s isso da 10 s de aviso, mas o desvio
-      # comeca tarde e sai brusco. 6 m usa o alcance que o sensor ja entrega.
+      # 6 x 6, not 3 x 3 (the TB4's value). The 3 m window centered on the
+      # robot has a 1.5 m radius, and the L1 measures an obstacle at 4.43 m
+      # (measured in quadruped_objects.sdf). At 3 m the robot only sees the
+      # box once it is at 1.5 m; at the 0.15 m/s envelope that gives 10 s of
+      # warning, but the dodge starts late and comes out abrupt. 6 m uses the
+      # range the sensor already delivers.
       #
-      # O custo e memoria e CPU: a grade cresce com o quadrado do lado.
-      # 6/0.05 = 120 x 120 celulas, o que e barato. Nao suba isso para 20: a
-      # atualizacao a 5 Hz de uma grade grande e o que costuma estourar o
-      # orcamento de CPU no modulo.
+      # The cost is memory and CPU: the grid grows with the square of the
+      # side. 6/0.05 = 120 x 120 cells, which is cheap. Do not raise this to
+      # 20: updating a large grid at 5 Hz is what tends to blow the CPU
+      # budget on the module.
       width: 6
       height: 6
       resolution: 0.05
-      # PEGADA POLIGONAL, PROMOVIDA EM CODIGO EM 29/08/2026; HIL FINAL PENDENTE.
+      # POLYGONAL FOOTPRINT, PROMOTED IN CODE ON 29/08/2026; FINAL HIL PENDING.
       #
-      # Substitui o circulo circunscrito (`robot_radius: 0.38`, sqrt(0.35^2 +
-      # 0.155^2) = 0.383) pelo retangulo real do tronco (0,70 x 0,31 m, com
-      # 0,02 m de margem por lado). O que muda de fato e o raio INSCRITO, que
-      # cai de 0,38 para 0,18: a faixa 253 (INSCRIBED_INFLATED_OBSTACLE) encolhe
-      # na mesma proporcao. Raio circunscrito da pegada: sqrt(0.37^2 + 0.18^2) =
-      # 0.411, ainda abaixo dos inflation_radius dos dois costmaps (0,55 e
-      # 0,85), entao a regra "inflacao nao pode ser menor que a pegada" continua
-      # valendo.
+      # Replaces the circumscribed circle (`robot_radius: 0.38`, sqrt(0.35^2 +
+      # 0.155^2) = 0.383) with the trunk's real rectangle (0.70 x 0.31 m,
+      # with 0.02 m of margin per side). What actually changes is the
+      # INSCRIBED radius, which drops from 0.38 to 0.18: the 253 band
+      # (INSCRIBED_INFLATED_OBSTACLE) shrinks in the same proportion.
+      # Footprint's circumscribed radius: sqrt(0.37^2 + 0.18^2) = 0.411,
+      # still below both costmaps' inflation_radius (0.55 and 0.85), so the
+      # rule "inflation cannot be smaller than the footprint" still holds.
       #
-      # Medido em `docs/results/ml35-f5-footprint-ab.md`: A/B de 150 s HIL,
-      # unica variavel a forma do robo. Custo mediano/maximo na celula do
-      # proprio robo caiu de 168/243 (circulo) para 135/165 (poligono), e a
-      # fracao de amostras no limiar fatal 253 caiu de 7,1% para 0,0%. Nao
-      # promovido antes por falta de medicao; a promocao em codigo ainda
-      # aguarda uma corrida HIL confirmando a mesma folga sob o default.
+      # Measured in `docs/results/ml35-f5-footprint-ab.md`: a 150 s HIL A/B,
+      # the only variable being the robot's shape. Median/maximum cost at
+      # the robot's own cell dropped from 168/243 (circle) to 135/165
+      # (polygon), and the fraction of samples at the fatal 253 threshold
+      # dropped from 7.1% to 0.0%. Not promoted earlier for lack of
+      # measurement; the promotion in code still awaits an HIL run
+      # confirming the same margin gain under the default.
       footprint: "[ [0.37, 0.18], [0.37, -0.18], [-0.37, -0.18], [-0.37, 0.18] ]"
       # perception_layer sits between obstacles and inflation so that
       # detections are inflated like any other obstacle.
@@ -699,76 +739,79 @@ local_costmap:
           marking: true
           # Ranges must not exceed the sensor's real reach or the layer stops
           # clearing cells it never actually observed, leaving stale obstacles
-          # frozen in the costmap. O L1_lidar do Go2 declara range 0.05-10.0 m
-          # (go2_description/xacro/gazebo.xacro); confira com
-          # `gz topic -e -t /scan/points -n 1`. 9.0 fica dentro disso.
+          # frozen in the costmap. The Go2's L1_lidar declares a range of
+          # 0.05-10.0 m (go2_description/xacro/gazebo.xacro); check with
+          # `gz topic -e -t /scan/points -n 1`. 9.0 stays within that.
           #
           # obstacle_max_range stays BELOW raytrace_max_range on purpose: mark
           # obstacles conservatively, clear freespace generously.
           raytrace_max_range: 9.0
           raytrace_min_range: 0.0
           obstacle_max_range: 8.0
-          # Acima do minimo de 0.05 m do L1. Retornos mais perto que isso sao
-          # artefato de medicao, e marca-los planta obstaculo dentro da propria
-          # pegada do robo, o que dispara recuperacao sem motivo. A perna
-          # dianteira entra no campo do lidar durante o trote: 0.10 m e o que
-          # mantem a perna fora do costmap.
+          # Above the L1's 0.05 m minimum. Returns closer than that are a
+          # measurement artefact, and marking them plants an obstacle inside
+          # the robot's own footprint, which triggers recovery for no
+          # reason. The front leg enters the lidar's field during the trot:
+          # 0.10 m is what keeps the leg out of the costmap.
           obstacle_min_range: 0.10
 
       # The perception -> costmap seam required by CLAUDE.md. Fed by
       # demo_perception's detections_to_cloud adapter, so detections steer
       # the robot instead of only decorating the HMI.
       #
-      # `clearing: true` desde 25/08/2026. O texto anterior aqui dizia que
-      # `clearing: false` era deliberado, porque "deixar a projecao grosseira do
-      # stub limpar celulas apagaria obstaculos reais do lidar". O medo aponta
-      # para o mecanismo errado: cada ObstacleLayer tem grade PROPRIA e entra no
-      # mestre por `combination_method` = Max, que e o default do nav2
-      # (`cost_values.hpp`: "default to maximum", `Max = 1`). O mestre fica com
-      # `max(parede_do_obstacle_layer, 0)` = a parede. Uma projecao ruim aqui nao
-      # tem como apagar o que o lidar viu.
+      # `clearing: true` since 25/08/2026. The previous text here said that
+      # `clearing: false` was deliberate, because "letting the stub's coarse
+      # projection clear cells would erase real lidar obstacles". The fear
+      # points at the wrong mechanism: each ObstacleLayer has its OWN grid
+      # and enters the master via `combination_method` = Max, which is
+      # nav2's default (`cost_values.hpp`: "default to maximum", `Max = 1`).
+      # The master ends up with `max(obstacle_layer_wall, 0)` = the wall. A
+      # bad projection here has no way to erase what the lidar saw.
       #
-      # O que `clearing: false` fazia de fato era tornar as marcas PERMANENTES --
-      # ver a medicao no bloco `detections` abaixo.
+      # What `clearing: false` actually did was make this layer's marks
+      # PERMANENT -- see the measurement in the `detections` block below.
       perception_layer:
         plugin: "nav2_costmap_2d::ObstacleLayer"
         enabled: true
         observation_sources: detections
         detections:
           topic: /demo/perception/detection_cloud
-          # 1.0 m cobre com folga a coluna que o adaptador escreve: ele emite z
-          # de 0.0 a `obstacle_height_m`, cujo default e 0.3 m
-          # (detections_to_cloud.py). Se voce subir esse parametro acima de 1.0,
-          # suba este teto junto ou o topo da coluna e descartado em silencio.
+          # 1.0 m covers the column the adapter writes with margin to spare:
+          # it emits z from 0.0 to `obstacle_height_m`, whose default is
+          # 0.3 m (detections_to_cloud.py). If you raise that parameter
+          # above 1.0, raise this ceiling along with it or the column's top
+          # is silently discarded.
           max_obstacle_height: 1.0
           min_obstacle_height: 0.0
-          # `clearing: true` desde 25/08/2026. Era `false`, e `false` faz as
-          # marcas desta camada serem PERMANENTES -- o `observation_persistence`
-          # abaixo esvazia o buffer de observacoes, e nao as celulas que ja foram
-          # escritas. O comentario que acompanhava o parametro descrevia a
-          # intencao certa ("expire them rather than accumulating") e o valor
-          # entregava o oposto.
+          # `clearing: true` since 25/08/2026. Used to be `false`, and
+          # `false` makes this layer's marks PERMANENT -- the
+          # `observation_persistence` below empties the observation buffer,
+          # not the cells that were already written. The comment that
+          # accompanied the parameter described the right intent ("expire
+          # them rather than accumulating") and the value delivered the
+          # opposite.
           #
-          # Medido na bancada, host x86, maze11, com a percepcao JA PARADA ha
-          # cerca de um minuto (`docker compose stop perception`):
+          # Measured at the bench, x86 host, maze11, with perception ALREADY
+          # STOPPED for about a minute (`docker compose stop perception`):
           #
-          #   sonda do costmap, antes de limpar : 169 celulas letais, faixa livre 0.10 m
-          #   depois de /demo/nav/reset          : 108 celulas letais, faixa livre 0.15 m
+          #   costmap probe, before clearing : 169 lethal cells, 0.10 m free lane
+          #   after /demo/nav/reset          : 108 lethal cells, 0.15 m free lane
           #
-          # Ou seja: 61 celulas letais que nenhuma observacao viva sustentava, e
-          # que so sairam por limpeza explicita. Num corredor de 1,20 m com
-          # `robot_radius: 0.38` isso e a diferenca entre ter e nao ter caminho.
-          # Numa demo longa, e uma degradacao monotonica: quanto mais tempo
-          # rodando, menos costmap navegavel, sem nenhum log dizendo isso.
+          # In other words: 61 lethal cells that no live observation
+          # sustained, and that only left through explicit clearing. In a
+          # 1.20 m corridor with `robot_radius: 0.38` that is the difference
+          # between having and not having a path. In a long demo, it is a
+          # monotonic degradation: the longer it runs, the less navigable
+          # costmap, with no log saying so.
           #
-          # Cada ObstacleLayer tem costmap proprio e entra no mestre por Max
-          # (`combination_method` default), entao limpar aqui NAO apaga as
-          # paredes vistas pelo `obstacle_layer`.
+          # Each ObstacleLayer has its own costmap and enters the master via
+          # Max (`combination_method` default), so clearing here does NOT
+          # erase the walls seen by `obstacle_layer`.
           #
-          # Vale igual para o TIDL: obstaculo detectado que saiu de campo tem de
-          # poder sair do costmap. Isto e sintonia de costmap, nao contrato de
-          # percepcao -- o topico e o tipo nao mudam (CLAUDE.md, contrato de
-          # topicos).
+          # The same applies to TIDL: a detected obstacle that left the
+          # field of view has to be able to leave the costmap. This is
+          # costmap tuning, not perception contract -- the topic and the
+          # type do not change (CLAUDE.md, topic contract).
           clearing: true
           marking: true
           data_type: "PointCloud2"
@@ -786,13 +829,15 @@ local_costmap:
         # 5.0 so cost falls off faster with distance, letting the planner commit
         # to the centre of a free aisle instead of treating most of it as costly.
         cost_scaling_factor: 5.0
-        # 0.55 aqui NAO e o 0.55 que o arquivo do TB4 rejeitou. La era mais de
-        # 3x o raio de 0.18 e fechava o corredor do armazem; aqui e o raio de
-        # 0.38 mais 0,17 m de folga, a mesma folga que o TB4 acabou usando.
+        # 0.55 here is NOT the 0.55 that the TB4 file rejected. There it was
+        # more than 3x the 0.18 radius and it closed the warehouse aisle;
+        # here it is the 0.38 radius plus 0.17 m of margin, the same margin
+        # the TB4 ended up using.
         #
-        # O piso e o proprio robot_radius: inflacao menor que a pegada deixa o
-        # planejador tracar curva cujo canto raspa o obstaculo. Com robot_radius
-        # 0.38 o valor antigo de 0.35 violava isso — por isso ele subiu.
+        # The floor is robot_radius itself: inflation smaller than the
+        # footprint lets the planner trace a curve whose corner grazes the
+        # obstacle. With robot_radius 0.38 the old value of 0.35 violated
+        # this — hence it was raised.
         inflation_radius: 0.55
 
       static_layer:
@@ -811,49 +856,53 @@ global_costmap:
       robot_base_frame: base
       # Same polygon as the local costmap — see the note there.
       footprint: "[ [0.37, 0.18], [0.37, -0.18], [-0.37, -0.18], [-0.37, 0.18] ]"
-      # 10 cm, e NAO os 5 cm do costmap local. Ver o bloco da janela abaixo: as
-      # duas coisas mudaram juntas e uma sem a outra e o caso ruim.
+      # 10 cm, and NOT the local costmap's 5 cm. See the window block below:
+      # the two changed together and one without the other is the bad case.
       resolution: 0.10
-      # O slam_toolbox acumula tanto ocupado quanto livre. A static_layer
-      # projeta essa memoria dentro da janela, que continua rolante.
+      # slam_toolbox accumulates both occupied and free space. static_layer
+      # projects that memory inside the window, which stays rolling.
       #
-      # NAO use false com o mapa vivo: o StaticLayer redimensiona o costmap
-      # mestre para o retangulo minimo publicado pelo SLAM. Medido no HIL em
-      # 27/08/2026, o primeiro mapa tinha 78x32 celulas e deixava o footprint na
-      # borda; o planner tentou my=32/33 e repetiu `worldToMap failed`. Rolante
-      # conserva a janela centrada no robo enquanto sobrepoe toda a parte do
-      # pose-graph que cai dentro dela.
+      # DO NOT use false with the live map: StaticLayer resizes the master
+      # costmap to the minimal rectangle published by SLAM. Measured on HIL
+      # on 27/08/2026, the first map had 78x32 cells and left the footprint
+      # at the edge; the planner tried my=32/33 and repeated
+      # `worldToMap failed`. Rolling keeps the window centered on the robot
+      # while overlaying whatever part of the pose-graph falls inside it.
       #
-      # A JANELA E DE 40 m E A RESOLUCAO E DE 10 cm -- MUDARAM JUNTAS, 28/08/2026
+      # THE WINDOW IS 40 m AND THE RESOLUTION IS 10 cm -- CHANGED TOGETHER, 28/08/2026
       #
-      #   antes   20 / 0.05 = 400 celulas por eixo, cobrindo +/- 10 m do robo
-      #   depois  40 / 0.10 = 400 celulas por eixo, cobrindo +/- 20 m do robo
+      #   before   20 / 0.05 = 400 cells per axis, covering +/- 10 m from the robot
+      #   after    40 / 0.10 = 400 cells per axis, covering +/- 20 m from the robot
       #
-      # A grade mestre continua com ~160 mil celulas, entao inflacao, raytrace e
-      # publicacao custam o mesmo que antes. Subir a janela SEM baixar a
-      # resolucao daria 800x800 = 640 mil celulas, 4x o custo, no mesmo modulo
-      # que ja perdeu CPU para o SLAM e para o explorador. Nao faca so metade.
+      # The master grid stays at ~160 thousand cells, so inflation, raytrace
+      # and publishing cost the same as before. Raising the window WITHOUT
+      # lowering the resolution would give 800x800 = 640 thousand cells, 4x
+      # the cost, on the same module that has already lost CPU to SLAM and
+      # to the explorer. Do not do only half of it.
       #
-      # POR QUE 20 m NAO BASTAVA: as poses do `quadruped_maze11.sdf` dao um
-      # labirinto de x -11,67..0,00 por y -2,60..11,65, ou seja ~11,7 x 14,2 m,
-      # DIAGONAL ~18,4 m. Com o robo num canto, o canto oposto fica a ~18 m e
-      # simplesmente NAO EXISTE na grade mestre -- nem para o painel do cockpit,
-      # que desenha `/global_costmap/costmap` (hmi/js/panels/nav-panel.js), nem
-      # para o planner. Nao era o mapa sendo esquecido; era a janela cortando.
-      # +/- 20 m cobre a diagonal inteira de qualquer ponto do labirinto.
+      # WHY 20 m WAS NOT ENOUGH: the poses of `quadruped_maze11.sdf` give a
+      # maze of x -11.67..0.00 by y -2.60..11.65, i.e. ~11.7 x 14.2 m,
+      # DIAGONAL ~18.4 m. With the robot in one corner, the opposite corner
+      # sits at ~18 m and simply DOES NOT EXIST in the master grid -- not
+      # for the cockpit panel, which draws `/global_costmap/costmap`
+      # (hmi/js/panels/nav-panel.js), nor for the planner. It was not the
+      # map being forgotten; it was the window cutting it off. +/- 20 m
+      # covers the entire diagonal from any point of the maze.
       #
-      # 10 cm no GLOBAL nao afrouxa a colisao: quem decide desvio proximo e o
-      # costmap local, que fica em 5 cm de proposito. O `inflation_radius` DESTE
-      # costmap e 0.85 (o 0.55 e o do local), o que a 10 cm por celula ainda da
-      # 8,5 celulas de inflacao -- folgado para `robot_radius` 0.38.
+      # 10 cm on the GLOBAL costmap does not loosen collision handling:
+      # close-range avoidance is decided by the local costmap, which stays
+      # at 5 cm on purpose. This costmap's `inflation_radius` is 0.85 (0.55
+      # is the local one's), which at 10 cm per cell still gives 8.5 cells
+      # of inflation -- generous for `robot_radius` 0.38.
       #
-      # SE A static_layer NAO REPROJETAR ENTRE 5 cm e 10 cm: o mapa do SLAM sai
-      # em 0.05 (slam_params.yaml) e aqui o mestre esta em 0.10. No caminho
-      # ROLANTE o StaticLayer mantem grade propria e transforma celula a celula
-      # para o mestre, entao resolucoes diferentes devem passar -- mas isso NAO
-      # foi verificado em hardware. Se as paredes nao aparecerem, reverta APENAS
-      # estas tres linhas (20 / 20 / 0.05). Nao troque para
-      # `rolling_window: false` junto: isso e o defeito de 27/08 de volta.
+      # IF static_layer DOES NOT REPROJECT BETWEEN 5 cm AND 10 cm: the SLAM
+      # map comes out at 0.05 (slam_params.yaml) and here the master is at
+      # 0.10. On the ROLLING path StaticLayer keeps its own grid and
+      # transforms cell by cell into the master, so different resolutions
+      # should pass through -- but this was NOT verified on hardware. If the
+      # walls do not appear, revert ONLY these three lines (20 / 20 / 0.05).
+      # Do not switch to `rolling_window: false` at the same time: that
+      # brings back the 27/08 defect.
       rolling_window: true
       width: 40
       height: 40
@@ -874,58 +923,64 @@ global_costmap:
           data_type: "PointCloud2"
           min_obstacle_height: 0.12
           max_obstacle_height: 1.0
-          # ====== NAO PONHA `false` AQUI. TENTADO, MEDIDO, REPROVADO. ======
+          # ====== DO NOT SET `false` HERE. TRIED, MEASURED, REJECTED. ======
           #
-          # A ideia era dar MEMORIA ao mapa global: parede vista uma vez nunca
-          # mais sai, e o robo para de redescobrir o labirinto a cada segundo.
+          # The idea was to give the global map MEMORY: a wall seen once
+          # never disappears again, and the robot stops rediscovering the
+          # maze every second.
           #
-          # O DEFEITO QUE ELA ATACAVA e real, medido no HIL em 27/08/2026 lendo
-          # /plan a cada 5 s numa meta presa (0,0) -> (0,8):
+          # THE DEFECT IT WAS ATTACKING is real, measured on HIL on
+          # 27/08/2026 reading /plan every 5 s on a goal stuck at
+          # (0,0) -> (0,8):
           #
-          #   t+ 5s   458 pts, 11.49 m, rumo inicial 173 deg   <- rota VERDADEIRA
-          #   t+10s   458 pts, 11.50 m, rumo inicial 177 deg
-          #   t+15s   291 pts,  8.59 m, rumo inicial  89 deg   <- ATRAVESSA parede
-          #   t+25s   274 pts,  8.66 m, rumo inicial  35 deg
-          #   t+30s   271 pts,  8.81 m, rumo inicial  18 deg
+          #   t+ 5s   458 pts, 11.49 m, initial heading 173 deg   <- TRUE route
+          #   t+10s   458 pts, 11.50 m, initial heading 177 deg
+          #   t+15s   291 pts,  8.59 m, initial heading  89 deg   <- CUTS THROUGH wall
+          #   t+25s   274 pts,  8.66 m, initial heading  35 deg
+          #   t+30s   271 pts,  8.81 m, initial heading  18 deg
           #
-          # Os 11,5 m batem com a geodesica real do maze11 medida offline
-          # (12,23 m, `tools/maze/maze_geodesic.py`). Os 8,6 m sao a reta por dentro
-          # de parede nao observada, que so existe porque `allow_unknown: true`
-          # torna o desconhecido barato.
+          # The 11.5 m matches maze11's real geodesic measured offline
+          # (12.23 m, `tools/maze/maze_geodesic.py`). The 8.6 m is the
+          # straight line through an unobserved wall, which only exists
+          # because `allow_unknown: true` makes the unknown cheap.
           #
-          # O plano alterna entre as duas a 1 Hz. O MPPI recebe um caminho que
-          # inverte 90-180 graus a cada segundo -- e gira sem transladar, que e o
-          # sintoma que as secoes 7 a 10 de
-          # `docs/ml35/proximos-passos-navegacao.md` perseguiram como se fosse
-          # defeito de critic.
+          # The plan alternates between the two at 1 Hz. The MPPI receives a
+          # path that flips 90-180 degrees every second -- which turns
+          # without translating, the symptom that sections 7 to 10 of
+          # `docs/ml35/proximos-passos-navegacao.md` chased as if it were a
+          # critic defect.
           #
-          # POR QUE `false` NAO CONSERTA, medido no mesmo dia, no mesmo HIL:
+          # WHY `false` DOES NOT FIX IT, measured on the same day, on the
+          # same HIL:
           #
-          #   deslocamento liquido   0,19 m -> 1,04 m   (melhorou)
-          #   razao de trabalho vx     0,0% -> 3,9%     (melhorou)
-          #   metas cumpridas             0 -> 0        (nao mudou)
-          #   plano ainda alterna    11,66 m <-> 8,77 m (NAO mudou)
+          #   net displacement       0.19 m -> 1.04 m   (improved)
+          #   vx work ratio            0.0% -> 3.9%     (improved)
+          #   goals completed             0 -> 0        (unchanged)
+          #   plan still alternates  11.66 m <-> 8.77 m (unchanged)
           #
-          # E lendo `/global_costmap/costmap_raw` na reta ate a meta, com `false`
-          # ligado: **150 de 161 celulas em 255 (DESCONHECIDO)**, tudo alem de
-          # 0,75 m.
+          # And reading `/global_costmap/costmap_raw` along the straight
+          # line to the goal, with `false` enabled: **150 of 161 cells at
+          # 255 (UNKNOWN)**, everything beyond 0.75 m.
           #
-          # A razao esta na semantica do parametro, e ela e contra-intuitiva:
-          # `clearing` NAO e "esquecer obstaculo", e o raytrace -- e o raytrace e
-          # o UNICO mecanismo que transforma desconhecido em LIVRE nesta camada.
-          # Desligando-o, nada nunca vira livre e o mapa global fica
-          # permanentemente desconhecido fora das celulas marcadas. Como o NavFn
-          # roda com `allow_unknown: true`, isso deixa o atalho pelo desconhecido
-          # MAIS atraente, nao menos. A correcao piora a causa que ataca.
+          # The reason lies in the parameter's semantics, and it is
+          # counter-intuitive: `clearing` is NOT "forget obstacle", it is
+          # the raytrace -- and the raytrace is the ONLY mechanism that
+          # turns unknown into FREE in this layer. Turning it off, nothing
+          # ever becomes free and the global map stays permanently unknown
+          # outside the marked cells. Since NavFn runs with
+          # `allow_unknown: true`, this makes the shortcut through the
+          # unknown MORE attractive, not less. The fix makes the cause it
+          # attacks worse.
           #
-          # O QUE DE FATO RESOLVE precisa persistir as DUAS coisas -- ocupado e
-          # livre -- e a camada de obstaculo nao sabe fazer isso. E mapa de SLAM
-          # (`slam_toolbox`) alimentando a `static_layer` acima, com o
-          # `allow_unknown: true` mantido para que meta distante continue
-          # planejavel. Ver docs/results/ml35-f5-memoria-costmap.md.
+          # WHAT ACTUALLY FIXES IT needs to persist BOTH things -- occupied
+          # and free -- and the obstacle layer does not know how to do
+          # that. It is the SLAM map (`slam_toolbox`) feeding the
+          # `static_layer` above, with `allow_unknown: true` kept so that a
+          # distant goal remains plannable. See
+          # docs/results/ml35-f5-memoria-costmap.md.
           clearing: true
           marking: true
-          # Dentro do alcance real de 10 m do L1 — ver a nota no costmap local.
+          # Within the L1's real 10 m range — see the note in the local costmap.
           raytrace_max_range: 9.0
           raytrace_min_range: 0.0
           obstacle_max_range: 8.0
@@ -937,16 +992,18 @@ global_costmap:
         observation_sources: detections
         detections:
           topic: /demo/perception/detection_cloud
-          # 1.0 m cobre com folga a coluna que o adaptador escreve: ele emite z
-          # de 0.0 a `obstacle_height_m`, cujo default e 0.3 m
-          # (detections_to_cloud.py). Se voce subir esse parametro acima de 1.0,
-          # suba este teto junto ou o topo da coluna e descartado em silencio.
+          # 1.0 m covers the column the adapter writes with margin to spare:
+          # it emits z from 0.0 to `obstacle_height_m`, whose default is
+          # 0.3 m (detections_to_cloud.py). If you raise that parameter
+          # above 1.0, raise this ceiling along with it or the column's top
+          # is silently discarded.
           max_obstacle_height: 1.0
           min_obstacle_height: 0.0
-          # Igual ao costmap global, e pelo mesmo motivo medido: `false` deixava
-          # marca permanente. Os dois costmaps tem de casar -- planejar num mapa
-          # que limpa e controlar num que nao limpa da rota valida com o
-          # controlador recusando segui-la, sem nenhum erro.
+          # Same as the global costmap, and for the same measured reason:
+          # `false` left a permanent mark. The two costmaps have to match --
+          # planning on a map that clears while controlling on one that
+          # does not clear yields a valid route with the controller
+          # refusing to follow it, with no error at all.
           clearing: true
           marking: true
           data_type: "PointCloud2"
@@ -958,35 +1015,39 @@ global_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        # Divergent inflation between the two costmaps e um classico de "o plano
-        # global vai onde o local se recusa a seguir": o planejador roteia por um
-        # corredor que o costmap local considera bloqueado, e o robo empaca no
-        # meio do vao.
+        # Divergent inflation between the two costmaps is a classic case of
+        # "the global plan goes where the local one refuses to follow": the
+        # planner routes through a corridor the local costmap considers
+        # blocked, and the robot gets stuck in the middle of the gap.
         #
-        # ISSO VALE NUMA DIRECAO SO, e e por isso que estes valores agora
-        # DIVERGEM de proposito do local (0.55 / 5.0):
+        # THIS ONLY HOLDS IN ONE DIRECTION, which is why these values now
+        # DIVERGE from the local one (0.55 / 5.0) on purpose:
         #
-        #   global MAIS conservador que o local  -> seguro. O caminho global cai
-        #     sempre em terreno que o local aceita. E o caso aqui.
-        #   global MENOS conservador que o local -> o defeito descrito acima.
+        #   global MORE conservative than local  -> safe. The global path
+        #     always falls on terrain the local one accepts. That is the
+        #     case here.
+        #   global LESS conservative than local -> the defect described
+        #     above.
         #
-        # POR QUE DIVERGIR: e assim que "priorize a rota com mais espaco livre"
-        # se expressa com NavFn, que e Dijkstra puro sobre o custo do costmap e
-        # nao tem termo proprio de folga. Com inflation_radius 0.55 num corredor
-        # de 1.20 m, a faixa de custo ZERO no meio tem 0.10 m (1.20 - 2*0.55):
-        # fora dessa fita o custo e plano, e o Dijkstra escolhe pelo COMPRIMENTO,
-        # ignorando folga. Com 0.85 > 0.60 (meia-largura do corredor) nao existe
-        # mais celula de custo zero no corredor, o gradiente e monotonico ate o
-        # centro, e rota apertada passa a custar mais que rota aberta.
+        # WHY DIVERGE: this is how "prefer the route with more free space"
+        # is expressed with NavFn, which is pure Dijkstra over the costmap's
+        # cost and has no dedicated margin term. With inflation_radius 0.55
+        # in a 1.20 m corridor, the ZERO-cost band in the middle is 0.10 m
+        # (1.20 - 2*0.55): outside that strip the cost is flat, and Dijkstra
+        # picks by LENGTH, ignoring margin. With 0.85 > 0.60 (the
+        # corridor's half-width) there is no longer a zero-cost cell in the
+        # corridor, the gradient is monotonic all the way to the center, and
+        # a tight route ends up costing more than an open one.
         #
-        # cost_scaling_factor cai de 5.0 para 2.0 para o gradiente ser suave ao
-        # longo dos 0.85 m; com 5.0 ele decai rapido e volta a ficar quase plano
-        # na metade externa, que e o problema que se esta corrigindo.
+        # cost_scaling_factor drops from 5.0 to 2.0 so the gradient is smooth
+        # across the 0.85 m; at 5.0 it decays fast and goes back to nearly
+        # flat in the outer half, which is the problem being fixed.
         #
-        # O que NAO muda: a faixa INSCRITA, que e o que o planejador trata como
-        # obstaculo, vem de `robot_radius` (0.38) e nao de inflation_radius.
-        # Subir a inflacao portanto NAO fecha corredor nenhum -- so reordena
-        # preferencia entre rotas que continuam todas viaveis.
+        # What does NOT change: the INSCRIBED band, which is what the
+        # planner treats as an obstacle, comes from `robot_radius` (0.38)
+        # and not from inflation_radius. Raising the inflation therefore
+        # does NOT close any corridor -- it only reorders preference among
+        # routes that all remain viable.
         cost_scaling_factor: 2.0
         inflation_radius: 0.85
 
@@ -1050,57 +1111,63 @@ planner_server:
 
 # =========================== route_server ============================
 #
-# Esta demo NAO usa roteamento por grafo. A secao existe por uma razao so:
-# impedir que o `ReroutingService` seja construido.
+# This demo does NOT use graph-based routing. The section exists for one
+# reason only: to prevent `ReroutingService` from being constructed.
 #
-# O DEFEITO QUE ELA CONTORNA
+# THE DEFECT IT WORKS AROUND
 #
-# O `route_server` esta na lista `lifecycle_nodes` do `navigation_launch.py`
-# vendorizado, que tem de seguir identica ao upstream (proveniencia -- ver
-# launch/nav2_vendored/README.md), e essa lista chega ao lifecycle_manager como
-# parametro CRAVADO no launch: `{'node_names': lifecycle_nodes}`. Um valor
-# inline vence o arquivo de parametros, entao NAO da para tirar o route_server
-# da lista por aqui. Ele vai ser configurado, queiramos ou nao.
+# `route_server` is in the vendored `navigation_launch.py`'s `lifecycle_nodes`
+# list, which has to stay identical to upstream (provenance -- see
+# launch/nav2_vendored/README.md), and that list reaches lifecycle_manager as
+# a parameter HARDCODED in the launch: `{'node_names': lifecycle_nodes}`. An
+# inline value beats the parameter file, so there is NO way to remove
+# route_server from the list here. It will be configured, whether we want it
+# or not.
 #
-# E configurar `ReroutingService` derruba o processo INTEIRO com SIGSEGV:
+# And configuring `ReroutingService` brings down the ENTIRE process with
+# SIGSEGV:
 #
 #   [route_server]: Configuring Rerouting service operation.
 #   [ERROR] [component_container_isolated-4]: process has died
 #           [pid 40, exit code -11, ...]
 #
-# `-11` e SIGSEGV. Medido em 24 e 25/08/2026, em tres caminhos distintos:
-# RESET+STARTUP pelo lifecycle_manager, e **cold start normal** -- este ultimo
-# de forma INTERMITENTE, que e o pior caso: o mesmo comando sobe numa vez e
-# derruba a pilha na seguinte, e o sintoma e "o Nav2 nao subiu hoje".
+# `-11` is SIGSEGV. Measured on 24 and 25/08/2026, on three distinct paths:
+# RESET+STARTUP via lifecycle_manager, and **normal cold start** -- the
+# latter INTERMITTENTLY, which is the worst case: the same command comes up
+# fine once and brings down the stack the next time, and the symptom is
+# "Nav2 didn't come up today".
 #
-# Quando isso acontece morre o `nav2_container` e com ele TODOS os servidores do
-# Nav2 de uma vez. O container `nav` fica com o processo `ros2` vivo e nenhum
-# filho, entao `docker compose ps` diz "running" e o robo nao navega. Nada no
-# estado do compose acusa.
+# When this happens, `nav2_container` dies and with it ALL of Nav2's servers
+# at once. The `nav` container ends up with the `ros2` process alive and no
+# children, so `docker compose ps` says "running" and the robot does not
+# navigate. Nothing in the compose state flags it.
 #
-# `operations` e a lista de plugins de operacao de rota. O default inclui
-# `ReroutingService`; listar apenas `AdjustSpeedLimit` faz o plugin problematico
-# nunca ser construido. NAO ponha `[]`: lista YAML vazia chega ao launch como
-# tupla Python e derruba tudo com "Expected 'value' to be one of [float, int,
-# str, bool, bytes], but got '()'" -- ver a armadilha 5 do guia-operacao.
+# `operations` is the list of route-operation plugins. The default includes
+# `ReroutingService`; listing only `AdjustSpeedLimit` makes the problematic
+# plugin never get constructed. Do NOT set `[]`: an empty YAML list reaches
+# the launch as a Python tuple and brings everything down with "Expected
+# 'value' to be one of [float, int, str, bool, bytes], but got '()'" -- see
+# trap 5 of the operations guide.
 #
-# Isto e CONTORNO, nao correcao: a causa esta no nav2_route e e candidata a
-# issue upstream. Se um dia a demo precisar de roteamento, o plugin volta e o
-# defeito volta com ele.
+# This is a WORKAROUND, not a fix: the cause lies in nav2_route and is a
+# candidate for an upstream issue. If the demo ever needs routing, the plugin
+# comes back and the defect comes back with it.
 route_server:
   ros__parameters:
-    # A lista precisa do TIPO de cada plugin declarado junto. Enquanto ela vem do
-    # default, o nav2_route conhece os tipos dos proprios defaults; no momento em
-    # que ela e sobreposta aqui, ele passa a exigir `<nome>.plugin` e reprova a
-    # transicao com uma mensagem que nao diz de onde falta o parametro:
+    # The list needs the TYPE of each plugin declared alongside it. While it
+    # comes from the default, nav2_route knows its own defaults' types; the
+    # moment it is overridden here, it starts requiring `<name>.plugin` and
+    # fails the transition with a message that does not say which parameter
+    # is missing:
     #
     #   [FATAL] [route_server]: Can not get 'plugin' param value for AdjustSpeedLimit
     #   [FATAL] [route_server]: Failed to configure route server: No 'plugin' param for param ns!
     #   [ERROR] [lifecycle_manager_navigation]: Failed to bring up all requested nodes.
     #
-    # Isto e uma falha ALTA, e nisso ela e melhor que o segfault que substitui: o
-    # gerenciador aborta a subida, nenhum servidor fica meio vivo, e o container
-    # nao mente "running" com o Nav2 morto dentro.
+    # This is a HIGH-severity failure, and in that respect it is better than
+    # the segfault it replaces: the manager aborts the bring-up, no server is
+    # left half-alive, and the container does not lie "running" with Nav2
+    # dead inside.
     operations: ["AdjustSpeedLimit"]
     AdjustSpeedLimit:
       plugin: "nav2_route::AdjustSpeedLimit"
@@ -1139,17 +1206,19 @@ behavior_server:
     robot_base_frame: base
     transform_tolerance: 0.1
     simulate_ahead_time: 2.0
-    # ESTE BLOCO CAUSA QUEDA se ficar no valor do TB4.
+    # THIS BLOCK CAUSES A FALL if left at the TB4's value.
     #
-    # Sao as velocidades que as recuperacoes usam, e elas NAO passam pelo
-    # velocity_smoother nem pelos limites do MPPI: o behavior_server publica
-    # direto. Com 1.5 rad/s o comportamento `spin` pede mais de dez vezes o
-    # limite medido de 0,13 rad/s, o momento de guinada satura na QP de
-    # equilibrio, o robo arrasta os pes e cai — e cai justamente durante uma
-    # recuperacao, o que faz parecer que a recuperacao e que esta quebrada.
+    # These are the velocities recoveries use, and they do NOT go through
+    # velocity_smoother or the MPPI limits: behavior_server publishes
+    # directly. At 1.5 rad/s the `spin` behavior asks for more than ten
+    # times the measured limit of 0.13 rad/s, the yaw moment saturates in
+    # the balance QP, the robot drags its feet and falls — and it falls
+    # precisely during a recovery, which makes it look like the recovery
+    # itself is broken.
     #
-    # min_rotational_vel tambem tem de descer: 0.4 sozinho ja estoura o limite,
-    # e um minimo acima do maximo faz o giro nunca convergir.
+    # min_rotational_vel also has to come down: 0.4 alone already exceeds
+    # the limit, and a minimum above the maximum makes the turn never
+    # converge.
     max_rotational_vel: 0.12
     min_rotational_vel: 0.05
     rotational_acc_lim: 0.8
@@ -1172,14 +1241,15 @@ velocity_smoother:
     smoothing_frequency: 20.0
     scale_velocities: false
     feedback: "OPEN_LOOP"
-    # ESTES TRES TEM DE CASAR COM O MPPI (vx_max/vx_min/wz_max acima). O
-    # smoother e o ULTIMO no caminho antes do collision_monitor: se ele cortar
-    # mais baixo que o MPPI, o corte nao aparece em log nenhum -- o controlador
-    # planeja com um teto e o robo executa outro, e o sintoma e "mudei o
-    # parametro e nada aconteceu".
+    # THESE THREE HAVE TO MATCH THE MPPI (vx_max/vx_min/wz_max above). The
+    # smoother is the LAST step before collision_monitor: if it clips lower
+    # than the MPPI, the clip does not show up in any log -- the controller
+    # plans with one ceiling and the robot executes another, and the symptom
+    # is "I changed the parameter and nothing happened".
     #
-    # min_velocity[0] = 0.0 pelo mesmo motivo que vx_min: sem isto o smoother
-    # ainda deixaria passar re vinda de qualquer outra fonte.
+    # min_velocity[0] = 0.0 for the same reason as vx_min: without this the
+    # smoother would still let through reverse coming from any other
+    # source.
     max_velocity: [0.15, 0.0, 0.20]
     min_velocity: [0.0, 0.0, -0.20]
     max_accel: [0.5, 0.0, 0.8]
@@ -1212,22 +1282,22 @@ collision_monitor:
     base_frame_id: "base"
     odom_frame_id: "odom"
     cmd_vel_in_topic: "cmd_vel_smoothed"
-    # SI, NAO manche -- e por isso que o topico e outro.
+    # SI units, NOT stick -- which is why the topic is a different one.
     #
-    # /demo/cmd_vel carrega posicao normalizada de manche, nao m/s: o controlador
-    # de marcha multiplica linear.x por 0.4 e angular.z por 0.5 ao receber
-    # (StateTrotting.cpp:192 com invNormalize, e twist_to_inputs.py:283 com ganho
-    # unitario). Cada comandante do projeto divide pelo ganho antes de publicar;
-    # demo_routine faz isso em to_twist.
+    # /demo/cmd_vel carries normalized stick position, not m/s: the gait
+    # controller multiplies linear.x by 0.4 and angular.z by 0.5 on receipt
+    # (StateTrotting.cpp:192 with invNormalize, and twist_to_inputs.py:283
+    # with unit gain). Every commander in the project divides by the gain
+    # before publishing; demo_routine does this in to_twist.
     #
-    # O Nav2 nao pode fazer isso na saida, porque o MPPI INTEGRA vx como m/s para
-    # prever onde o robo estara. Publicando manche direto aqui, todo rollout erra
-    # a distancia por 2,5x -- medido: vx_max 0.15 lido como manche entrega
-    # 0,006 m/s reais e nenhuma meta cabe no prazo.
+    # Nav2 cannot do this on output, because the MPPI INTEGRATES vx as m/s to
+    # predict where the robot will be. Publishing raw stick here, every
+    # rollout misjudges distance by 2.5x -- measured: vx_max 0.15 read as
+    # stick delivers 0.006 m/s real and no goal fits the deadline.
     #
-    # Entao o Nav2 publica SI e demo_bringup/cmd_vel_si_to_stick converte. Ligar
-    # isto de volta em /demo/cmd_vel faz o robo andar a 40% do pedido SEM ERRO
-    # NENHUM em log.
+    # So Nav2 publishes SI units and demo_bringup/cmd_vel_si_to_stick
+    # converts. Wiring this back into /demo/cmd_vel makes the robot walk at
+    # 40% of what was requested with NO ERROR AT ALL in the log.
     cmd_vel_out_topic: "/demo/cmd_vel_si"
     state_topic: "collision_monitor_state"
     transform_tolerance: 0.2

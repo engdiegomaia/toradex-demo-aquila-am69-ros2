@@ -1,11 +1,11 @@
 """
-Máquina de estados e contrato de status do executivo de exploração.
+State machine and status contract of the exploration executive.
 
-O que está sob teste não é o algoritmo de fronteira -- esse mora em
-`frontier.py` e tem os próprios testes. É a parte que o cockpit e o Nav2 veem: o
-vocabulário de estados, o JSON publicado, e as três transições cujo erro custa
-uma corrida de aceitação inteira -- duas buscas simultâneas, uma meta de
-fronteira que volta para sempre, e o marcador velho tratado como fresco.
+What is under test is not the frontier algorithm -- that lives in
+`frontier.py` and has its own tests. It is the part the cockpit and Nav2
+see: the state vocabulary, the published JSON, and the three transitions
+whose failure costs an entire acceptance run -- two simultaneous searches, a
+frontier goal that returns forever, and an old marker treated as fresh.
 """
 
 import json
@@ -25,7 +25,7 @@ from std_srvs.srv import Trigger
 
 @pytest.fixture
 def node():
-    """Um MazeExplorer com o status capturado em vez de publicado."""
+    """A MazeExplorer with status captured instead of published."""
     rclpy.init()
     explorer = MazeExplorer()
     published: list[dict] = []
@@ -39,18 +39,18 @@ def node():
 
 
 def trigger(node) -> Trigger.Response:
-    """Uma resposta de serviço vazia, como o rclpy entrega ao callback."""
+    """An empty service response, as rclpy delivers to the callback."""
     del node
     return Trigger.Response()
 
 
 def test_starts_idle_so_the_launch_never_moves_the_robot(node) -> None:
-    """O nó sobe junto com o Nav2 e não pode navegar sem alguém pedir."""
+    """The node comes up alongside Nav2 and cannot navigate without a request."""
     assert node._state == 'idle'
 
 
 def test_status_carries_every_field_the_cockpit_reads(node) -> None:
-    """O HUD lê estes campos por nome; faltar um apaga parte da tela."""
+    """The HUD reads these fields by name; a missing one blanks part of the screen."""
     node._publish_status()
     payload = node.published[-1]
     for field in ('state', 'elapsed_s', 'frontier_count', 'goal',
@@ -60,7 +60,7 @@ def test_status_carries_every_field_the_cockpit_reads(node) -> None:
 
 
 def test_status_reports_the_goal_in_flight_not_just_a_count(node) -> None:
-    """Sem as coordenadas da meta, o operador não sabe para onde ele foi."""
+    """Without the goal's coordinates, the operator doesn't know where it went."""
     node._current = Frontier(x=1.5, y=-2.25, cells=12, information_gain_m=0.6)
     node._publish_status()
     goal = node.published[-1]['goal']
@@ -69,7 +69,7 @@ def test_status_reports_the_goal_in_flight_not_just_a_count(node) -> None:
 
 
 def test_every_reachable_state_is_in_the_published_vocabulary(node) -> None:
-    """`_publish_status` afirma isso; o teste garante que a asserção é possível."""
+    """`_publish_status` asserts this; the test guarantees the assertion is possible."""
     for state in ('idle', 'waiting_map', 'selecting', 'navigating',
                   'homing_exit', 'completed', 'failed', 'cancelled'):
         node._state = state
@@ -78,7 +78,7 @@ def test_every_reachable_state_is_in_the_published_vocabulary(node) -> None:
 
 
 def test_start_takes_the_robot_out_of_idle(node) -> None:
-    """Só o serviço arma a busca -- nunca o mapa chegando sozinho."""
+    """Only the service arms the search -- never the map arriving on its own."""
     response = node._start(None, trigger(node))
     assert response.success is True
     assert node._state == 'waiting_map'
@@ -86,11 +86,12 @@ def test_start_takes_the_robot_out_of_idle(node) -> None:
 
 def test_start_refuses_a_second_run_while_one_is_in_flight(node) -> None:
     """
-    Duas buscas no mesmo Nav2 se preemptam e o log não acusa.
+    Two searches on the same Nav2 preempt each other and the log doesn't flag it.
 
-    O servidor navigate_to_pose aceita uma meta só: a segunda aborta a primeira,
-    cujo callback chega depois e reescreve o estado da nova. É a mesma
-    realimentação que o nav_trial documenta em "metas concorrentes".
+    The navigate_to_pose server accepts only one goal: the second aborts the
+    first, whose callback arrives later and overwrites the new one's state.
+    This is the same feedback that nav_trial documents under "concurrent
+    goals".
     """
     node._start(None, trigger(node))
     for state in ('waiting_map', 'selecting', 'navigating', 'homing_exit'):
@@ -101,14 +102,14 @@ def test_start_refuses_a_second_run_while_one_is_in_flight(node) -> None:
 
 
 def test_start_is_allowed_again_after_a_terminal_state(node) -> None:
-    """Uma corrida que terminou não pode travar o cockpit para sempre."""
+    """A run that has ended must not lock the cockpit forever."""
     for state in ('completed', 'failed', 'cancelled', 'idle'):
         node._state = state
         assert node._start(None, trigger(node)).success is True
 
 
 def test_start_clears_the_blacklist_of_the_previous_run(node) -> None:
-    """A blacklist vale durante uma execução, não entre partidas frias."""
+    """The blacklist is valid within a run, not across cold starts."""
     node._blacklist.append((1.0, 2.0))
     node._homing_failures = 2
     node._start(None, trigger(node))
@@ -117,7 +118,7 @@ def test_start_clears_the_blacklist_of_the_previous_run(node) -> None:
 
 
 def test_cancel_is_idempotent(node) -> None:
-    """O cockpit pode chamar duas vezes; o reset do Nav2 chama junto."""
+    """The cockpit may call it twice; the Nav2 reset gets called along with it."""
     node._start(None, trigger(node))
     first = node._cancel(None, trigger(node))
     second = node._cancel(None, trigger(node))
@@ -127,11 +128,11 @@ def test_cancel_is_idempotent(node) -> None:
 
 def test_cancel_retires_the_epoch_so_late_callbacks_are_ignored(node) -> None:
     """
-    A época é o que impede o callback obsoleto de ressuscitar a busca.
+    The epoch is what stops a stale callback from resurrecting the search.
 
-    Sem ela, o resultado da meta cancelada chega depois do `cancel`, encontra o
-    nó em `cancelled` e o devolve a `selecting` -- o robô volta a andar depois
-    de o operador ter mandado parar.
+    Without it, the cancelled goal's result arrives after the `cancel`,
+    finds the node in `cancelled` and returns it to `selecting` -- the robot
+    starts moving again after the operator has ordered it to stop.
     """
     node._start(None, trigger(node))
     stale = node._epoch
@@ -140,10 +141,10 @@ def test_cancel_retires_the_epoch_so_late_callbacks_are_ignored(node) -> None:
 
 
 def test_blacklisting_returns_to_selecting_and_remembers_the_failure(node) -> None:
-    """Uma fronteira que falhou não pode ser a próxima escolha imediata."""
+    """A frontier that failed cannot be the immediate next choice."""
     node._state = 'navigating'
     node._current = Frontier(x=3.0, y=4.0, cells=10, information_gain_m=0.5)
-    node._blacklist_current('fronteira terminou com status 6')
+    node._blacklist_current('frontier ended with status 6')
     assert node._state == 'selecting'
     assert (3.0, 4.0) in node._blacklist
     assert node._current is None
@@ -151,11 +152,12 @@ def test_blacklisting_returns_to_selecting_and_remembers_the_failure(node) -> No
 
 def test_blacklist_survives_within_the_run_and_filters_by_radius(node) -> None:
     """
-    O filtro é por raio, não por igualdade de coordenada.
+    The filter is by radius, not by exact coordinate equality.
 
-    A fronteira reaparece deslocada de alguns centímetros a cada atualização do
-    mapa; comparar coordenadas exatas faria a blacklist nunca casar e o robô
-    voltaria à mesma parede até o prazo total estourar.
+    The frontier reappears shifted by a few centimeters on every map update;
+    comparing exact coordinates would make the blacklist never match, and
+    the robot would return to the same wall until the total deadline runs
+    out.
     """
     radius = float(node.get_parameter('blacklist_radius_m').value)
     node._blacklist.append((3.0, 4.0))
@@ -168,14 +170,14 @@ def test_blacklist_survives_within_the_run_and_filters_by_radius(node) -> None:
 
 
 def _is_blacklisted(node, frontier) -> bool:
-    """Mesmo predicado que `_begin_selection` aplica aos candidatos."""
+    """Same predicate that `_begin_selection` applies to candidates."""
     radius = float(node.get_parameter('blacklist_radius_m').value)
     return any(math.hypot(frontier.x - x, frontier.y - y) <= radius
                for x, y in node._blacklist)
 
 
 def _is_suppressed(node, frontier) -> bool:
-    """As duas listas juntas, que e o que o filtro de candidatos aplica."""
+    """The two lists combined, which is what the candidate filter applies."""
     radius = float(node.get_parameter('blacklist_radius_m').value)
     return any(math.hypot(frontier.x - x, frontier.y - y) <= radius
                for x, y in list(node._blacklist) + list(node._refused)
@@ -183,7 +185,7 @@ def _is_suppressed(node, frontier) -> bool:
 
 
 class _Wrapped:
-    """O que `get_result_async()` entrega: status mais o resultado da acao."""
+    """What `get_result_async()` delivers: status plus the action's result."""
 
     def __init__(self, status: int) -> None:
         self.status = status
@@ -196,7 +198,7 @@ class _Wrapped:
 
 
 class _Future:
-    """Future ja resolvido, do jeito que o rclpy chama o callback."""
+    """An already-resolved future, the way rclpy calls the callback."""
 
     def __init__(self, value) -> None:
         self._value = value
@@ -207,13 +209,14 @@ class _Future:
 
 def test_a_frontier_the_planner_refuses_is_retired(node) -> None:
     """
-    O modo de falha que consumiu 77% do orcamento na fumaca de 28/08.
+    The failure mode that consumed 77% of the budget in the 28/08 smoke test.
 
-    `_blacklist_current` so dispara quando o Nav2 RECUSA a meta ou quando a meta
-    despachada expira. Uma fronteira cujo `ComputePathToPose` REPROVA nunca
-    passava por ali: `_best` ficava `None`, a mensagem virava "planner rejeitou
-    todas as fronteiras", e o mesmo candidato morto era oferecido de novo no
-    ciclo seguinte -- 459 vezes seguidas, com o mapa congelado.
+    `_blacklist_current` only fires when Nav2 REFUSES the goal or when the
+    dispatched goal times out. A frontier whose `ComputePathToPose` REJECTS
+    never went through there: `_best` stayed `None`, the message became
+    "planner rejected all frontiers", and the same dead candidate was
+    offered again on the next cycle -- 459 times in a row, with the map
+    frozen.
     """
     node._start(None, trigger(node))
     node._state = 'selecting'
@@ -227,18 +230,19 @@ def test_a_frontier_the_planner_refuses_is_retired(node) -> None:
                          node._epoch, frontier, (frontier.x, frontier.y))
 
     assert _is_suppressed(node, frontier) is True, (
-        'fronteira reprovada pelo planejador continua sendo oferecida')
+        'frontier rejected by the planner keeps being offered')
 
 
 def test_retiring_a_refused_frontier_does_not_retire_the_epoch(node) -> None:
     """
-    A blacklist normal troca de epoca; esta NAO pode.
+    The normal blacklist changes epoch; this one must NOT.
 
-    `_blacklist_current` incrementa `_epoch` de proposito, para invalidar o
-    callback da meta que estava em voo. Aqui nao ha meta em voo: ha uma rodada
-    de validacao em andamento, e trocar a epoca no meio dela faz
-    `_on_path_result` dos candidatos seguintes retornar cedo. A validacao
-    pararia na metade e o ciclo morreria em silencio.
+    `_blacklist_current` increments `_epoch` on purpose, to invalidate the
+    callback of the goal that was in flight. Here there is no goal in
+    flight: there is a validation round in progress, and changing the epoch
+    in the middle of it makes `_on_path_result` of the following candidates
+    return early. Validation would stop halfway and the cycle would die
+    silently.
     """
     node._start(None, trigger(node))
     node._state = 'selecting'
@@ -255,7 +259,7 @@ def test_retiring_a_refused_frontier_does_not_retire_the_epoch(node) -> None:
 
 
 def test_a_frontier_the_planner_accepts_is_not_retired(node) -> None:
-    """A guarda nao pode aposentar o caminho feliz junto."""
+    """The guard must not retire the happy path along with it."""
     node._start(None, trigger(node))
     node._state = 'selecting'
     frontier = Frontier(x=2.0, y=2.0, cells=10, information_gain_m=0.5)
@@ -276,18 +280,19 @@ def test_a_frontier_the_planner_accepts_is_not_retired(node) -> None:
 def test_a_planner_refusal_is_provisional_and_lifts_when_the_map_grows(
         node) -> None:
     """
-    "Inalcancavel agora" nao e "inalcancavel sempre", e a diferenca e o mapa.
+    "Unreachable now" is not "unreachable forever", and the map is the difference.
 
-    `ExplorationGrid` roda com `allow_unknown: false`, entao uma fronteira
-    distante e reprovada porque o CAMINHO ate ela atravessa desconhecido -- nao
-    porque a fronteira seja ruim. Medido na rodada 1 (29/08): as duas unicas
-    reprovacoes foram (0.07, 3.20) e (-2.93, 0.15), a 2,3 m e 2,7 m do robo, e
-    aposenta-las de vez matou a metade distante do labirinto. Sobraram 3
-    clusters e 157 celulas de fronteira real com zero candidatos permitidos.
+    `ExplorationGrid` runs with `allow_unknown: false`, so a distant frontier
+    is rejected because the PATH to it crosses unknown space -- not because
+    the frontier is bad. Measured in round 1 (29/08): the only two refusals
+    were (0.07, 3.20) and (-2.93, 0.15), 2.3 m and 2.7 m from the robot, and
+    retiring them for good killed the distant half of the maze. What was
+    left was 3 clusters and 157 cells of real frontier with zero candidates
+    allowed.
 
-    Reduzir o raio nao resolve: o ponto anotado E o centroide do cluster, entao
-    qualquer raio maior que zero mata o proprio cluster que o gerou. O que tem
-    de mudar e a permanencia.
+    Reducing the radius doesn't solve it: the annotated point IS the
+    cluster's centroid, so any radius greater than zero kills the very
+    cluster that produced it. What has to change is the permanence.
     """
     node._start(None, trigger(node))
     node._state = 'selecting'
@@ -305,25 +310,25 @@ def test_a_planner_refusal_is_provisional_and_lifts_when_the_map_grows(
         status=GoalStatus.STATUS_SUCCEEDED)), node._epoch, True)
 
     assert _is_suppressed(node, far) is False, (
-        'chegar a uma meta muda o mapa; a reprovacao anterior tem de expirar')
+        'reaching a goal changes the map; the previous refusal has to expire')
 
 
 def test_reaching_a_goal_does_not_lift_a_hard_blacklist(node) -> None:
     """
-    A blacklist dura permanece: ela registra falha de EXECUCAO, nao de mapa.
+    The hard blacklist stays: it records EXECUTION failure, not map failure.
 
-    O Nav2 devolver falha explicita para aquela meta diz algo sobre aquela
-    fronteira que mapa novo nao desmente. Confundir as listas traz de volta o
-    livelock da fumaca de 28/08 por outro caminho.
+    Nav2 returning an explicit failure for that goal says something about
+    that frontier that a new map does not disprove. Mixing up the lists
+    brings back the 28/08 smoke test's livelock through another path.
 
-    A expiracao de meta JA NAO e exemplo disto: a rodada 3 mostrou que ela
-    marca uma tentativa travada, nao uma fronteira invalida. Ver
+    Goal timeout is NO LONGER an example of this: round 3 showed that it
+    marks a stuck attempt, not an invalid frontier. See
     `test_a_timed_out_frontier_is_not_hard_blacklisted`.
     """
     node._start(None, trigger(node))
     node._state = 'navigating'
     node._current = Frontier(x=3.0, y=4.0, cells=10, information_gain_m=0.5)
-    node._blacklist_current('fronteira terminou com status 6')
+    node._blacklist_current('frontier ended with status 6')
     epoch = node._epoch
 
     node._current = Frontier(x=0.0, y=0.5, cells=10, information_gain_m=0.5)
@@ -335,87 +340,89 @@ def test_reaching_a_goal_does_not_lift_a_hard_blacklist(node) -> None:
 
 def test_the_goal_timeout_leaves_room_for_more_than_one_goal(node) -> None:
     """
-    O prazo por meta e o prazo total nao sao independentes.
+    The per-goal deadline and the total deadline are not independent.
 
-    Curto demais e ele expira metas que estavam progredindo, e cada expiracao
-    manda a fronteira para a blacklist DURA -- foi o que matou a rodada 2, com
-    3 expiracoes engolindo os 4 clusters restantes. Longo demais e uma meta
-    ruim consome a corrida inteira. O piso util e caber pelo menos tres vezes
-    no orcamento total.
+    Too short, and it times out goals that were making progress, and every
+    timeout sends the frontier to the HARD blacklist -- that is what
+    killed round 2, with 3 timeouts swallowing the remaining 4 clusters. Too
+    long, and one bad goal consumes the entire run. The useful floor is to
+    fit at least three times into the total budget.
     """
     goal = float(node.get_parameter('goal_timeout_s').value)
     total = float(node.get_parameter('total_timeout_s').value)
     assert goal * 3 <= total, (
-        f'{goal} s por meta nao cabe tres vezes em {total} s de orcamento')
+        f'{goal} s per goal does not fit three times in a {total} s budget')
 
 
 def test_the_goal_timeout_is_never_raised_again(node) -> None:
     """
-    Trava um experimento REPROVADO para que ninguem o repita.
+    Locks in a REJECTED experiment so no one repeats it.
 
-    A rodada 2 expirou tres metas distantes em exatamente 90,0 s, o que le como
-    "o teto e curto demais". A rodada 3 subiu para 180 s e piorou tudo: 4,26 m
-    contra 21,93 m, 3746 celulas contra 8915, razao de trabalho 8,6% contra
-    41,7%, e nenhuma deteccao do marcador -- porque travou 180 s numa meta a
-    0,4 m do robo. O teto corta travamento, nao travessia lenta.
+    Round 2 timed out three distant goals at exactly 90.0 s, which read as
+    "the ceiling is too short". Round 3 raised it to 180 s and made
+    everything worse: 4.26 m against 21.93 m, 3746 cells against 8915, work
+    ratio 8.6% against 41.7%, and no marker detection -- because it stalled
+    for 180 s on a goal 0.4 m from the robot. The ceiling cuts off a stall,
+    not slow traversal.
 
-    Este teste nasceu como `== 90.0` para barrar aquela subida. O limite REAL
-    que ele defende e o teto: baixar anda no mesmo sentido do que a rodada 3
-    mediu. O piso fica em
-    `test_goal_timeout_is_sized_from_the_measured_goal_durations`, que usa a
-    distribuicao de duracoes de R5; os dois juntos prendem o valor.
+    This test was born as `== 90.0` to bar that increase. The REAL limit it
+    defends is the ceiling: lowering it moves in the same direction as what
+    round 3 measured. The floor is in
+    `test_goal_timeout_is_sized_from_the_measured_goal_durations`, which
+    uses R5's duration distribution; the two together pin down the value.
 
-    Evidencia: docs/results/ml35-f5-exploration-r3.md.
+    Evidence: docs/results/ml35-f5-exploration-r3.md.
     """
     assert float(node.get_parameter('goal_timeout_s').value) <= 90.0, (
-        '180 s foi medido e REPROVADO na rodada 3 -- ler '
-        'docs/results/ml35-f5-exploration-r3.md antes de tentar de novo. O que '
-        'falta corrigir e a permanencia da blacklist, nao o teto.')
+        '180 s was measured and REJECTED in round 3 -- read '
+        'docs/results/ml35-f5-exploration-r3.md before trying again. What '
+        'still needs fixing is the blacklist\'s permanence, not the ceiling.')
 
 
 def _timed_out_frontier(node):
-    """Uma fronteira levada ate a expiracao de meta, como o `_tick` faz."""
+    """A frontier taken to goal timeout, the way `_tick` does it."""
     frontier = Frontier(x=-3.295, y=0.428, cells=35, information_gain_m=1.75)
     node._start(None, trigger(node))
     node._state = 'navigating'
     node._current = frontier
-    node._timeout_current('meta de fronteira expirou')
+    node._timeout_current('frontier goal timed out')
     return frontier
 
 
 def test_a_timed_out_frontier_is_not_hard_blacklisted(node) -> None:
     """
-    Expirar uma meta marca a TENTATIVA, nao a fronteira. Rodada 3 provou isso.
+    Timing out a goal marks the ATTEMPT, not the frontier. Round 3 proved this.
 
-    Uma meta a 0,4 m do robo consumiu 180 s inteiros: o teto corta travamento,
-    e travamento fala da pose, do costmap e do plano daquele instante -- nada
-    disso e permanente. Na rodada 2, tres expiracoes viraram tres pontos
-    permanentes que engoliram os quatro clusters restantes aos 570 s, e a
-    corrida morreu com fronteira real disponivel.
+    A goal 0.4 m from the robot consumed a full 180 s: the ceiling cuts off
+    a stall, and a stall speaks to the pose, the costmap, and the plan of
+    that instant -- none of that is permanent. In round 2, three timeouts
+    turned into three permanent points that swallowed the remaining four
+    clusters by 570 s, and the run died with real frontier still available.
 
-    Evidencia: docs/results/ml35-f5-exploration-r{2,3}.md.
+    Evidence: docs/results/ml35-f5-exploration-r{2,3}.md.
     """
     frontier = _timed_out_frontier(node)
 
     assert node._blacklist == [], (
-        'expiracao de meta nao pode entrar na blacklist dura')
+        'a goal timeout must not enter the hard blacklist')
     assert (frontier.x, frontier.y) in node._timed_out
     assert node._state == 'selecting'
 
 
 def test_a_timed_out_frontier_is_suppressed_at_once(node) -> None:
-    """Provisoria nao quer dizer frouxa: a meta seguinte tem de ser outra."""
+    """Provisional does not mean lax: the next goal has to be a different one."""
     frontier = _timed_out_frontier(node)
     assert _is_suppressed(node, frontier) is True
 
 
 def test_map_republication_does_not_release_a_timed_out_frontier(node) -> None:
     """
-    O que libera e progresso, nao tempo nem mensagem.
+    What releases it is progress, not time or a message.
 
-    `slam_toolbox` republica `/map` a cada 1 s mexa o mapa ou nao. Se a
-    republicacao limpasse a supressao, a fronteira travada voltaria a cada
-    segundo e o livelock de 28/08 estaria de volta por outro caminho.
+    `slam_toolbox` republishes `/map` every 1 s whether the map changes or
+    not. If republication cleared the suppression, the stuck frontier would
+    come back every second and the 28/08 livelock would be back through
+    another path.
     """
     frontier = _timed_out_frontier(node)
     for _ in range(5):
@@ -424,7 +431,7 @@ def test_map_republication_does_not_release_a_timed_out_frontier(node) -> None:
 
 
 def test_reaching_another_frontier_releases_a_timed_out_frontier(node) -> None:
-    """Chegar noutro lugar muda pose, costmap e plano -- os tres motivos."""
+    """Reaching somewhere else changes pose, costmap and plan -- the three reasons."""
     frontier = _timed_out_frontier(node)
 
     node._current = Frontier(x=0.0, y=0.5, cells=10, information_gain_m=0.5)
@@ -436,10 +443,11 @@ def test_reaching_another_frontier_releases_a_timed_out_frontier(node) -> None:
 
 def test_an_explicit_nav2_failure_is_still_hard_in_this_round(node) -> None:
     """
-    Uma politica por rodada. O resultado de falha do Nav2 continua duro.
+    One policy per round. Nav2's failure result stays hard.
 
-    Trocar as duas permanencias na mesma rodada faria o resultado ilegivel:
-    nao daria para dizer qual das duas produziu a diferenca.
+    Changing both permanences in the same round would make the result
+    unreadable: there would be no way to tell which of the two produced the
+    difference.
     """
     node._start(None, trigger(node))
     node._state = 'navigating'
@@ -452,7 +460,7 @@ def test_an_explicit_nav2_failure_is_still_hard_in_this_round(node) -> None:
 
 
 def test_a_new_run_clears_every_suppression_list(node) -> None:
-    """Supressao vale dentro de uma execucao, nunca entre partidas frias."""
+    """Suppression is valid within a run, never across cold starts."""
     node._blacklist.append((1.0, 2.0))
     node._refused.append((3.0, 4.0))
     node._timed_out.append((5.0, 6.0))
@@ -467,10 +475,10 @@ def test_a_new_run_clears_every_suppression_list(node) -> None:
 
 def _run_selection(node, monkeypatch, frontiers, robot=(0.0, 0.0, 0.0)):
     """
-    Roda `_begin_selection` sobre um conjunto fixo, sem TF, grid nem Nav2.
+    Run `_begin_selection` over a fixed set, with no TF, grid, or Nav2.
 
-    O que esta sob teste e a filtragem, nao a extracao nem o despacho, entao os
-    tres colaboradores externos saem do caminho.
+    What is under test is the filtering, not the extraction or the dispatch,
+    so the three external collaborators get out of the way.
     """
     node._start(None, trigger(node))
     node._state = 'selecting'
@@ -498,14 +506,14 @@ def _run_selection(node, monkeypatch, frontiers, robot=(0.0, 0.0, 0.0)):
 def test_a_frontier_inside_the_goal_tolerance_is_never_dispatched(
         node, monkeypatch) -> None:
     """
-    O modo de falha da rodada 4, atacado na causa.
+    Round 4's failure mode, attacked at the cause.
 
-    `xy_goal_tolerance` do Nav2 e 0,25 m. Uma fronteira a 0,20 m do robo faz o
-    Nav2 devolver sucesso sem que nada se mova; a selecao volta ao mesmo ponto
-    e o ciclo se repete. Na rodada 4 isso rodou 565 vezes em 580 s com o robo
-    dentro de uma caixa de 11 mm x 25 mm.
+    Nav2's `xy_goal_tolerance` is 0.25 m. A frontier 0.20 m from the robot
+    makes Nav2 return success without anything moving; selection goes back
+    to the same point and the cycle repeats. In round 4 this ran 565 times
+    in 580 s with the robot inside an 11 mm x 25 mm box.
 
-    Evidencia: docs/results/ml35-f5-exploration-r4.md.
+    Evidence: docs/results/ml35-f5-exploration-r4.md.
     """
     near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
     far = Frontier(x=2.0, y=0.0, cells=90, information_gain_m=4.5)
@@ -516,7 +524,7 @@ def test_a_frontier_inside_the_goal_tolerance_is_never_dispatched(
 
 
 def test_the_next_frontier_out_is_selected_instead(node, monkeypatch) -> None:
-    """Descartar a de perto tem de deixar a exploracao seguir, nao parar."""
+    """Discarding the near one must let exploration keep going, not stop."""
     near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
     far = Frontier(x=2.0, y=0.0, cells=90, information_gain_m=4.5)
     _run_selection(node, monkeypatch, [near, far])
@@ -527,7 +535,7 @@ def test_the_next_frontier_out_is_selected_instead(node, monkeypatch) -> None:
 
 def test_a_frontier_exactly_at_the_limit_stays_eligible(
         node, monkeypatch) -> None:
-    """O limite e inclusivo; senao o corte vira uma faixa morta ambigua."""
+    """The limit is inclusive; otherwise the cutoff becomes an ambiguous dead band."""
     limit = float(node.get_parameter('min_frontier_distance_m').value)
     edge = Frontier(x=limit, y=0.0, cells=20, information_gain_m=1.0)
     _run_selection(node, monkeypatch, [edge])
@@ -539,10 +547,10 @@ def test_a_frontier_exactly_at_the_limit_stays_eligible(
 def test_skipping_a_near_frontier_never_suppresses_it(
         node, monkeypatch) -> None:
     """
-    O corte e relativo a pose ATUAL, nunca uma anotacao permanente.
+    The cutoff is relative to the CURRENT pose, never a permanent annotation.
 
-    Bastou uma lista permanente demais para matar a rodada 1. Andar alguns
-    centimetros tem de devolver a fronteira a disputa sozinho.
+    An overly permanent list was all it took to kill round 1. Walking a few
+    centimeters has to return the frontier to contention on its own.
     """
     near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
     _run_selection(node, monkeypatch, [near])
@@ -558,10 +566,10 @@ def test_skipping_a_near_frontier_never_suppresses_it(
 def test_a_selection_with_only_near_frontiers_counts_as_no_progress(
         node, monkeypatch) -> None:
     """
-    Ficar sem candidatos por proximidade e ausencia de progresso.
+    Ending up with no candidates due to proximity counts as no progress.
 
-    Se o ciclo nao contasse, o robo cercado so por fronteiras dentro da
-    tolerancia ficaria em `selecting` calado ate o prazo total.
+    If the cycle didn't count, a robot surrounded only by frontiers within
+    tolerance would sit silently in `selecting` until the total deadline.
     """
     near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
     _run_selection(node, monkeypatch, [near])
@@ -572,7 +580,7 @@ def test_a_selection_with_only_near_frontiers_counts_as_no_progress(
 
 def test_status_reports_how_many_near_frontiers_were_skipped(
         node, monkeypatch) -> None:
-    """Sem a metrica no status, o descarte e invisivel na analise da corrida."""
+    """Without the metric in the status, the discard is invisible in run analysis."""
     near = Frontier(x=0.20, y=0.0, cells=8, information_gain_m=0.4)
     far = Frontier(x=2.0, y=0.0, cells=90, information_gain_m=4.5)
     _run_selection(node, monkeypatch, [near, far])
@@ -757,7 +765,7 @@ def test_a_barren_selection_fails_the_run_instead_of_idling(node) -> None:
         node._note_barren_selection()
 
     assert node._state == 'failed'
-    assert 'fronteira' in node._message
+    assert 'frontier' in node._message
 
 
 def test_dispatching_a_goal_clears_the_barren_streak(node) -> None:
@@ -805,7 +813,7 @@ def test_a_zero_raw_cluster_selection_starts_an_observation_recovery(
 
     assert spins == [node._map_seq]
     assert node._recovery_map_seq == node._map_seq
-    assert node._message == 'nenhum cluster de fronteira bruto'
+    assert node._message == 'no raw frontier cluster'
     assert node._barren_cycles == 0, (
         'a varredura ainda nao aconteceu; nao pode contar como ciclo baldio')
 
@@ -988,7 +996,7 @@ def test_navigation_watchdog_fires_after_the_stall_window(node) -> None:
     clock['t'] = window + 1.0
     node._tick()
     assert node._state == 'selecting'
-    assert 'vigia de movimento' in node._message
+    assert 'movement watchdog' in node._message
     assert (5.0, 5.0) in node._timed_out
 
 
@@ -1057,7 +1065,7 @@ def test_navigation_watchdog_handles_the_minus_pi_pi_wraparound(node) -> None:
     assert node._state == 'selecting', (
         'diff real de guinada (0.02 rad) fica abaixo do limiar -- '
         'sem o wraparound normalizado o vigia calcularia ~2*pi e nunca dispararia')
-    assert 'vigia de movimento' in node._message
+    assert 'movement watchdog' in node._message
 
 
 def test_navigation_watchdog_does_not_fire_before_goal_acceptance(node) -> None:
@@ -1082,7 +1090,7 @@ def test_navigation_watchdog_does_not_fire_before_goal_acceptance(node) -> None:
     node._tick()
     assert node._state == 'navigating', (
         'sem meta aceita o vigia nao pode disparar')
-    assert 'vigia de movimento' not in node._message
+    assert 'movement watchdog' not in node._message
 
 
 def test_navigation_watchdog_fires_when_accepted_goal_is_truly_still(node) -> None:
@@ -1097,7 +1105,7 @@ def test_navigation_watchdog_fires_when_accepted_goal_is_truly_still(node) -> No
     clock['t'] = window + 1.0
     node._tick()
     assert node._state == 'selecting'
-    assert 'vigia de movimento' in node._message
+    assert 'movement watchdog' in node._message
 
 
 def test_homing_returns_to_exploration_after_three_failures(node) -> None:
@@ -1928,7 +1936,7 @@ def test_reaching_the_breadcrumb_runs_selection_again(node) -> None:
         status=GoalStatus.STATUS_SUCCEEDED)), node._epoch, True)
 
     assert node._state == 'selecting'
-    assert 'retorno concluido' in node._message
+    assert 'return complete' in node._message
     assert node._is_backtrack_goal is False
     assert node._breadcrumbs == [], (
         'retorno concluido nao empilha um breadcrumb sobre si mesmo')
@@ -1996,7 +2004,7 @@ def test_no_breadcrumbs_and_no_frontiers_terminates_normally(node) -> None:
         node._handle_no_usable_frontier()
 
     assert node._state == 'failed'
-    assert node._message == 'nenhuma fronteira segura alcancavel'
+    assert node._message == 'no safe frontier reachable'
 
 
 def test_cancel_also_cancels_an_in_progress_breadcrumb_return(node) -> None:
@@ -2028,7 +2036,7 @@ def test_timeout_also_cancels_an_in_progress_breadcrumb_return(node) -> None:
     handle.cancel_goal_async = lambda: cancelled.append(True)
     node._goal_handle = handle
 
-    node._timeout_current('meta de fronteira expirou')
+    node._timeout_current('frontier goal timed out')
 
     assert cancelled == [True]
     assert node._state == 'selecting'

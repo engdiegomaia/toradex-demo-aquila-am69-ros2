@@ -28,11 +28,11 @@ def _row(sim_s, x, y, visible=True, distance=None):
 
 
 def test_a_held_estimate_is_one_observation_not_many() -> None:
-    """O status sai a 2 Hz; repetir o mesmo valor nao e medir de novo.
+    """Status is published at 2 Hz; repeating the same value is not a new measurement.
 
-    Contar cada linha inflaria a amostra com copias da mesma deteccao, que foi
-    exatamente o erro de leitura que esta sessao ja cometeu com o contador
-    `timed_out`.
+    Counting each row would inflate the sample with copies of the same
+    detection, which is exactly the reading error this session already made
+    with the `timed_out` counter.
     """
     rows = [_row(0.0, 0.0, 0.0, True, 2.00),
             _row(0.5, 0.0, 0.0, True, 2.00),
@@ -43,8 +43,8 @@ def test_a_held_estimate_is_one_observation_not_many() -> None:
 
 
 def test_ratio_is_measured_against_the_world_file_marker() -> None:
-    """A verdade e a pose do SDF, nunca outra estimativa."""
-    rows = [_row(0.0, -4.90, -1.60, True, 0.5)]     # exatamente 1 m do marcador
+    """Ground truth is the SDF pose, never another estimate."""
+    rows = [_row(0.0, -4.90, -1.60, True, 0.5)]     # exactly 1 m from the marker
 
     (estimated, true), = analyse.ratio_pairs(rows)
     assert estimated == 0.5
@@ -52,14 +52,14 @@ def test_ratio_is_measured_against_the_world_file_marker() -> None:
 
 
 def test_an_invisible_marker_contributes_no_pair() -> None:
-    """`marker_distance_m` persiste travado depois que o marcador some."""
+    """`marker_distance_m` stays latched after the marker disappears."""
     rows = [_row(0.0, 0.0, 0.0, False, 3.0)]
 
     assert analyse.ratio_pairs(rows) == []
 
 
 def test_buckets_split_on_the_ESTIMATED_range() -> None:
-    """O portao decide com a estimativa; agrupar pela verdade nao o dimensiona."""
+    """The gate decides using the estimate; bucketing by ground truth does not size it."""
     pairs = [(1.0, 2.0), (3.5, 3.4)]
 
     bands = {(b['low'], b['high']): b for b in analyse.bucket_ratios(pairs)}
@@ -68,14 +68,14 @@ def test_buckets_split_on_the_ESTIMATED_range() -> None:
 
 
 def test_the_checker_resets_its_baseline_when_the_robot_moves() -> None:
-    """Um robo lento e continuo nunca e cortado; e o contrato do plugin."""
+    """A slow, continuous robot is never cut off; that is the plugin's contract."""
     track = [(t * 1.0, t * 0.35, 0.0) for t in range(40)]
 
     assert analyse.progress_checker_fires(track, 0.30, 25.0) is None
 
 
 def test_the_checker_fires_on_a_robot_that_stops_moving() -> None:
-    """Parado dentro do raio, o prazo corre e a meta e abortada."""
+    """Stopped within the radius, the deadline runs out and the goal is aborted."""
     track = [(t * 1.0, 0.01 * t, 0.0) for t in range(40)]
 
     fired = analyse.progress_checker_fires(track, 0.30, 25.0)
@@ -83,13 +83,16 @@ def test_the_checker_fires_on_a_robot_that_stops_moving() -> None:
 
 
 def test_replay_scores_expiries_and_never_credits_a_good_goal() -> None:
-    """Cortar meta boa e o custo do parametro; tem de ser contado a parte."""
+    """Cutting off a good goal is the cost of the parameter; it must be counted separately."""
     rows = [_row(t * 1.0, 0.0, 0.0) for t in range(40)]
     goals = [
+        # 'expirou' is the literal substring tools/evaluation/analyse_exploration.py
+        # matches on to classify an expiry; kept in Portuguese so the check
+        # still fires (that module is out of scope for this translation pass).
         {'sent_sim_s': '0.0', 'elapsed_s': '39.0', 'outcome': 'failed',
          'message': 'meta de fronteira expirou'},
         {'sent_sim_s': '0.0', 'elapsed_s': '39.0', 'outcome': 'ok',
-         'message': 'fronteira alcancada'},
+         'message': 'frontier reached'},
     ]
 
     result = analyse.replay_progress_checker([(rows, goals)], 0.30, 25.0)

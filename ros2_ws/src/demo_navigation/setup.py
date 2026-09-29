@@ -24,9 +24,9 @@ setup(
             glob('launch/nav2_vendored/*_launch.py')
             + glob('launch/nav2_vendored/README.md')),
         (os.path.join('share', package_name, 'config'), glob('config/*.yaml')),
-        # O behavior tree tem de ser INSTALADO, nao so versionado: o
-        # bt_navigator recebe um caminho absoluto de share/ e, se o arquivo nao
-        # estiver la, ele falha ao carregar a arvore e nenhuma meta e aceita.
+        # The behavior tree has to be INSTALLED, not just versioned: the
+        # bt_navigator receives an absolute path from share/, and if the file
+        # isn't there, it fails to load the tree and no goal is accepted.
         (os.path.join('share', package_name, 'behavior_trees'),
             glob('behavior_trees/*.xml')),
         # Both halves of the map must ship: the .yaml references the .pgm.
@@ -42,9 +42,9 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            # Fachada std_srvs sobre o ciclo de vida do Nav2: o "resetar meta"
-            # do cockpit. Mora aqui, e nao em demo_bringup, porque roda no mesmo
-            # container que o Nav2 e e a pilha dele que reinicia.
+            # std_srvs facade over the Nav2 lifecycle: the cockpit's "reset
+            # goal". Lives here, and not in demo_bringup, because it runs in
+            # the same container as Nav2 and it is its stack that restarts.
             'nav_control_relay = demo_navigation.nav_control_relay:main',
             'maze_explorer = demo_navigation.maze_explorer:main',
         ],

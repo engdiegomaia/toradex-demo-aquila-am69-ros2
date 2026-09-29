@@ -37,7 +37,7 @@ def _exit_marker_model() -> str:
     body = _world_body()
     match = re.search(
         r'<model name="maze_exit_marker">.*?</model>', body, re.DOTALL)
-    assert match, 'modelo "maze_exit_marker" nao encontrado em ' + WORLD.name
+    assert match, 'model "maze_exit_marker" not found in ' + WORLD.name
     return match.group(0)
 
 
@@ -60,11 +60,11 @@ def test_tag_visual_references_the_installed_texture() -> None:
     model = _exit_marker_model()
     tag = re.search(
         r'<visual name="tag">.*?</visual>', model, re.DOTALL)
-    assert tag, 'visual "tag" nao encontrada em maze_exit_marker'
+    assert tag, 'visual "tag" not found in maze_exit_marker'
     assert '<albedo_map>maze_exit_tag.png</albedo_map>' in tag.group(0)
 
     size = re.search(r'<size>\s*([^<]+?)\s*</size>', tag.group(0))
-    assert size, 'visual "tag" sem <box><size>'
+    assert size, 'visual "tag" missing <box><size>'
     width, _thickness, height = (float(v) for v in size.group(1).split())
     assert width == pytest.approx(EXPECTED_SIZE_M)
     assert height == pytest.approx(EXPECTED_SIZE_M)
@@ -72,7 +72,7 @@ def test_tag_visual_references_the_installed_texture() -> None:
 
 def test_tag_texture_is_shipped_next_to_the_world_not_downloaded() -> None:
     assert TAG_PNG.is_file(), (
-        f'{TAG_PNG} ausente -- rode tools/maze/generate_maze_exit_marker.py')
+        f'{TAG_PNG} missing -- run tools/maze/generate_maze_exit_marker.py')
 
 
 def test_tag_texture_decodes_to_the_id_the_detector_expects() -> None:
@@ -84,7 +84,7 @@ def test_tag_texture_decodes_to_the_id_the_detector_expects() -> None:
     `fiducial_id`/`fiducial_dictionary` parameters must match this asset.
     """
     image = cv2.imread(str(TAG_PNG), cv2.IMREAD_GRAYSCALE)
-    assert image is not None, f'{TAG_PNG} nao decodifica como imagem'
+    assert image is not None, f'{TAG_PNG} does not decode as an image'
 
     dictionary = cv2.aruco.getPredefinedDictionary(EXPECTED_DICTIONARY)
     params = cv2.aruco.DetectorParameters_create()
@@ -92,6 +92,6 @@ def test_tag_texture_decodes_to_the_id_the_detector_expects() -> None:
         image, dictionary, parameters=params)
 
     assert ids is not None and len(ids) == 1, (
-        f'esperava exatamente 1 tag detectada no PNG puro, achou {ids}')
+        f'expected exactly 1 tag detected in the raw PNG, found {ids}')
     assert int(ids[0][0]) == EXPECTED_ID
     assert len(corners) == 1

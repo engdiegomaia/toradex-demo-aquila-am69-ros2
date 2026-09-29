@@ -183,11 +183,12 @@ def test_frontier_score_does_not_crush_a_small_but_far_cluster() -> None:
 
 def test_fast_sweep_agrees_with_the_literal_definition_on_random_grids():
     """
-    A varredura rapida so pode substituir a lenta se der o MESMO conjunto.
+    The fast sweep can only replace the slow one if it gives the SAME set.
 
-    Grades aleatorias com semente fixa, incluindo casos degenerados de uma
-    coluna e de uma linha -- e onde a versao rapida poderia errar, porque ela
-    une a linha de cima e a de baixo e precisa tratar as bordas.
+    Random grids with a fixed seed, including degenerate cases of a single
+    column and a single row -- that is where the fast version could get it
+    wrong, because it unions the row above and the row below and has to
+    handle the edges.
     """
     rng = random.Random(20260828)
     shapes = [(1, 1), (1, 12), (12, 1), (2, 2), (7, 5), (23, 19), (40, 40)]
@@ -201,7 +202,7 @@ def test_fast_sweep_agrees_with_the_literal_definition_on_random_grids():
 
 
 def test_fast_sweep_handles_grids_with_no_unknown_and_all_unknown():
-    """Mapa totalmente conhecido nao tem fronteira; totalmente desconhecido tambem nao."""
+    """A fully known map has no frontier; a fully unknown one doesn't either."""
     known = Grid(9, 7, 0.05, 0.0, 0.0, 0.0, [0] * 63)
     blank = Grid(9, 7, 0.05, 0.0, 0.0, 0.0, [UNKNOWN] * 63)
 
@@ -210,8 +211,8 @@ def test_fast_sweep_handles_grids_with_no_unknown_and_all_unknown():
 
 
 def test_only_free_cells_can_become_frontier():
-    """Celula ocupada encostada no desconhecido NAO e fronteira -- e parede."""
-    # Uma linha so, para deixar a vizinhanca obvia.
+    """An occupied cell next to the unknown is NOT a frontier -- it's a wall."""
+    # A single row, to make the neighborhood obvious.
     occupied_next_to_unknown = Grid(3, 1, 0.05, 0.0, 0.0, 0.0, [0, 80, UNKNOWN])
     free_next_to_unknown = Grid(3, 1, 0.05, 0.0, 0.0, 0.0, [UNKNOWN, 0, 0])
 

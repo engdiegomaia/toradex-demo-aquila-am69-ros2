@@ -31,7 +31,7 @@ sys.path.insert(0, str(SCRIPTS))
 
 needs_mesh = pytest.mark.skipif(
     not MAZE11_STL.is_file(),
-    reason=f'malha externa ausente: {MAZE11_STL}')
+    reason=f'external mesh missing: {MAZE11_STL}')
 
 
 @pytest.fixture(scope='module')
@@ -40,11 +40,11 @@ def geodesic():
 
 
 def test_goals_are_read_from_nav_trial_not_copied(geodesic):
-    """A tupla tem uma fonte so.
+    """The tuple has a single source.
 
-    Duplicar ``MAZE11_GOALS`` aqui ou no script cria duas verdades que divergem
-    no dia em que alguem regenerar as metas com ``maze_fit.py`` -- e a tabela
-    continuaria imprimindo, medindo metas que o ensaio nao manda mais.
+    Duplicating ``MAZE11_GOALS`` here or in the script creates two truths that
+    diverge the day someone regenerates the goals with ``maze_fit.py`` -- and
+    the table would keep printing, measuring goals the trial no longer sends.
     """
     source = (ROOT / 'tools' / 'evaluation' / 'nav_trial.py').read_text(encoding='utf-8')
     literal = None
@@ -53,26 +53,27 @@ def test_goals_are_read_from_nav_trial_not_copied(geodesic):
             if any(getattr(t, 'id', None) == 'MAZE11_GOALS'
                    for t in node.targets):
                 literal = [tuple(v) for v in ast.literal_eval(node.value)]
-    assert literal, 'MAZE11_GOALS sumiu de nav_trial.py'
+    assert literal, 'MAZE11_GOALS disappeared from nav_trial.py'
     assert geodesic.maze11_goals() == literal
 
 
 def test_reading_goals_does_not_require_ros(geodesic):
-    """O script roda offline. Importar ``nav_trial`` puxaria geometry_msgs."""
+    """The script runs offline. Importing ``nav_trial`` would pull in geometry_msgs."""
     assert 'nav_trial' not in sys.modules
     geodesic.maze11_goals()
     assert 'nav_trial' not in sys.modules
 
 
 def test_robot_radius_matches_the_costmaps(geodesic):
-    """Geodesica erodida por um raio menor que o costmap descreve outro robo.
+    """A geodesic eroded by a radius smaller than the costmap's describes a different robot.
 
-    Desde a promocao do footprint poligonal (29/08/2026) o costmap nao declara
-    mais `robot_radius`; o piso comparavel e o raio CIRCUNSCRITO do poligono
-    (sqrt(0.37^2+0.18^2) ~ 0.411 m), que inclui 0,02 m de margem sobre o tronco
-    medido. A geodesica offline usa o tronco puro (`ROBOT_RADIUS_M`), entao ela
-    tem de ser MENOR OU IGUAL ao raio do costmap -- maior descreveria um robo
-    que o costmap protege menos do que a analise offline assume.
+    Since the promotion of the polygonal footprint (29/08/2026) the costmap no
+    longer declares `robot_radius`; the comparable floor is the CIRCUMSCRIBED
+    radius of the polygon (sqrt(0.37^2+0.18^2) ~ 0.411 m), which includes a
+    0.02 m margin over the measured chassis. The offline geodesic uses the raw
+    chassis (`ROBOT_RADIUS_M`), so it MUST be LESS THAN OR EQUAL to the
+    costmap's radius -- larger would describe a robot that the costmap
+    protects less than the offline analysis assumes.
     """
     import math
     import yaml
@@ -92,41 +93,41 @@ def test_robot_radius_matches_the_costmaps(geodesic):
 
 @needs_mesh
 def test_patrol_goals_all_sit_behind_a_wall(geodesic):
-    """O achado da secao 11. Se isto mudar, a secao 11 esta vencida."""
+    """The finding from section 11. If this changes, section 11 is obsolete."""
     data = geodesic.analyse_goals('maze11', MODELS, 0.002,
                                   geodesic.maze11_goals())
     blocked = [row for row in data['goals'] if row['why'] == 'wall']
     assert len(blocked) == len(data['goals']), (
-        'alguma meta de patrulha deixou de ter parede na reta -- releia a '
-        'secao 11 de docs/ml35/proximos-passos-navegacao.md antes de seguir')
+        'some patrol goal no longer has a wall on the straight line -- '
+        're-read section 11 of docs/ml35/proximos-passos-navegacao.md before continuing')
     assert max(row['ratio'] for row in data['goals']) > 1.5
 
 
 @needs_mesh
 def test_chain_measures_from_the_previous_leg(geodesic):
-    """O inverso, que e o que importa: sem --chain o numero seria outro.
+    """The inverse, which is what matters: without --chain the number would differ.
 
-    Uma perna de 1,4 m a partir da anterior nao pode medir 3 m de reta. Se os
-    dois modos empatassem, ``--chain`` seria decorativo e a rota conectada
-    apareceria como se atravessasse parede.
+    A leg of 1.4 m from the previous one cannot measure 3 m in a straight
+    line. If the two modes tied, ``--chain`` would be decorative and the
+    connected route would appear to pass through a wall.
     """
     route = [(-1.50, 0.05), (-2.90, 0.10), (-3.30, 1.40), (-1.90, 1.75)]
     chained = geodesic.analyse_goals('maze11', MODELS, 0.002, route, chain=True)
     absolute = geodesic.analyse_goals('maze11', MODELS, 0.002, route)
 
     assert chained['chain'] is True and absolute['chain'] is False
-    # A primeira perna parte do spawn nos dois modos, entao TEM de coincidir.
+    # The first leg starts from the spawn in both modes, so it MUST match.
     assert chained['goals'][0]['straight'] == absolute['goals'][0]['straight']
-    # As seguintes nao podem coincidir, ou o modo nao faz nada.
+    # The following ones must not match, or the mode does nothing.
     assert [row['straight'] for row in chained['goals'][1:]] != \
            [row['straight'] for row in absolute['goals'][1:]]
-    # E o ponto do achado: encadeada, a rota nao tem parede na reta.
+    # And that's the point of the finding: chained, the route has no wall on the straight line.
     assert all(row['why'] == 'free' for row in chained['goals'])
     assert all(row['ratio'] < 1.2 for row in chained['goals'])
 
 
 @needs_mesh
 def test_frame_convention_is_asserted_not_assumed(geodesic):
-    """O spawn tem de cair na origem do frame das metas, e falhar alto se nao."""
+    """The spawn must land on the origin of the goals' frame, and fail loudly if not."""
     data = geodesic.analyse_goals('maze11', MODELS, 0.002, [(0.0, 0.0)])
     assert data['goals'][0]['geodesic'] == pytest.approx(0.0, abs=1e-9)
