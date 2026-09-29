@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 NAV_SELECT = ROOT / 'ros2_ws/src/demo_bringup/launch/nav_select.launch.py'
 HOST_COMPOSE = ROOT / 'docker/compose.host.yml'
 MODULE_COMPOSE = ROOT / 'docker/compose.module.yml'
-NAV_CAMPAIGN = ROOT / 'scripts/nav_campaign.py'
-NAV_ROADMAP = ROOT / 'docs/ml35/proximos-passos-navegacao.md'
+NAV_CAMPAIGN = ROOT / 'tools/evaluation/nav_campaign.py'
+EVALUATION_GUIDE = ROOT / 'docs/evaluation.md'
 GO2_PARAMS = ROOT / 'ros2_ws/src/demo_navigation/config/nav2_params_go2.yaml'
 ALIGN8_PARAMS = ROOT / 'ros2_ws/src/demo_navigation/config/params-align8.yaml'
 FOOTPRINT_PARAMS = (
@@ -82,7 +82,7 @@ def test_campaign_docs_use_a_path_inside_the_nav_image() -> None:
     command = f'NAV2_PARAMS={expected} \\'
 
     assert command in NAV_CAMPAIGN.read_text(encoding='utf-8')
-    assert command in NAV_ROADMAP.read_text(encoding='utf-8')
+    assert command in EVALUATION_GUIDE.read_text(encoding='utf-8')
 
 
 def test_align8_changes_only_the_path_alignment_weight() -> None:

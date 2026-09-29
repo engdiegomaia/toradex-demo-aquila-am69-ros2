@@ -1,6 +1,11 @@
-# Gazebo Quadruped ROS2 Control Plugin
+# Gazebo Quadruped ros2_control Plugin
 
-This repository is a modified version of [gz_ros2_control](https://github.com/ros-controls/gz_ros2_control)
+This package is a modified fork of
+[`gz_ros2_control`](https://github.com/ros-controls/gz_ros2_control), vendored
+from `legubiao/quadruped_ros2_control`. See [`PROVENANCE.md`](PROVENANCE.md)
+for origin, license and edits.
+
+## Build
 
 ```bash
 cd ~/ros2_ws
