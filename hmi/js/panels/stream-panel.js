@@ -10,7 +10,7 @@
  * The <img> is a poor liveness oracle and this was measured, not assumed: in
  * Firefox an <img> bound to multipart/x-mixed-replace never fires `load` and
  * reports `complete === false` for the entire life of a healthy stream. A panel
- * that trusted `load` would declare "sem sinal" over live video. Conversely a
+ * that trusted `load` would declare "no signal" over live video. Conversely a
  * stream that stops leaves the last frame painted with no event at all — the
  * failure AGENTS.md §5.7 asks the stale-data state to catch. CameraInfo is a
  * few hundred bytes at the image rate and answers both questions honestly.
@@ -118,18 +118,18 @@ export function createStreamPanel({
       if (img.hidden !== blank) img.hidden = blank;
 
       if (transportError) {
-        showNotice('sem sinal', `${currentTopic}\nweb_video_server inacessível — nova tentativa`);
+        showNotice('no signal', `${currentTopic}\nweb_video_server unreachable — retrying`);
         return;
       }
       if (fresh === 'never') {
         showNotice(
-          settling ? 'conectando' : 'sem sinal',
-          settling ? `${currentTopic}\naguardando o primeiro quadro` : `${currentTopic}\nnada publicado neste tópico`,
+          settling ? 'connecting' : 'no signal',
+          settling ? `${currentTopic}\nwaiting for the first frame` : `${currentTopic}\nnothing published on this topic`,
         );
         return;
       }
       if (fresh === 'stale') {
-        showNotice('sinal congelado', `${currentTopic}\npublicação parou — o quadro na tela é antigo`);
+        showNotice('signal frozen', `${currentTopic}\npublishing stopped — the frame on screen is old`);
         return;
       }
       if (!decoded) {
@@ -137,8 +137,8 @@ export function createStreamPanel({
         // fault, not the robot. Naming web_video_server here is the difference
         // between a two-minute fix and an afternoon.
         showNotice(
-          'sem vídeo',
-          `${currentTopic}\ntópico ativo, mas o MJPEG não decodifica — verifique web_video_server`,
+          'no video',
+          `${currentTopic}\ntopic is active, but the MJPEG does not decode — check web_video_server`,
         );
         return;
       }

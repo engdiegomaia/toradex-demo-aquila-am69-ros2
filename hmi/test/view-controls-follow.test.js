@@ -1,11 +1,11 @@
 /**
- * O botão `seguir robô`: quem escreve o estado dele.
+ * The `follow robot` button: who writes its state.
  *
- * A regressão que este arquivo existe para pegar é de uma linha: pintar
- * `aria-pressed` a partir do próprio clique em vez do tópico que o nó publica.
- * Ela passa em qualquer teste de "o botão chama o serviço" e mente exatamente
- * nos casos que importam — página recarregada, dois cockpits abertos, ou alguém
- * que desligou o seguimento por linha de comando.
+ * The regression this file exists to catch is a one-liner: painting
+ * `aria-pressed` from the click itself instead of from the topic the node
+ * publishes. It passes any "the button calls the service" test and lies
+ * exactly in the cases that matter — reloaded page, two open cockpits, or
+ * someone who turned following off from the command line.
  */
 
 import assert from 'node:assert/strict';
@@ -31,22 +31,22 @@ function mount(options = {}) {
   return { root, client, controls, button: root.get(FOLLOW) };
 }
 
-describe('createViewControls: seguir o robô', () => {
-  it('nasce pressionado, igual ao default do nó', () => {
-    // Divergir daqui faz o primeiro clique mandar o valor que já vale: nada
-    // acontece na tela e o botão parece quebrado.
+describe('createViewControls: follow the robot', () => {
+  it('starts pressed, same as the node default', () => {
+    // Diverging from this makes the first click send the value that already
+    // holds: nothing happens on screen and the button looks broken.
     const { button, controls } = mount();
     assert.equal(button.getAttribute('aria-pressed'), String(FOLLOW_DEFAULT));
     assert.equal(controls.isFollowing(), FOLLOW_DEFAULT);
   });
 
-  it('assina o tópico de estado publicado pelo nó', () => {
+  it('subscribes to the state topic published by the node', () => {
     const { client } = mount();
     const topics = client.subscriptions.map((entry) => entry.topic);
     assert.ok(topics.includes(FOLLOWING_TOPIC));
   });
 
-  it('o clique pede pelo serviço, com o valor invertido', async () => {
+  it('the click asks through the service, with the inverted value', async () => {
     const { client, button } = mount();
     await Promise.all(button.emit('click'));
 
@@ -55,14 +55,14 @@ describe('createViewControls: seguir o robô', () => {
     ]);
   });
 
-  it('o clique NÃO pinta o botão — só o tópico pinta', async () => {
+  it('the click does NOT paint the button — only the topic paints', async () => {
     const { client, button, controls } = mount();
 
     await Promise.all(button.emit('click'));
     assert.equal(
       button.getAttribute('aria-pressed'),
       String(FOLLOW_DEFAULT),
-      'o botão mudou antes de o nó confirmar',
+      'the button changed before the node confirmed',
     );
 
     client.deliver(FOLLOWING_TOPIC, { data: false });
@@ -70,22 +70,23 @@ describe('createViewControls: seguir o robô', () => {
     assert.equal(controls.isFollowing(), false);
   });
 
-  it('segue o nó mesmo quando ninguém clicou nesta tela', () => {
-    // O caso do segundo cockpit aberto, e o do `ros2 service call` na bancada.
+  it('follows the node even when nobody clicked on this screen', () => {
+    // The case of the second open cockpit, and of `ros2 service call` on the bench.
     const { client, button } = mount();
     client.deliver(FOLLOWING_TOPIC, { data: false });
     assert.equal(button.getAttribute('aria-pressed'), 'false');
   });
 
-  it('uma resposta sem `data` lê como desligado, não como undefined', () => {
-    // std_msgs/Bool com false vem do rosbridge como `{data: false}`, mas um
-    // campo ausente não pode virar a string "undefined" num atributo ARIA.
+  it('a reply without `data` reads as off, not as undefined', () => {
+    // std_msgs/Bool with false comes from rosbridge as `{data: false}`, but a
+    // missing field must not become the string "undefined" in an ARIA
+    // attribute.
     const { client, button } = mount();
     client.deliver(FOLLOWING_TOPIC, {});
     assert.equal(button.getAttribute('aria-pressed'), 'false');
   });
 
-  it('destroy corta a inscrição de estado', () => {
+  it('destroy cuts the state subscription', () => {
     const { client, controls } = mount();
     controls.destroy();
     const following = client.subscriptions.find(

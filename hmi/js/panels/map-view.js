@@ -145,11 +145,11 @@ export function buildCostLut() {
     lut[index * 4 + 3] = a;
   };
 
-  // Paleta clara, para o fundo branco da identidade Toradex. A ordem de leitura
-  // é a mesma da versão escura e continua sendo a que importa: livre tem de ser
-  // a superfície MAIS clara, desconhecido tem de ser visivelmente diferente de
-  // livre, e o gradiente de inflação tem de escurecer monotonicamente até o
-  // obstáculo — assim o mapa se lê como um relevo mesmo em tons de cinza.
+  // Light palette, for the white background of the Toradex identity. The
+  // reading order is the same as in the dark version and is still the one that
+  // matters: free must be the LIGHTEST surface, unknown must be visibly
+  // different from free, and the inflation gradient must darken monotonically
+  // towards the obstacle — so the map reads like relief even in greyscale.
   //
   // int8 -1 arrives as 255 when read through an unsigned view.
   put(255, 214, 221, 228, 255); // unknown
@@ -157,11 +157,11 @@ export function buildCostLut() {
 
   for (let value = 1; value <= 98; value += 1) {
     const t = value / 98;
-    // Azul claro -> laranja da marca. Escurece e esquenta ao mesmo tempo, então
-    // sobrevive a um monitor mal calibrado e a uma foto em preto e branco.
+    // Light blue -> brand orange. It darkens and warms at the same time, so it
+    // survives a badly calibrated monitor and a black-and-white photo.
     put(value, 176 + 79 * t, 202 - 68 * t, 226 - 194 * t, 240);
   }
-  put(99, 255, 90, 0, 255); // inscribed — laranja #ff5a00
+  put(99, 255, 90, 0, 255); // inscribed — orange #ff5a00
   put(100, 176, 34, 26, 255); // lethal
 
   // Values above 100 are not valid in an OccupancyGrid, but a malformed

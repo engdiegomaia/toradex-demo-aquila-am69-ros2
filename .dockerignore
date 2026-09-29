@@ -1,0 +1,24 @@
+# Keep local credentials and network-specific configuration out of build context.
+**/.env
+**/.env.*
+!docker/.env.example
+**/*.rendered.xml
+**/*.pem
+**/*.key
+**/id_rsa
+**/id_ed25519
+**/.ssh/
+**/secrets/
+**/secrets/**
+
+# The images build from source, not from local history, caches or run artifacts.
+.git/
+**/.git/
+**/build/
+**/install/
+**/log/
+**/__pycache__/
+**/.pytest_cache/
+artifacts/
+docs/results/
+models-extra/

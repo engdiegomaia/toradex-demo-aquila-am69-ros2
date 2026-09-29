@@ -1,133 +1,139 @@
 """
-Converte o Twist em SI que o Nav2 produz para as unidades de manche do contrato.
+Converts the Twist in SI units that Nav2 produces into the contract's stick units.
 
-Roda na mesma máquina que o Nav2 (estação x86 hoje, módulo no modo hil).
+Runs on the same machine as Nav2 (x86 workstation today, module in hil mode).
 
     ros2 run demo_bringup cmd_vel_si_to_stick
 
-## Por que este nó tem de existir
+## Why this node has to exist
 
-`/demo/cmd_vel` **não está em SI**, apesar de ser um `geometry_msgs/Twist`. Ele
-carrega posição normalizada de manche, e o controlador de marcha aplica o próprio
-ganho ao recebê-la. A prova é aritmética, na fonte vendorizada:
+`/demo/cmd_vel` **is not in SI units**, despite being a `geometry_msgs/Twist`. It
+carries normalized stick position, and the gait controller applies its own
+gain when it receives it. The proof is arithmetic, in the vendored source:
 
     StateTrotting.cpp:192  v_cmd = invNormalize(ly, -0.4, +0.4)
     mathTools.h:10         invNormalize(v, min, max) = 0.4 * v   (minLim=-1, maxLim=1)
-    twist_to_inputs.py:283 ly = linear.x                          (ganho UNITÁRIO)
+    twist_to_inputs.py:283 ly = linear.x                          (UNIT gain)
 
-Logo `linear.x` chega ao robô multiplicado por **0,4**. O mesmo para guinada, com
-ganho **0,5**. O projeto sempre soube disso e trabalha assim: `demo_routine.to_twist`
-divide pelo ganho antes de publicar, e `docs/results/ml35-f4-parcial.md` registra
-"comando `linear.x = 0.25` (→ `v_cmd = 0,1 m/s`)".
+So `linear.x` reaches the robot multiplied by **0.4**. The same applies to yaw,
+with gain **0.5**. The project has always known this and works around it:
+`demo_routine.to_twist` divides by the gain before publishing, and
+`docs/results/ml35-f4-parcial.md` records "command `linear.x = 0.25` (→
+`v_cmd = 0.1 m/s`)".
 
-O Nav2 **não pode** trabalhar assim. Ele não é só um publicador de velocidade: o
-MPPI integra `vx` como metros por segundo para prever onde o robô estará. Se o
-número publicado vale 0,4× do que ele modela, todo rollout erra a distância por
-2,5×, e o horizonte que se calibrou em 1,44 m vale 0,58 m na planta.
+Nav2 **cannot** work like this. It is not just a velocity publisher: MPPI
+integrates `vx` as meters per second to predict where the robot will be. If the
+published number is 0.4× what it models, every rollout misses the distance by
+2.5×, and a horizon calibrated at 1.44 m becomes 0.58 m on the real plant.
 
-Medido em 20/08/2026, com `vx_max: 0.15` interpretado como manche: em 300 s o
-robô comandou no máximo 0,058 (média 0,014), ou seja **0,006 m/s reais** — abaixo
-do mínimo de ~0,05 m/s em que a marcha se mantém estável, e 17× menor que o ponto
-validado de 0,10 m/s. Nenhuma meta cabia no prazo.
+Measured on 20/08/2026, with `vx_max: 0.15` interpreted as stick: over 300 s the
+robot commanded at most 0.058 (mean 0.014), i.e. **0.006 m/s real** — below
+the ~0.05 m/s minimum at which the gait stays stable, and 17× less than the
+validated point of 0.10 m/s. No goal fit in the time budget.
 
-## Onde este nó entra, e o que ele deliberadamente NÃO faz
+## Where this node sits, and what it deliberately does NOT do
 
-    Nav2 (collision_monitor)  --/demo/cmd_vel_si-->  ESTE NÓ  --/demo/cmd_vel-->  planta
-                                   SI                             manche
+    Nav2 (collision_monitor)  --/demo/cmd_vel_si-->  THIS NODE  --/demo/cmd_vel-->  plant
+                                   SI                              stick
 
-Ele **não muda o contrato** de `/demo/cmd_vel` e **não toca a planta**.
-`demo_routine` e `gait_trial.sh` continuam publicando manche direto em
-`/demo/cmd_vel`, sem alteração, e todo número já registrado nos resultados
-continua significando o que significava.
+It **does not change the contract** of `/demo/cmd_vel` and **does not touch the
+plant**. `demo_routine` and `gait_trial.sh` keep publishing stick values
+directly on `/demo/cmd_vel`, unchanged, and every number already recorded in
+the results keeps meaning what it meant.
 
-A alternativa — fazer `twist_to_inputs` aceitar SI — deixaria `/demo/cmd_vel`
-honesto, e foi rejeitada por escopo: mudaria a planta, os dois comandantes
-existentes, e o significado de cada `--v-cmd` já gravado em `docs/results/`.
+The alternative — making `twist_to_inputs` accept SI — would make
+`/demo/cmd_vel` honest, and was rejected on scope grounds: it would change the
+plant, both existing commanders, and the meaning of every `--v-cmd` already
+recorded in `docs/results/`.
 
-## A armadilha que este nó cria
+## The trap this node creates
 
-Passam a existir dois tópicos `Twist` com unidades diferentes. `_si` no nome é a
-única defesa, e ela é fraca. Se alguém ligar o Nav2 direto em `/demo/cmd_vel`, o
-robô anda a 40% do pedido e nada acusa. O sintoma é exatamente o medido acima:
-robô lento que nunca chega, sem erro em log nenhum.
+There are now two `Twist` topics with different units. `_si` in the name is
+the only defense, and it is weak. If someone wires Nav2 directly into
+`/demo/cmd_vel`, the robot moves at 40% of what was requested and nothing
+flags it. The symptom is exactly what was measured above: a slow robot that
+never arrives, with no error in any log.
 
-`/demo/cmd_vel` continua tendo **um** publicador por vez. Este nó é um deles.
+`/demo/cmd_vel` still has **one** publisher at a time. This node is one of them.
 """
 
 from geometry_msgs.msg import Twist
 import rclpy
 from rclpy.node import Node
 
-# Ganhos do controlador, de `trot.v_x_limit` / `v_y_limit` / `w_yaw_limit` em
-# `demo_simulation/config/gait_go2.yaml`, que são [-0.4, 0.4], [-0.3, 0.3] e
-# [-0.5, 0.5]. `invNormalize` com esses limites reduz a multiplicar pelo limite
-# superior. Se você mudar o YAML, mude aqui -- não há como o nó descobrir sozinho,
-# porque o parâmetro pertence ao controlador e não a ele.
+# Controller gains, from `trot.v_x_limit` / `v_y_limit` / `w_yaw_limit` in
+# `demo_simulation/config/gait_go2.yaml`, which are [-0.4, 0.4], [-0.3, 0.3] and
+# [-0.5, 0.5]. `invNormalize` with these limits reduces to multiplying by the
+# upper limit. If you change the YAML, change it here too -- the node has no
+# way to discover this on its own, because the parameter belongs to the
+# controller, not to this node.
 VX_PER_STICK = 0.4
 VY_PER_STICK = 0.3
 WZ_PER_STICK = 0.5
 
-# Envelope de manche comprovadamente estável (`_SAFE_STICK_LIMIT` em
-# `twist_to_inputs.py`). Clampar aqui em vez de deixar a planta clampar em
-# silêncio: um pedido acima do envelope fica visível neste nó.
+# Stick envelope proven stable (`_SAFE_STICK_LIMIT` in `twist_to_inputs.py`).
+# Clamp here instead of letting the plant clamp silently: a request above the
+# envelope becomes visible in this node.
 STICK_CLAMP = 0.5
 
 
 def to_stick(value: float, gain: float, clamp: float = STICK_CLAMP) -> float:
-    """Divide uma velocidade SI pelo ganho do controlador e limita ao envelope."""
+    """Divide an SI velocity by the controller gain and limit it to the envelope."""
     return max(-clamp, min(clamp, value / gain))
 
 
 def convert(si: Twist) -> Twist:
-    """Monta o Twist em manche equivalente a um Twist em SI."""
+    """Build the stick-equivalent Twist from an SI Twist."""
     out = Twist()
     out.linear.x = to_stick(si.linear.x, VX_PER_STICK)
     out.linear.y = to_stick(si.linear.y, VY_PER_STICK)
-    # Sem inversão de sinal aqui: `twist_to_inputs` já nega lx e rx, porque o
-    # controlador upstream nega esses eixos internamente. Negar de novo faria o
-    # robô virar para o lado errado, e o Nav2 corrigiria aumentando o erro.
+    # No sign flip here: `twist_to_inputs` already negates lx and rx, because
+    # the upstream controller negates those axes internally. Negating again
+    # would make the robot turn the wrong way, and Nav2 would correct by
+    # increasing the error.
     out.angular.z = to_stick(si.angular.z, WZ_PER_STICK)
     return out
 
 
 class CmdVelSiToStick(Node):
-    """Republica `/demo/cmd_vel_si` como `/demo/cmd_vel` em unidades de manche."""
+    """Republish `/demo/cmd_vel_si` as `/demo/cmd_vel` in stick units."""
 
     def __init__(self) -> None:
-        """Abre a assinatura em SI e a publicação em manche."""
+        """Open the SI subscription and the stick publication."""
         super().__init__('cmd_vel_si_to_stick')
         self._publisher = self.create_publisher(Twist, '/demo/cmd_vel', 10)
         self.create_subscription(Twist, '/demo/cmd_vel_si', self._on_si, 10)
         self._forwarded = 0
         self._saturated = 0
         self.get_logger().info(
-            'convertendo /demo/cmd_vel_si (SI) para /demo/cmd_vel (manche) com '
-            'ganhos vx=%.2f vy=%.2f wz=%.2f e clamp %.2f. NAO ligue o Nav2 '
-            'direto em /demo/cmd_vel: o robo andaria a %.0f%% do pedido sem '
-            'nenhum erro em log.'
+            'converting /demo/cmd_vel_si (SI) to /demo/cmd_vel (stick) with '
+            'gains vx=%.2f vy=%.2f wz=%.2f and clamp %.2f. DO NOT wire Nav2 '
+            'directly into /demo/cmd_vel: the robot would move at %.0f%% of '
+            'what was requested with no error logged.'
             % (VX_PER_STICK, VY_PER_STICK, WZ_PER_STICK, STICK_CLAMP,
                100.0 * VX_PER_STICK))
 
     def _on_si(self, message: Twist) -> None:
-        """Republica uma mensagem em manche, avisando quando satura."""
+        """Republish a message in stick units, warning when it saturates."""
         out = convert(message)
         self._publisher.publish(out)
 
         self._forwarded += 1
         if abs(out.linear.x) >= STICK_CLAMP or abs(out.angular.z) >= STICK_CLAMP:
             self._saturated += 1
-            # Saturar significa que o Nav2 pede acima do envelope da marcha. Não
-            # é erro deste nó, é sinal de que os limites do MPPI estão largos.
+            # Saturating means Nav2 is requesting above the gait envelope.
+            # It's not an error in this node, it's a sign that MPPI's limits
+            # are too loose.
             self.get_logger().warning(
-                'manche saturado: pedido vx=%.3f wz=%.3f SI excede o envelope. '
-                'Aperte vx_max/wz_max em nav2_params_go2.yaml (%d de %d '
-                'mensagens)' % (message.linear.x, message.angular.z,
-                                self._saturated, self._forwarded),
+                'stick saturated: requested vx=%.3f wz=%.3f SI exceeds the '
+                'envelope. Tighten vx_max/wz_max in nav2_params_go2.yaml (%d '
+                'of %d messages)' % (message.linear.x, message.angular.z,
+                                     self._saturated, self._forwarded),
                 throttle_duration_sec=10.0)
 
 
 def main(args=None) -> None:
-    """Roda o conversor até ser interrompido."""
+    """Run the converter until interrupted."""
     rclpy.init(args=args)
     node = CmdVelSiToStick()
     try:

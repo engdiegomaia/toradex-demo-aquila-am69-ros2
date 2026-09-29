@@ -5,27 +5,27 @@
   Mounted read-only at /cfg/cyclonedds.xml and selected with
   CYCLONEDDS_URI=file:///cfg/cyclonedds.xml.
 
-  ESTE E O TEMPLATE. O compose monta `host.rendered.xml`, que
-  `scripts/module.sh sync` gera a partir daqui somando o endereco do modulo e a
-  interface deste host. O gerado nao e versionado porque endereco nao entra em
-  git (convencoes do CLAUDE.md).
+  THIS IS THE TEMPLATE. The compose file mounts `host.rendered.xml`, which
+  `scripts/module.sh sync` generates from this file by adding the module's
+  address and this host's interface. The generated file is not versioned
+  because addresses do not go into git (CLAUDE.md conventions).
 
-  CONSEQUENCIA QUE CUSTOU UMA SESSAO, 25/08/2026: editar este arquivo NAO surte
-  efeito nenhum nos containers ate rodar `module.sh sync`. O rendered daquela
-  bancada tinha sido gerado antes, era byte-identico a este, e ficou parado
-  enquanto este mudava. Depois de qualquer edicao aqui:
+  CONSEQUENCE THAT COST A SESSION, 25/08/2026: editing this file has NO effect
+  on the containers until `module.sh sync` is run. That bench's rendered file
+  had been generated earlier, was byte-identical to this one, and stayed put
+  while this one changed. After any edit here:
 
-      scripts/module.sh sync     # regenera host.rendered.xml
-      docker compose -f compose.host.yml up -d  (com force-recreate)
+      scripts/module.sh sync     # regenerates host.rendered.xml
+      docker compose -f compose.host.yml up -d  (with force-recreate)
 
-  Ha um teste estrutural em tests/ que reprova um rendered mais antigo que este
-  arquivo, justamente para essa divergencia nao ficar silenciosa.
+  A structural test in tests/ fails a rendered file older than this one, so
+  that this divergence cannot stay silent.
 
-  scripts/env.sh aponta para o rendered quando ele existe, e para este arquivo
-  quando nao, para que ferramenta nativa no host e container falem a MESMA
-  politica de descoberta. Duas politicas no mesmo
-  dominio funcionam enquanto a interface escolhida por acidente coincide, e param
-  sem avisar quando deixa de coincidir.
+  scripts/env.sh points at the rendered file when it exists, and at this file
+  when it does not, so that a native host tool and a container speak the SAME
+  discovery policy. Two policies on the same domain work as long as the
+  interface picked by accident happens to match, and stop without warning when
+  it stops matching.
 
   NOTE ON INTERFACE SELECTION
   ===========================
@@ -57,43 +57,46 @@
     <General>
       <Interfaces>
         <!--
-          LOOPBACK PRIMEIRO, E ELE E A CORRECAO DE 25/08/2026.
+          LOOPBACK FIRST, AND IT IS THE 25/08/2026 FIX.
 
-          Toda a pilha do modo learn roda com network_mode: host na MESMA
-          maquina, entao o caminho correto entre containers e `lo`. Antes desta
-          linha o trafego dependia do que o autodetermine abaixo escolhesse, e o
-          proprio aviso no cabecalho deste arquivo previa o problema: com
-          docker0, duas bridges e tailscale0 no ar, a escolha pode cair numa
-          interface que nao roteia para os outros participantes.
+          The whole learn-mode stack runs with network_mode: host on the SAME
+          machine, so the correct path between containers is `lo`. Before this
+          line, traffic depended on whatever the autodetermine below picked, and
+          the header of this file already predicted the problem: with docker0,
+          two bridges and tailscale0 up, the choice can land on an interface
+          that does not route to the other participants.
 
-          O QUE ISSO CAUSOU, MEDIDO
-          Entrega ASSIMETRICA entre containers. O `nav` recebia /demo/odom e
-          /demo/scan_cloud do `sim` (os locators do sim eram alcancaveis) e o
-          `sim` NAO recebia /demo/cmd_vel do `nav`. O resultado nao se parece com
-          um problema de rede: o Nav2 planeja, comanda guinada em 95,6% das
-          amostras, e o robo trota PARADO, isto e, `sticks=(lx=0.0000 ly=0.0000
-          rx=0.0000)` no log da marcha durante 180 s, com o yaw congelado. Nav2
-          entao acusa "Failed to make progress" e entra em recuperacao, que
-          tambem nao chega. Zero linhas mencionando DDS ou interface.
+          WHAT IT CAUSED, MEASURED
+          ASYMMETRIC delivery between containers. `nav` received /demo/odom and
+          /demo/scan_cloud from `sim` (sim's locators were reachable) and `sim`
+          did NOT receive /demo/cmd_vel from `nav`. The result does not look
+          like a network problem: Nav2 plans, commands yaw in 95.6% of the
+          samples, and the robot trots IN PLACE, i.e. `sticks=(lx=0.0000
+          ly=0.0000 rx=0.0000)` in the gait log for 180 s, with the yaw frozen.
+          Nav2 then reports "Failed to make progress" and enters recovery, which
+          does not arrive either. Zero lines mentioning DDS or the interface.
 
-          E o log enche de `ddsi_udp_conn_write ... failed with retcode -1` para
-          um endereco do proprio host, mas isso e milhoes de linhas de nivel
-          baixo no meio da saida do Gazebo, nao um erro que alguem le.
+          The log does fill up with `ddsi_udp_conn_write ... failed with
+          retcode -1` for an address of the host itself, but that is millions of
+          low-level lines in the middle of Gazebo output, not an error anyone
+          reads.
 
-          `lo` existe em qualquer maquina, entao isto NAO e o nome cravado que o
-          cabecalho acima condena, isto e, e o unico nome de interface que e seguro
-          cravar. Multicast ligado apenas aqui: em loopback ele nao atravessa
-          switch nenhum, entao a objecao de "morre no Wi-Fi" nao se aplica.
+          `lo` exists on every machine, so this is NOT the hardcoded name the
+          header above condemns; it is the only interface name that is safe to
+          hardcode. Multicast is enabled only here: on loopback it does not
+          cross any switch, so the "dies on Wi-Fi" objection does not apply.
 
-          A interface real continua na lista, abaixo, para o modo hil alcancar o
-          modulo. NAO REMOVA NENHUMA DAS DUAS: sem `lo` volta a assimetria acima;
-          sem a real o host nao fala com o Aquila.
+          The real interface stays in the list, below, so that hil mode can
+          reach the module. DO NOT REMOVE EITHER OF THE TWO: without `lo` the
+          asymmetry above returns; without the real one the host does not talk
+          to the Aquila.
 
-          AS PRIORIDADES DESTA COPIA SAO PARA LEARN. `module.sh sync` gera a
-          variante HIL e inverte as prioridades: Ethernet=10, lo=default. Foi
-          medido em 28/08/2026 que manter lo=10 em HIL faz o Cyclone tentar
-          unicast externo pela loopback (`ddsi_udp_conn_write ... retcode -3`):
-          /clock aparece no grafo remoto, mas nenhuma amostra atravessa.
+          THE PRIORITIES IN THIS COPY ARE FOR LEARN. `module.sh sync` generates
+          the HIL variant and inverts the priorities: Ethernet=10, lo=default.
+          It was measured on 28/08/2026 that keeping lo=10 in HIL makes Cyclone
+          try external unicast over the loopback (`ddsi_udp_conn_write ...
+          retcode -3`): /clock shows up in the remote graph, but no sample
+          crosses.
         -->
         <NetworkInterface name="lo" priority="10" multicast="true"/>
         <NetworkInterface autodetermine="true" priority="default"/>

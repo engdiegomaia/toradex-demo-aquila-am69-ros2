@@ -2,12 +2,12 @@
  * rosbridge `compression: "png"` — client side.
  *
  * Why this is worth 80 lines, measured on 24/08/2026 against the running
- * `/global_costmap/costmap` (400x400 cells, 0,5 Hz):
+ * `/global_costmap/costmap` (400x400 cells, 0.5 Hz):
  *
  *   compression   bytes per frame
- *   none               456,8 KiB
- *   cbor               156,5 KiB
- *   png                 13,8 KiB     <- 33x menor que JSON
+ *   none               456.8 KiB
+ *   cbor               156.5 KiB
+ *   png                 13.8 KiB     <- 33x smaller than JSON
  *
  * That is the difference between a costmap panel that works over the bench
  * Ethernet link and one that does not. It answers open point 2 of
@@ -65,7 +65,7 @@ export function bytesToMessage(bytes, decoder = new TextDecoder('utf-8')) {
  * Browser glue. Returns an async (base64) => message.
  *
  * `willReadFrequently` matters here: without it Chromium keeps the canvas on
- * the GPU and every getImageData is a readback stall, which on a 0,5 Hz costmap
+ * the GPU and every getImageData is a readback stall, which on a 0.5 Hz costmap
  * is invisible but on a 10 Hz topic is not.
  */
 export function createPngDecoder({

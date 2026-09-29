@@ -1,5 +1,6 @@
-# Procedência
+# Provenance
 
-Pacote vendorizado de terceiro. Procedência, licença e edições feitas sobre o
-upstream estão documentadas em `../unitree_guide_controller/PROVENANCE.md`, que
-cobre os quatro pacotes de controle vendorizados juntos em ML3.5 F3.
+Vendored third-party package. Origin, license and the edits made on top of
+upstream are documented in
+[`../unitree_guide_controller/PROVENANCE.md`](../unitree_guide_controller/PROVENANCE.md),
+which covers the four control packages vendored together in ML3.5 F3.

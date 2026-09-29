@@ -4,7 +4,7 @@
  *
  * Draws, in this order (back to front):
  *
- *   global costmap  /global_costmap/costmap            PNG-compressed, 0,5 Hz
+ *   global costmap  /global_costmap/costmap            PNG-compressed, 0.5 Hz
  *   1 m grid        (derived)
  *   global plan     /plan                              map frame
  *   laser           /demo/scan                         lidar frame, via TF
@@ -23,19 +23,20 @@
  * still centres on map->base EXPLICITLY anyway, because zoom needs a focus
  * point that does not move when the raster's bounds do.
  *
- * O painel tem DOIS controles destrutivos e eles não são a mesma coisa:
+ * The panel has TWO destructive controls and they are not the same thing:
  *
- *   cancelar meta    fala com a ação navigate_to_pose. Para o robô e deixa todo
- *                    o resto no lugar. É o "mudei de ideia", e só aparece
- *                    enquanto há meta ativa.
- *   reiniciar nav    chama /demo/nav/reset, e a fachada do lado da navegação
- *                    cancela a meta, esvazia os dois costmaps e faz
- *                    PAUSE + RESUME nos servidores do Nav2 — o que roda no
- *                    Aquila no modo hil. É o "o Nav2 travou", e por isso está
- *                    SEMPRE visível: o caso em que ele serve é justamente
- *                    aquele em que a ação parou de responder.
- *                    NÃO é RESET + STARTUP; esse par mata o container, e a
- *                    medição está no cabeçalho de nav_control_relay.py.
+ *   cancel goal      talks to the navigate_to_pose action. Stops the robot and
+ *                    leaves everything else in place. It is the "I changed my
+ *                    mind" button, and only appears while a goal is active.
+ *   restart nav      calls /demo/nav/reset, and the navigation-side facade
+ *                    cancels the goal, clears both costmaps and does
+ *                    PAUSE + RESUME on the Nav2 servers — which run on the
+ *                    Aquila in hil mode. It is the "Nav2 hung" button, and so
+ *                    it is ALWAYS visible: the case it serves is exactly the
+ *                    one where the action has stopped responding.
+ *                    It is NOT RESET + STARTUP; that pair kills the container,
+ *                    and the measurement is in the header of
+ *                    nav_control_relay.py.
  *
  * Detections are deliberately NOT drawn here. They reach this panel already,
  * through the costmap's `perception_layer` — which is the wiring CLAUDE.md
@@ -63,27 +64,29 @@ const NAVIGATE_ACTION = '/navigate_to_pose';
 const NAVIGATE_TYPE = 'nav2_msgs/action/NavigateToPose';
 
 /**
- * std_srvs/Trigger servido pelo `nav_control_relay`, do lado da navegação.
+ * std_srvs/Trigger served by `nav_control_relay`, on the navigation side.
  *
- * NÃO é `/lifecycle_manager_navigation/manage_nodes`. E o motivo aqui NÃO é o
- * da armadilha do Gazebo: `nav2_msgs` existe no container `cockpit` (é o pacote
- * do NavigateToPose que a meta acima usa), então a chamada direta funcionaria.
+ * It is NOT `/lifecycle_manager_navigation/manage_nodes`. And the reason here
+ * is NOT the Gazebo trap: `nav2_msgs` exists in the `cockpit` container (it is
+ * the package of the NavigateToPose used by the goal above), so a direct call
+ * would work.
  *
- * O motivo é que reiniciar o Nav2 são QUATRO passos com um estado inválido no
- * meio — entre o PAUSE e o RESUME a pilha está inativa, e nada a levanta
- * sozinha. Uma sequência dessas conduzida pelo navegador morre com um F5 e deixa
- * a navegação desativada sem ninguém para terminar. Do lado do ROS ela roda
- * inteira, num processo que não depende desta página.
+ * The reason is that restarting Nav2 is FOUR steps with an invalid state in
+ * the middle — between PAUSE and RESUME the stack is inactive, and nothing
+ * brings it back on its own. A sequence like that driven by the browser dies
+ * with an F5 and leaves navigation disabled with nobody to finish it. On the
+ * ROS side it runs to completion, in a process that does not depend on this
+ * page.
  *
- * E qual par de transições usar é uma descoberta medida, não uma escolha de
- * interface: RESET + STARTUP mata o container. O cabeçalho de
- * demo_navigation/nav_control_relay.py tem a medição.
+ * And which pair of transitions to use is a measured finding, not an interface
+ * choice: RESET + STARTUP kills the container. The header of
+ * demo_navigation/nav_control_relay.py has the measurement.
  */
 export const NAV_RESET_SERVICE = '/demo/nav/reset';
 export const EXPLORATION_START_SERVICE = '/demo/exploration/start';
 export const EXPLORATION_CANCEL_SERVICE = '/demo/exploration/cancel';
 
-/** Segundos que o botão de reiniciar fica armado esperando a confirmação. */
+/** Milliseconds the restart button stays armed waiting for confirmation. */
 export const RESET_ARM_MS = 4000;
 
 /** Metres between grid lines. */
@@ -93,7 +96,7 @@ const GRID_STEP_M = 1;
 const MIN_GOAL_DISTANCE_M = 0.25;
 
 export function createNavPanel({ root, client, tracker }) {
-  // Uma leitura, na montagem. Ver o cabeçalho de palette.js.
+  // A single read, at mount time. See the header of palette.js.
   const palette = readMapPalette(root);
 
   const canvas = root.querySelector('[data-role="nav-canvas"]');
@@ -128,9 +131,9 @@ export function createNavPanel({ root, client, tracker }) {
     zoom: DEFAULT_MAP_ZOOM,
   };
 
-  // O zoom fica em `state`, o estado de busca fica AQUI. Separados de
-  // proposito: nenhum caminho da exploracao deve conseguir tocar no
-  // enquadramento que o operador escolheu.
+  // Zoom lives in `state`; the search state lives HERE. Kept apart on
+  // purpose: no exploration path should be able to touch the framing the
+  // operator chose.
   const exploration = createExplorationStore();
 
   const unsubscribes = [];
@@ -173,7 +176,7 @@ export function createNavPanel({ root, client, tracker }) {
         tracker.mark('costmap');
         rasterizeCostmap(message);
       },
-      // Measured 24/08/2026: 456,8 KiB per frame as JSON, 13,8 KiB as PNG.
+      // Measured 24/08/2026: 456.8 KiB per frame as JSON, 13.8 KiB as PNG.
       // Without this the panel alone would spend ~230 KiB/s on localhost and
       // would not survive the bench Ethernet link at all.
       { compression: 'png' },
@@ -251,8 +254,8 @@ export function createNavPanel({ root, client, tracker }) {
   // nothing, so the sample is lost above the client queue.
   //
   // The visible symptom is a cockpit that works on some page loads and not
-  // others: with map->odom missing the HUD reports "sem TF map→base (21
-  // arestas)", the laser is not drawn, and goals still go out but land without
+  // others: with map->odom missing the HUD reports "no TF map→base (21
+  // edges)", the laser is not drawn, and goals still go out but land without
   // a heading. Nothing in any log names the cause.
   //
   // Unsubscribing and re-subscribing makes rosbridge hand over a latched
@@ -387,10 +390,10 @@ export function createNavPanel({ root, client, tracker }) {
       state.feedback = null;
       if (outcome.lost) {
         state.goalState = 'lost';
-        state.goalDetail = 'link caiu — a meta pode continuar no robô';
+        state.goalDetail = 'link dropped — the goal may still be running on the robot';
       } else if (outcome.notSent) {
         state.goalState = 'fail';
-        state.goalDetail = 'sem conexão com o rosbridge';
+        state.goalDetail = 'no connection to rosbridge';
       } else if (outcome.succeeded) {
         state.goalState = 'ok';
         state.goalDetail = '';
@@ -423,11 +426,12 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   /**
-   * Inclui o comando em voo, e nao so o estado publicado pelo Aquila.
+   * Includes the in-flight command, not just the state published by the Aquila.
    *
-   * Entre o clique em "iniciar busca" e o primeiro status ha uma janela em que
-   * o explorador ja aceitou a busca e o cockpit ainda nao sabe. Fechar as
-   * portas da meta manual apenas com `isActive()` deixa essa janela aberta.
+   * Between the click on "start search" and the first status there is a window
+   * in which the explorer has already accepted the search and the cockpit does
+   * not know yet. Closing the manual-goal gates with `isActive()` alone leaves
+   * that window open.
    */
   function explorationBusy() {
     return exploration.isBusy();
@@ -439,9 +443,9 @@ export function createNavPanel({ root, client, tracker }) {
     try {
       const result = await client.callService(service, {});
       if (result?.success === false) {
-        const text = result.message ?? 'comando de busca recusado';
-        // Recusa do start tem de desfazer o `starting` local, ou o painel fica
-        // travado num estado que so o cockpit inventou.
+        const text = result.message ?? 'search command refused';
+        // A refused start must undo the local `starting`, or the panel stays
+        // stuck in a state that only the cockpit invented.
         if (starting) exploration.refuseStart(text);
         else exploration.merge({ message: text });
       }
@@ -455,13 +459,14 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   explorationStartButton?.addEventListener('click', () => {
-    // Duplo clique tem de virar UMA chamada. A guarda vem antes de qualquer
-    // efeito colateral, incluindo o cancelamento da meta manual.
+    // A double click must become ONE call. The guard comes before any side
+    // effect, including the cancellation of the manual goal.
     if (explorationBusy()) return;
     cancelActive();
     exploration.beginStart();
-    // Pinta o bloqueio JA, sem esperar o proximo quadro: entre o clique e o
-    // primeiro status do Aquila o mapa tem de parecer travado, nao so estar.
+    // Paint the lock NOW, without waiting for the next frame: between the click
+    // and the first status from the Aquila the map must look locked, not just
+    // be locked.
     updateHud();
     explorationCommand(EXPLORATION_START_SERVICE, explorationStartButton);
   });
@@ -483,11 +488,11 @@ export function createNavPanel({ root, client, tracker }) {
     changeZoom('out');
   });
 
-  // --- reiniciar a navegação ----------------------------------------------
+  // --- restart navigation -------------------------------------------------
   //
-  // Dois cliques, e o rótulo do botão diz em qual dos dois estamos. Mesmo
-  // padrão do reset da simulação em sim-controls.js, e pela mesma razão: um
-  // clique por engano custa dezenas de segundos no meio de uma demo.
+  // Two clicks, and the button label says which of the two we are at. Same
+  // pattern as the simulation reset in sim-controls.js, and for the same
+  // reason: a click by mistake costs tens of seconds in the middle of a demo.
   const resetLabel = resetButton?.textContent ?? '';
   let armedUntil = 0;
 
@@ -499,9 +504,9 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   async function resetNavigation() {
-    // O handle local morre com a pilha; largá-lo aqui evita que o `.then` do
-    // resultado, que chega abortado, sobrescreva o estado de reinício com um
-    // 'fail' que descreve a consequência e não a causa.
+    // The local handle dies with the stack; dropping it here keeps the result's
+    // `.then`, which arrives aborted, from overwriting the restart state with a
+    // 'fail' that describes the consequence and not the cause.
     state.handle = null;
     state.feedback = null;
     state.goal = null;
@@ -509,14 +514,14 @@ export function createNavPanel({ root, client, tracker }) {
     state.goalDetail = '';
     if (resetButton) {
       resetButton.dataset.busy = 'true';
-      resetButton.textContent = 'reiniciando…';
+      resetButton.textContent = 'restarting…';
     }
 
     try {
-      // Sem timeout do lado do navegador de propósito. Medido em 6,6 s na
-      // workstation, e no arm64 do AM69 é mais lento — um limite local
-      // pintaria "falhou" sobre uma pilha que estava voltando. Quem tem os
-      // limites é a fachada, que sabe o que está esperando.
+      // No browser-side timeout, on purpose. Measured at 6.6 s on the
+      // workstation, and slower on the AM69 arm64 — a local limit would paint
+      // "failed" over a stack that was coming back. The limits belong to the
+      // facade, which knows what it is waiting for.
       const result = await client.callService(NAV_RESET_SERVICE, {});
       if (result?.success === false) {
         state.goalState = 'reset-failed';
@@ -541,7 +546,7 @@ export function createNavPanel({ root, client, tracker }) {
     if (Date.now() > armedUntil) {
       armedUntil = Date.now() + RESET_ARM_MS;
       resetButton.dataset.armed = 'true';
-      resetButton.textContent = 'confirmar';
+      resetButton.textContent = 'confirm';
       window.setTimeout(disarmReset, RESET_ARM_MS);
       return;
     }
@@ -623,8 +628,9 @@ export function createNavPanel({ root, client, tracker }) {
 
     context.save();
     context.fillStyle = palette.scan;
-    // Alfa no contexto e não embutido na cor: o token é um valor sólido, e
-    // dissolvê-lo em rgba() aqui recriaria a duplicação que palette.js remove.
+    // Alpha on the context and not embedded in the colour: the token is a solid
+    // value, and dissolving it into rgba() here would recreate the duplication
+    // that palette.js removes.
     context.globalAlpha = 0.85;
     const size = Math.max(1.5, view.scale * 0.05);
     for (let i = 0; i < scan.ranges.length; i += 1) {
@@ -683,8 +689,9 @@ export function createNavPanel({ root, client, tracker }) {
     const active = state.goalState === 'sent' || state.goalState === 'running';
     context.save();
     context.strokeStyle = palette.goal;
-    // Meta já cumprida ou cancelada continua desenhada, apagada: some do
-    // primeiro plano sem sumir da tela, que é como se lê "estava indo ali".
+    // A goal already reached or cancelled stays drawn, dimmed: it leaves the
+    // foreground without leaving the screen, which is how "it was heading
+    // there" is read.
     context.globalAlpha = active ? 1 : 0.45;
     context.lineWidth = 2;
     context.beginPath();
@@ -698,16 +705,16 @@ export function createNavPanel({ root, client, tracker }) {
   }
 
   const GOAL_LABELS = {
-    idle: 'clique no mapa para mandar uma meta',
-    sent: 'meta enviada',
-    running: 'navegando',
-    ok: 'meta cumprida',
-    fail: 'meta falhou',
-    lost: 'meta perdida',
-    cancelled: 'meta cancelada',
-    resetting: 'reiniciando a navegação — o costmap volta vazio',
-    reset: 'navegação reiniciada · clique no mapa para mandar uma meta',
-    'reset-failed': 'o reinício da navegação FALHOU',
+    idle: 'click on the map to send a goal',
+    sent: 'goal sent',
+    running: 'navigating',
+    ok: 'goal reached',
+    fail: 'goal failed',
+    lost: 'goal lost',
+    cancelled: 'goal cancelled',
+    resetting: 'restarting navigation — the costmap comes back empty',
+    reset: 'navigation restarted · click on the map to send a goal',
+    'reset-failed': 'navigation restart FAILED',
   };
 
   function updateHud() {
@@ -716,18 +723,18 @@ export function createNavPanel({ root, client, tracker }) {
       : [GOAL_LABELS[state.goalState] ?? state.goalState];
     parts.push(...exploration.hudParts());
     const remaining = state.feedback?.distance_remaining;
-    if (Number.isFinite(remaining)) parts.push(`${remaining.toFixed(2)} m restantes`);
+    if (Number.isFinite(remaining)) parts.push(`${remaining.toFixed(2)} m remaining`);
     const recoveries = state.feedback?.number_of_recoveries;
-    if (recoveries > 0) parts.push(`${recoveries} recuperação(ões)`);
+    if (recoveries > 0) parts.push(`${recoveries} recovery(ies)`);
     if (state.goalDetail) parts.push(state.goalDetail);
-    // Name WHY the pose is missing. "sem TF" alone sends the operator to the
+    // Name WHY the pose is missing. "no TF" alone sends the operator to the
     // wrong place half the time: no edges at all means the /tf relay is not
     // arriving, while a populated tree with no chain to `base` means a
     // publisher is missing (map->odom comes from odom_tf, odom->base from the
     // plant) — different containers, different fixes.
     if (!robotPose()) {
       const known = state.tf?.frames().length ?? 0;
-      parts.push(known ? `sem TF map→base (${known} arestas)` : 'esperando TF');
+      parts.push(known ? `no TF map→base (${known} edges)` : 'waiting for TF');
     }
 
     const text = parts.join(' · ');
@@ -767,9 +774,10 @@ export function createNavPanel({ root, client, tracker }) {
       state.footprint = null;
       state.feedback = null;
       state.tf?.clear();
-      // Um reinício em curso perdeu a resposta junto com o link, e o botão
-      // travado em "reiniciando…" seria a leitura errada: a chamada pode ter
-      // sido aplicada. Volta ao rótulo e deixa o HUD dizer o que sabe.
+      // A restart in progress lost its response along with the link, and a
+      // button stuck on "restarting…" would be the wrong reading: the call may
+      // have been applied. Go back to the label and let the HUD say what it
+      // knows.
       disarmReset();
       if (resetButton) {
         resetButton.dataset.busy = 'false';
@@ -777,7 +785,7 @@ export function createNavPanel({ root, client, tracker }) {
       }
       if (state.goalState === 'resetting') {
         state.goalState = 'lost';
-        state.goalDetail = 'link caiu durante o reinício da navegação';
+        state.goalDetail = 'link dropped during the navigation restart';
       }
     },
     destroy() {

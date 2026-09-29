@@ -1,19 +1,19 @@
 <?xml version="1.0"?>
 <!--
-  Cenario S2 -- terreno irregular com lajes baixas.
+  Scenario S2 -- uneven terrain with low slabs.
 
-  Exercita: colocacao de pe (FeetEndCalc), o estimador de estado quando o apoio
-  nao esta no plano z = 0, e o `footErr` do supervisor.
+  Exercises: foot placement (FeetEndCalc), the state estimator when the support
+  is not on the z = 0 plane, and the supervisor's `footErr`.
 
-  As lajes tem 3 cm.  O numero nao e arbitrario: a altura de elevacao do pe da
-  marcha e 8 cm (`gait.foot_height` em gait_go2.yaml), entao 3 cm o pe transpoe
-  com folga e o que se mede e a reacao do equilibrio ao apoio irregular, nao a
-  capacidade de subir degrau.  Uma laje de 8 cm ou mais mede outra coisa e
-  provavelmente derruba o robo -- se for isso que se quer medir, mude UMA laje e
-  registre a corrida.
+  The slabs are 3 cm.  The number is not arbitrary: the gait's foot lift height
+  is 8 cm (`gait.foot_height` in gait_go2.yaml), so the foot clears 3 cm with
+  room to spare and what is measured is the balance reaction to uneven support,
+  not the ability to climb a step.  A slab of 8 cm or more measures something
+  else and probably topples the robot -- if that is what you want to measure,
+  change ONE slab and record the run.
 
-  Distribuidas fora do eixo central para que os pes esquerdo e direito pisem em
-  alturas diferentes no mesmo instante, que e o caso interessante.
+  Distributed off the central axis so that the left and right feet step on
+  different heights at the same instant, which is the interesting case.
 -->
 <sdf version="1.9">
   <world name="quadruped_rough">
@@ -22,9 +22,9 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
-    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
-         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
-         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <!-- Block identical to the one in quadruped_empty.sdf.  The Sensors system
+         with ogre2 is not optional: without it the Go2 camera and lidar exist in
+         the model but publish nothing, with no error naming the missing plugin. -->
     <plugin filename="gz-sim-physics-system"
             name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-user-commands-system"

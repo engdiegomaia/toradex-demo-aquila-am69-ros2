@@ -1,5 +1,5 @@
 """
-Structural guards for the official scenario (labirinto).
+Structural guards for the official scenario (maze).
 
 Static checks on committed files, same reasoning as the other files in this
 directory: each invariant here is cheap to break in a one-line edit and the
@@ -25,7 +25,7 @@ SCENE_CAMERAS = SIMULATION / 'launch' / 'scene_cameras.launch.py'
 SIM_LAUNCH = BRINGUP / 'launch' / 'sim.launch.py'
 ROBOT_SELECTION = BRINGUP / 'demo_bringup' / 'robot_selection.py'
 COMPOSE_HOST = REPO_ROOT / 'docker' / 'compose.host.yml'
-MODELS_EXTRA_README = REPO_ROOT / 'models-extra' / 'README.md'
+MODELS_EXTRA_README = REPO_ROOT / 'docker' / 'models-extra' / 'README.md'
 
 MAZE_WORLD = 'quadruped_maze11.sdf'
 
@@ -70,10 +70,10 @@ def _code(path: Path) -> str:
     return ast.unparse(tree)
 
 
-# --- o cenario oficial ----------------------------------------------------
+# --- the official scenario ----------------------------------------------------
 
 def test_maze_is_the_official_world_for_the_quadruped(selection):
-    """O labirinto e o cenario oficial, e o pedido do operador em 25/08."""
+    """The maze is the official scenario, per the operator's request on 25/08."""
     package, *parts = selection.official_world('quadruped')
     assert parts[-1] == MAZE_WORLD
     assert package == 'demo_simulation'
@@ -81,11 +81,12 @@ def test_maze_is_the_official_world_for_the_quadruped(selection):
 
 def test_diffdrive_keeps_the_warehouse_where_it_was_validated(selection):
     """
-    O fallback NAO herda o labirinto.
+    The fallback does NOT inherit the maze.
 
-    O portao do F6 do diff-drive e uma meta de x=0 para x=1, medida no armazem.
-    No labirinto essa meta cai numa parede: promover o labirinto para os dois
-    trocaria o cenario de um teste que passou por um em que ele nunca rodou.
+    The diff-drive F6 gate is a goal from x=0 to x=1, measured in the
+    warehouse. In the maze that goal lands on a wall: promoting the maze for
+    both would swap the scenario of a test that passed for one it never ran
+    on.
     """
     package, *parts = selection.official_world('diffdrive')
     assert parts[-1] == 'warehouse.sdf'
@@ -99,26 +100,28 @@ def test_unknown_robot_has_no_official_world(selection):
 
 def test_quadruped_plant_defaults_to_the_maze():
     """
-    O caminho mais curto ja sobe o cenario oficial.
+    The shortest path already brings up the official scenario.
 
-    Era `quadruped_empty.sdf`, herdado do spike do F2. Com o quadrupede virando
-    o robo padrao no F6, o default antigo fazia o comando mais curto medir
-    navegacao em campo aberto com a sintonia pensada para corredor de 1,20 m.
+    It used to be `quadruped_empty.sdf`, inherited from the F2 spike. With the
+    quadruped becoming the default robot in F6, the old default made the
+    shortest command measure open-field navigation with tuning meant for a
+    1.20 m corridor.
     """
     code = _code(QUADRUPED_LAUNCH)
     assert MAZE_WORLD in code
     assert 'quadruped_empty.sdf' not in code
 
 
-# --- enquadramento derivado do mundo -------------------------------------
+# --- framing derived from the world -------------------------------------
 
 def test_maze_framing_matches_the_measured_geometry(scenarios):
     """
-    Os numeros do labirinto sao os medidos, nao arredondamentos novos.
+    The maze numbers are the measured ones, not fresh rounding.
 
-    Centro (-4,855; 4,855) saiu da bbox do STL lida do binario e multiplicada
-    pela escala 0,002 (scripts/maze_fit.py), nao do nome do arquivo. A vista de
-    topo a 13 m cobre 17,8 x 13,3 m, os 11,6 m do labirinto com margem.
+    Center (-4.855, 4.855) came from the STL bbox read from the binary and
+    multiplied by the 0.002 scale (tools/maze/maze_fit.py), not from the file
+    name. The top view at 13 m covers 17.8 x 13.3 m, the maze's 11.6 m with
+    margin.
     """
     top = scenarios.camera_pose(MAZE_WORLD, 'top')
     assert top[:3] == (-4.855, 4.855, 13.0)
@@ -128,30 +131,30 @@ def test_maze_framing_matches_the_measured_geometry(scenarios):
 
 def test_maze_spawn_faces_the_corridor(scenarios):
     """
-    yaw 1,5708 nasce o robo olhando para o corredor, nao para a parede.
+    yaw 1.5708 spawns the robot facing the corridor, not the wall.
 
-    Com yaw 0 a primeira coisa que o Nav2 tem de fazer e um giro de 90 graus
-    dentro de um corredor de 1,20 m. Isso gasta os primeiros segundos de todo
-    ensaio e polui a comparacao entre condicoes.
+    With yaw 0 the first thing Nav2 has to do is a 90-degree turn inside a
+    1.20 m corridor. That eats the first seconds of every trial and pollutes
+    the comparison between conditions.
     """
     assert scenarios.spawn_pose(MAZE_WORLD)['yaw'] == pytest.approx(1.5708)
 
 
 def test_scene_camera_defaults_are_empty_not_numeric():
     """
-    Vazio = derive do mundo. Um numero aqui e a falha silenciosa original.
+    Empty = derive from the world. A number here is the original silent failure.
 
-    Enquanto mundo e enquadramento eram argumentos independentes, a combinacao
-    errada era a mais facil de produzir: mundo do labirinto com camera do
-    armazem aponta o painel azul para chao vazio, sem erro e sem log.
+    While world and framing were independent arguments, the wrong combination
+    was the easiest to produce: maze world with warehouse camera points the
+    blue panel at empty floor, with no error and no log.
     """
     code = _code(SCENE_CAMERAS)
     assert "default_value=''" in code
-    # As poses nao podem estar cravadas aqui: quem as guarda e scenarios.py.
+    # The poses cannot be hardcoded here: scenarios.py is what holds them.
     for number in ('-4.855', '13.0', '0.5150'):
         assert number not in code, (
-            f'{number} voltou a ser default de launch; o enquadramento tem de '
-            'vir de scenarios.py, senao mundo e camera divergem de novo'
+            f'{number} became a launch default again; the framing must come '
+            'from scenarios.py, or world and camera diverge again'
         )
 
 
@@ -161,25 +164,26 @@ def test_scene_cameras_reads_the_scenario_table():
 
 def test_sim_launch_resolves_the_world_before_including_the_plant():
     """
-    Escopo de launch: o pai vence, entao o mundo NAO pode ficar vazio aqui.
+    Launch scope: the parent wins, so the world must NOT be left empty here.
 
-    Um DeclareLaunchArgument na descricao incluida nao sobrepoe valor herdado. Se
-    sim.launch.py passasse vazio, scene_cameras.launch.py herdaria o vazio e
-    cairia no enquadramento generico num mundo cuja area util nao esta na origem.
+    A DeclareLaunchArgument in the included description does not override an
+    inherited value. If sim.launch.py passed empty, scene_cameras.launch.py
+    would inherit the empty value and fall back to the generic framing in a
+    world whose usable area is not at the origin.
     """
     code = _code(SIM_LAUNCH)
     assert 'official_world' in code
 
 
-# --- a guarda da malha externa -------------------------------------------
+# --- the external mesh guard -------------------------------------------
 
 def test_missing_mesh_aborts_and_names_the_variable():
     """
-    Malha ausente e WARNING no Gazebo, nunca erro.
+    A missing mesh is a WARNING in Gazebo, never an error.
 
-    Sem guarda: o mundo carrega, o labirinto nao esta la, o lidar nao ve parede,
-    o Nav2 planeja em linha reta e a meta termina SUCCEEDED mais rapido que o
-    real. O ensaio PASSA com numeros melhores que a verdade.
+    Without a guard: the world loads, the maze is not there, the lidar sees
+    no wall, Nav2 plans a straight line, and the goal ends SUCCEEDED faster
+    than reality. The trial PASSES with numbers better than the truth.
     """
     code = _code(QUADRUPED_LAUNCH)
     assert 'missing_models' in code
@@ -189,10 +193,10 @@ def test_missing_mesh_aborts_and_names_the_variable():
 
 def test_maze_mesh_is_not_vendored(scenarios):
     """
-    Licenca TODO no upstream, mesmo bloqueio que trocou o A1 pelo Go2.
+    License TODO upstream, same blocker that swapped the A1 for the Go2.
 
-    Se algum dia a malha for vendorizada, ela sai de `needs_models` e este teste
-    deve ser reescrito junto com a base legal -- nao apagado.
+    If the mesh is ever vendored, it comes out of `needs_models` and this
+    test must be rewritten along with the legal basis -- not deleted.
     """
     assert scenarios.external_models(MAZE_WORLD) == ('maze11',)
     assert not list(SIMULATION.glob('models/maze11/**/*.stl'))
@@ -200,11 +204,11 @@ def test_maze_mesh_is_not_vendored(scenarios):
 
 def test_models_extra_readme_exists():
     """
-    O comentario do compose promete este arquivo.
+    The compose comment promises this file.
 
-    A promessa esteve falsa: o comentario dizia "The default is an EMPTY
-    directory in the repo ... See models-extra/README.md" e o diretorio nao
-    existia. Documentacao que aponta para o vazio e pior que ausente.
+    The promise was false: the comment said "The default is an EMPTY
+    directory in the repo ... See models-extra/README.md" and the directory
+    did not exist. Documentation that points at nothing is worse than none.
     """
     assert MODELS_EXTRA_README.is_file()
     text = MODELS_EXTRA_README.read_text()
@@ -214,17 +218,17 @@ def test_models_extra_readme_exists():
 
 def test_compose_no_longer_pastes_the_framing_by_hand():
     """
-    A quarta copia dos dez numeros saiu do compose.
+    The fourth copy of the ten numbers came out of compose.
 
-    Era um SIM_ARGS de seis linhas, e colar metade dele dava mundo do labirinto
-    com camera do armazem.
+    It was a six-line SIM_ARGS, and pasting half of it gave maze world with
+    warehouse camera.
     """
     text = COMPOSE_HOST.read_text()
     assert 'scene_iso_pitch:=' not in text
     assert 'MAZE_MODELS' in text
 
 
-# --- estabilidade: o segfault do route_server ----------------------------
+# --- stability: the route_server segfault ----------------------------
 
 NAV_PARAMS = (REPO_ROOT / 'ros2_ws' / 'src' / 'demo_navigation' / 'config'
               / 'nav2_params_go2.yaml')
@@ -234,67 +238,69 @@ VENDORED_NAV = (REPO_ROOT / 'ros2_ws' / 'src' / 'demo_navigation' / 'launch'
 
 def test_route_server_does_not_build_the_rerouting_service():
     """
-    Configurar `ReroutingService` derruba o nav2_container com SIGSEGV.
+    Configuring `ReroutingService` brings down nav2_container with SIGSEGV.
 
-    Medido em tres caminhos: RESET+STARTUP pelo lifecycle_manager e **cold start
-    normal**, este de forma intermitente. Quando acontece morrem TODOS os
-    servidores do Nav2 de uma vez e o container `nav` fica com o processo `ros2`
-    vivo e nenhum filho -- `docker compose ps` diz "running" e o robo nao navega.
+    Measured on three paths: RESET+STARTUP via lifecycle_manager and a
+    **normal cold start**, the latter intermittently. When it happens ALL the
+    Nav2 servers die at once and the `nav` container is left with the `ros2`
+    process alive and no children -- `docker compose ps` says "running" and
+    the robot does not navigate.
 
-    A demo nao usa roteamento por grafo, entao listar so `AdjustSpeedLimit` em
-    `operations` faz o plugin problematico nunca ser construido.
+    The demo does not use graph-based routing, so listing only
+    `AdjustSpeedLimit` in `operations` means the problematic plugin is never
+    built.
     """
     import yaml
     params = yaml.safe_load(NAV_PARAMS.read_text())
     operations = params['route_server']['ros__parameters']['operations']
     assert 'ReroutingService' not in operations
-    # Lista vazia derruba o launch com "Expected 'value' to be one of [...]
-    # but got '()'" -- armadilha 5 do guia-operacao.
-    assert operations, 'lista YAML vazia quebra o launch; deixe um plugin'
+    # Empty list breaks the launch with "Expected 'value' to be one of [...]
+    # but got '()'" -- trap 5 of the operations guide.
+    assert operations, 'empty YAML list breaks the launch; leave one plugin'
 
 
 def test_every_declared_route_operation_declares_its_plugin_type():
     """
-    Sobrepor `operations` obriga a declarar o TIPO de cada plugin da lista.
+    Overriding `operations` forces every plugin in the list to declare its TYPE.
 
-    Enquanto a lista vem do default, o nav2_route conhece os tipos dos proprios
-    defaults. No instante em que ela e sobreposta, ele passa a exigir
-    `<nome>.plugin` -- e reprova a subida inteira com uma mensagem que nao diz de
-    onde falta o parametro:
+    While the list comes from the default, nav2_route knows the types of its
+    own defaults. The instant it is overridden, it starts requiring
+    `<name>.plugin` -- and fails the entire bring-up with a message that does
+    not say where the parameter is missing:
 
         [FATAL] [route_server]: Can not get 'plugin' param value for AdjustSpeedLimit
         [FATAL] [route_server]: Failed to configure route server: No 'plugin' param
         [ERROR] [lifecycle_manager_navigation]: Failed to bring up all requested nodes.
 
-    Medido em 25/08/2026, no primeiro cold start com o contorno do segfault
-    aplicado. Este teste existe para que a proxima operacao acrescentada a lista
-    nao repita a mesma subida reprovada.
+    Measured on 25/08/2026, on the first cold start with the segfault
+    workaround applied. This test exists so that the next operation added to
+    the list does not repeat the same failed bring-up.
     """
     import yaml
     section = yaml.safe_load(NAV_PARAMS.read_text())['route_server']
     params = section['ros__parameters']
     for name in params['operations']:
         assert name in params, (
-            f'{name} esta em operations e nao tem secao propria')
+            f'{name} is in operations and has no section of its own')
         assert params[name].get('plugin'), (
-            f'{name} precisa de `plugin:` com o tipo, ex. nav2_route::{name}')
+            f'{name} needs `plugin:` with the type, e.g. nav2_route::{name}')
 
 
 def test_vendored_navigation_launch_still_owns_the_lifecycle_list():
     """
-    O contorno acima existe PORQUE a lista nao e sobreponivel pelo YAML.
+    The workaround above exists BECAUSE the list cannot be overridden via YAML.
 
-    `navigation_launch.py` passa `{'node_names': lifecycle_nodes}` inline, e
-    parametro inline vence arquivo de parametros. Se algum dia o upstream expuser
-    a lista como argumento de launch, o contorno pode virar "nao suba o
-    route_server" e este teste deve mudar junto.
+    `navigation_launch.py` passes `{'node_names': lifecycle_nodes}` inline,
+    and an inline parameter beats a parameter file. If upstream ever exposes
+    the list as a launch argument, the workaround could become "do not bring
+    up the route_server" and this test must change along with it.
     """
     text = VENDORED_NAV.read_text()
     assert "'node_names': lifecycle_nodes" in text
     assert "'route_server'" in text
 
 
-# --- estabilidade: descoberta DDS ---------------------------------------
+# --- stability: DDS discovery ---------------------------------------
 
 DDS_HOST = REPO_ROOT / 'docker' / 'cyclonedds' / 'host.xml'
 ENV_SH = REPO_ROOT / 'scripts' / 'env.sh'
@@ -303,58 +309,60 @@ COMPOSE_HOST_TEXT = COMPOSE_HOST.read_text()
 
 def test_host_dds_pins_loopback_alongside_autodetermine():
     """
-    Mesma maquina nao pode depender do que o autodetermine escolher.
+    Same machine cannot depend on whatever autodetermine picks.
 
-    Com docker0, duas bridges e tailscale0 no ar, a escolha pode cair numa
-    interface que nao roteia para os outros participantes. O resultado medido em
-    25/08/2026 foi entrega ASSIMETRICA: o `nav` recebia odom e scan do `sim`, e o
-    `sim` NAO recebia /demo/cmd_vel do `nav`. O robo trota parado com
-    `sticks=(lx=0.0000 ...)` enquanto o Nav2 comanda guinada em 95,6% das
-    amostras, e nenhuma linha de log nomeia DDS.
+    With docker0, two bridges and tailscale0 up, the choice can land on an
+    interface that does not route to the other participants. The result
+    measured on 25/08/2026 was ASYMMETRIC delivery: `nav` received odom and
+    scan from `sim`, and `sim` did NOT receive /demo/cmd_vel from `nav`. The
+    robot trots in place with `sticks=(lx=0.0000 ...)` while Nav2 commands
+    yaw on 95.6% of the samples, and no log line names DDS.
     """
     text = DDS_HOST.read_text()
     assert 'name="lo"' in text, (
-        'sem interface de loopback explicita, o trafego entre containers na '
-        'mesma maquina volta a depender do autodetermine'
+        'without an explicit loopback interface, traffic between containers '
+        'on the same machine goes back to depending on autodetermine'
     )
     assert 'autodetermine="true"' in text, (
-        'a interface real tem de continuar na lista, ou o modo hil perde o '
-        'caminho para o Aquila'
+        'the real interface must stay in the list, or hil mode loses the '
+        'path to the Aquila'
     )
 
 
 def test_rendered_dds_config_is_not_older_than_its_template():
     """
-    Editar host.xml nao surte efeito nos containers ate `module.sh sync` rodar.
+    Editing host.xml has no effect on the containers until `module.sh sync` runs.
 
-    O compose monta `host.rendered.xml`, gerado a partir de host.xml com o
-    endereco do modulo e a interface deste host (endereco nao entra em git). Na
-    bancada de 25/08/2026 o rendered havia sido gerado antes, era byte-identico
-    ao template, e ficou parado enquanto o template mudava: a correcao de
-    loopback estava commitada e os containers seguiam sem ela.
+    Compose mounts `host.rendered.xml`, generated from host.xml with the
+    module address and this host's interface (the address does not go into
+    git). On the 25/08/2026 bench the rendered file had been generated
+    before, was byte-identical to the template, and stayed frozen while the
+    template changed: the loopback fix was committed and the containers kept
+    running without it.
 
-    Este teste e SKIP quando o rendered nao existe -- num clone novo ele nao
-    existe ainda, e isso nao e um defeito do commit.
+    This test is SKIP when the rendered file does not exist -- on a fresh
+    clone it does not exist yet, and that is not a defect of the commit.
     """
     rendered = REPO_ROOT / 'docker' / 'cyclonedds' / 'host.rendered.xml'
     if not rendered.is_file():
-        pytest.skip('host.rendered.xml ainda nao foi gerado (module.sh sync)')
+        pytest.skip('host.rendered.xml has not been generated yet (module.sh sync)')
     assert rendered.stat().st_mtime >= DDS_HOST.stat().st_mtime, (
-        'host.rendered.xml e mais antigo que host.xml: rode '
-        '`scripts/module.sh sync` e recrie os containers, senao a config '
-        'revisada nao e a que roda'
+        'host.rendered.xml is older than host.xml: run '
+        '`scripts/module.sh sync` and recreate the containers, or the '
+        'revised config is not the one running'
     )
     assert 'name="lo"' in rendered.read_text(), (
-        'o rendered perdeu a interface de loopback'
+        'the rendered file lost the loopback interface'
     )
 
 
 def test_render_step_keeps_loopback_and_replaces_autodetermine():
     """
-    O awk de `render_host_config` troca so a linha do autodetermine.
+    The awk in `render_host_config` replaces only the autodetermine line.
 
-    Se ele passar a reescrever o bloco <Interfaces> inteiro, a linha do loopback
-    desaparece do hil e a assimetria volta -- la, onde e mais caro descobrir.
+    If it ever starts rewriting the whole <Interfaces> block, the loopback
+    line disappears from hil and the asymmetry comes back -- there, where it
+    is more expensive to discover.
     """
     module_sh = (REPO_ROOT / 'scripts' / 'module.sh').read_text()
     assert 'NetworkInterface autodetermine=' in module_sh
@@ -363,33 +371,35 @@ def test_render_step_keeps_loopback_and_replaces_autodetermine():
 
 def test_host_tools_use_the_same_dds_config_as_the_containers():
     """
-    `nav_trial.py` abortava com "navigate_to_pose nao apareceu" enquanto o log
-    do nav dizia "Managed nodes are active" e /demo/odom chegava a 49 Hz: metade
-    do grafo visivel, metade nao.
+    `nav_trial.py` used to abort with "navigate_to_pose did not appear" while
+    the nav log said "Managed nodes are active" and /demo/odom arrived at
+    49 Hz: half the graph visible, half not.
     """
     text = ENV_SH.read_text()
     assert 'CYCLONEDDS_URI' in text
     assert 'cyclonedds/host.xml' in text
 
 
-# --- estabilidade: carga que a navegacao paga sem aparecer -----------------
+# --- stability: load navigation pays for without showing -----------------
 
 SCENE_MODELS = (REPO_ROOT / 'ros2_ws' / 'src' / 'demo_simulation' / 'models')
 
 
 def test_perception_layer_clears_in_both_costmaps():
     """
-    `clearing: false` na camada de percepcao deixa marca PERMANENTE.
+    `clearing: false` on the perception layer leaves a PERMANENT mark.
 
-    `observation_persistence` esvazia o buffer de observacoes, nao as celulas ja
-    escritas. Medido em 25/08/2026 com a percepcao parada ha um minuto: 169
-    celulas letais antes de limpar, 108 depois de `/demo/nav/reset` -- 61 celulas
-    que nenhuma observacao viva sustentava. Num corredor de 1,20 m com
-    `robot_radius: 0.38`, e a diferenca entre ter e nao ter caminho, e numa demo
-    longa e degradacao monotonica sem nenhum log.
+    `observation_persistence` empties the observation buffer, not the cells
+    already written. Measured on 25/08/2026 with perception stopped for a
+    minute: 169 lethal cells before clearing, 108 after `/demo/nav/reset` --
+    61 cells that no live observation was sustaining. In a 1.20 m corridor
+    with `robot_radius: 0.38`, that is the difference between having a path
+    and not, and in a long-running demo it is monotonic degradation with no
+    log at all.
 
-    Os DOIS costmaps precisam casar: planejar num mapa que limpa e controlar num
-    que nao limpa da rota valida com o controlador recusando segui-la.
+    The TWO costmaps need to match: planning on a map that clears and
+    controlling on one that does not clear gives a valid route with the
+    controller refusing to follow it.
     """
     import yaml
     params = yaml.safe_load(NAV_PARAMS.read_text())
@@ -402,18 +412,19 @@ def test_perception_layer_clears_in_both_costmaps():
         found += 1
         source = layer['observation_sources']
         assert layers['perception_layer'][source]['clearing'] is True, (
-            f'{costmap}.perception_layer.{source}.clearing deve ser true')
-    assert found == 2, 'as duas camadas de percepcao tem de existir'
+            f'{costmap}.perception_layer.{source}.clearing must be true')
+    assert found == 2, 'both perception layers must exist'
 
 
 def test_scene_cameras_keep_the_measured_aspect_and_match_each_other():
     """
-    O enquadramento das duas cenas foi MEDIDO em 4:3.
+    The framing of both scenes was MEASURED at 4:3.
 
-    `horizontal_fov` fixo com outra proporcao corta vertical e desenquadra as
-    duas de uma vez, sem erro. E as duas camaras tem de ter a mesma resolucao:
-    resolucoes diferentes fazem um painel do cockpit chegar mais nitido que o
-    outro por motivo nenhum, e mudam o custo de render de cada um.
+    A fixed `horizontal_fov` with a different aspect ratio crops the
+    vertical and de-frames both at once, with no error. And both cameras
+    must have the same resolution: different resolutions make one cockpit
+    panel arrive sharper than the other for no reason, and change the
+    render cost of each.
     """
     import re
     sizes = {}
@@ -421,6 +432,6 @@ def test_scene_cameras_keep_the_measured_aspect_and_match_each_other():
         text = (SCENE_MODELS / name).read_text()
         width = int(re.search(r'<width>(\d+)</width>', text).group(1))
         height = int(re.search(r'<height>(\d+)</height>', text).group(1))
-        assert width * 3 == height * 4, f'{name}: {width}x{height} nao e 4:3'
+        assert width * 3 == height * 4, f'{name}: {width}x{height} is not 4:3'
         sizes[name] = (width, height)
-    assert len(set(sizes.values())) == 1, f'resolucoes divergentes: {sizes}'
+    assert len(set(sizes.values())) == 1, f'divergent resolutions: {sizes}'

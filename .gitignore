@@ -1,13 +1,8 @@
-# colcon build artifacts.
-# These must never be committed: with --symlink-install they contain absolute
-# paths, so a checkout on another machine (or the same repo moved to a new
-# directory) inherits broken symlinks pointing at the original location.
-#
-# Unanchored on purpose. Running colcon from the wrong working directory (e.g.
-# from ros2_ws/src/ instead of ros2_ws/) drops these trees one level deeper,
-# where a `ros2_ws/build/`-anchored pattern would not match them and they would
-# be committed silently. A COLCON_IGNORE marker is written into build/ and
-# install/, so ignoring these names everywhere costs nothing.
+# colcon build output.
+# Unanchored on purpose: running colcon from the wrong directory (for example
+# ros2_ws/src/ instead of ros2_ws/) drops these trees one level deeper, and a
+# `ros2_ws/build/`-anchored pattern would let them be committed. With
+# --symlink-install they contain absolute paths and break on any other checkout.
 build/
 install/
 log/
@@ -18,33 +13,27 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
-# Environment overrides — .env.example is committed, .env is not.
+# Local environment. docker/.env.example is the committed template.
 .env
+
+# CycloneDDS configs rendered at deploy time by scripts/module.sh.
+# They carry real addresses; the templates next to them are committed.
+docker/cyclonedds/*.rendered.xml
+
+# Scratch output from evaluation runs (see docs/evaluation.md).
+artifacts/
 
 # Generated diagnostics
 frames.gv
 frames.pdf
 
-# Editor / OS
+# Editor, OS and local agent tooling
 .vscode/
 .idea/
-.ai/
 *.swp
 .DS_Store
-
-# CycloneDDS configs rendered at deploy time by scripts/module.sh.
-# They carry real IPs; the templates next to them are what is committed.
-docker/cyclonedds/*.rendered.xml
-
-# Saída de ensaio em rascunho. A convenção deste projeto é que a evidência que
-# sustenta uma decisão vive em docs/results/, versionada, com nome estável e um
-# .md ao lado explicando o que mede. `artifacts/` é o caderno de rascunho de
-# onde ela é copiada: corridas descartadas, sondas de fumaça, repetições.
-#
-# Anotado depois de 28/08/2026, quando 23 CSVs de rascunho ficaram pendurados no
-# `git status` durante uma sessão inteira e a pergunta "isto já foi commitado?"
-# teve de ser respondida arquivo por arquivo. Se uma corrida daqui decidir
-# alguma coisa, copie-a para docs/results/ com o .md; se não decidir, ela não
-# precisava de git.
-artifacts/
+.ai/
+.agents/
+.codex/
+.claude/
 CLAUDE.md

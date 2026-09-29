@@ -8,8 +8,9 @@ import math
 from typing import Sequence
 
 
-# Valor de `nav_msgs/OccupancyGrid` para celula nao observada. E o que separa
-# "livre" de "nunca visto", e por isso a fronteira e definida por ele.
+# Value of `nav_msgs/OccupancyGrid` for an unobserved cell. It is what
+# separates "free" from "never seen", which is why the frontier is defined
+# by it.
 UNKNOWN = -1
 
 

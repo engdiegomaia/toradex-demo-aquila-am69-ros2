@@ -152,18 +152,18 @@ def test_start_latch_rearms():
     assert latch.next_command() == 4
 
 
-# --- parar, teleportar, retomar -------------------------------------------
+# --- stop, teleport, resume -------------------------------------------------
 #
-# O que estes testes guardam nao e preferencia de estilo: cada um corresponde a
-# um jeito MEDIDO de derrubar o robo. Ver HOLD_SERVICE em twist_to_inputs.py.
+# What these tests guard is not a style preference: each one corresponds to a
+# MEASURED way of dropping the robot. See HOLD_SERVICE in twist_to_inputs.py.
 
 
 def _drain(sequence, now, ticks):
-    """Comandos emitidos em `ticks` ticks consecutivos no mesmo instante."""
+    """Commands emitted over `ticks` consecutive ticks at the same instant."""
     return [sequence.next_command(now) for _ in range(ticks)]
 
 
-def test_a_sequencia_e_inerte_antes_do_hold():
+def test_sequence_is_inactive_before_hold():
     sequence = _RestandSequence()
 
     assert not sequence.active
@@ -171,7 +171,7 @@ def test_a_sequencia_e_inerte_antes_do_hold():
     assert sequence.next_command(0.0) == _CMD_NONE
 
 
-def test_o_hold_sai_de_trotting_com_o_comando_de_stand():
+def test_hold_leaves_trotting_with_the_stand_command():
     sequence = _RestandSequence()
     sequence.hold()
 
@@ -180,13 +180,13 @@ def test_o_hold_sai_de_trotting_com_o_comando_de_stand():
     assert sequence.next_command(0.0) == _CMD_STAND_STEP
 
 
-def test_o_comando_de_stand_sai_exatamente_uma_vez():
+def test_stand_command_is_sent_exactly_once():
     """
-    Um `2` MANTIDO leva FIXEDSTAND a FIXEDDOWN e o robo se deita.
+    A HELD `2` takes FIXEDSTAND to FIXEDDOWN and the robot lies down.
 
-    StateFixedStand::checkChange, case 2. Repetir o comando de subida e seguro
-    (StateTrotting o ignora), repetir o de descida nao e -- e a diferenca entre
-    reassentar e desmontar o robo.
+    StateFixedStand::checkChange, case 2. Repeating the stand-up command is
+    safe (StateTrotting ignores it), repeating the lie-down one is not -- and
+    that is the difference between resettling and dismounting the robot.
     """
     sequence = _RestandSequence()
     sequence.hold()
@@ -197,12 +197,12 @@ def test_o_comando_de_stand_sai_exatamente_uma_vez():
     assert _CMD_STAND_STEP not in emitted[1:]
 
 
-def test_o_hold_publica_zeros_em_vez_de_ficar_calado():
+def test_hold_publishes_zeros_instead_of_staying_silent():
     """
-    Silencio nao serve: o byte gravado no controlador persiste.
+    Silence does not work: the byte written to the controller persists.
 
-    Parar de publicar deixaria o `2` da transicao valendo ate o proximo tick
-    que publicasse alguma coisa.
+    Stopping publishing would leave the transition's `2` in effect until the
+    next tick that publishes anything.
     """
     sequence = _RestandSequence()
     sequence.hold()
@@ -211,12 +211,12 @@ def test_o_hold_publica_zeros_em_vez_de_ficar_calado():
     assert _drain(sequence, 2.5, 5) == [_CMD_NONE] * 5
 
 
-def test_o_hold_nao_tem_prazo_proprio():
+def test_hold_has_no_own_deadline():
     """
-    A janela do teleporte fecha por `resume`, nunca por tempo.
+    The teleport window closes via `resume`, never via time.
 
-    Um prazo aqui seria uma corrida contra a chamada de servico do relay: o
-    robo voltaria a andar no meio do teleporte.
+    A deadline here would be a race against the relay's service call: the
+    robot would start walking again in the middle of the teleport.
     """
     sequence = _RestandSequence(settle_s=5.0)
     sequence.hold()
@@ -226,7 +226,7 @@ def test_o_hold_nao_tem_prazo_proprio():
     assert sequence.holding
 
 
-def test_o_resume_so_volta_a_trotting_depois_de_assentar():
+def test_resume_returns_to_trotting_after_settling():
     sequence = _RestandSequence(settle_s=5.0, trot_ticks=3)
     sequence.hold()
     sequence.next_command(0.0)
@@ -237,14 +237,14 @@ def test_o_resume_so_volta_a_trotting_depois_de_assentar():
     assert sequence.next_command(5.0) == _CMD_START_TROT
 
 
-def test_o_resume_repete_o_comando_de_trote_na_janela():
+def test_resume_repeats_the_trot_command_during_the_window():
     """
-    Publicar `4` uma vez so e o modo de falha medido em 18/08/2026.
+    Publishing `4` just once is the failure mode measured on 18/08/2026.
 
-    Ver _START_TROT_HOLD_S: a subscricao escreve num unico struct e o loop de
-    update le o que estiver la, entao um `4` isolado pode ser sobrescrito antes
-    de qualquer update ve-lo -- e o robo fica parado em fixed stand, em
-    silencio.
+    See _START_TROT_HOLD_S: the subscription writes to a single struct and
+    the update loop reads whatever is there, so an isolated `4` can be
+    overwritten before any update sees it -- and the robot is left standing
+    in fixed stand, silently.
     """
     sequence = _RestandSequence(settle_s=1.0, trot_ticks=4)
     sequence.hold()
@@ -254,7 +254,7 @@ def test_o_resume_repete_o_comando_de_trote_na_janela():
     assert _drain(sequence, 1.0, 4) == [_CMD_START_TROT] * 4
 
 
-def test_a_sequencia_fica_inerte_no_fim():
+def test_sequence_becomes_inactive_when_finished():
     sequence = _RestandSequence(settle_s=1.0, trot_ticks=2)
     sequence.hold()
     sequence.next_command(0.0)
@@ -265,11 +265,11 @@ def test_a_sequencia_fica_inerte_no_fim():
     assert not sequence.active
 
 
-def test_um_resume_sem_hold_nao_faz_nada():
+def test_resume_without_hold_does_nothing():
     """
-    Senao um resume perdido injetaria `4` num robo que nunca foi parado.
+    Otherwise a stray resume would inject `4` into a robot that was never stopped.
 
-    E o caminho em que o relay falha ANTES do hold: nada a retomar.
+    This is the path where the relay fails BEFORE the hold: nothing to resume.
     """
     sequence = _RestandSequence(settle_s=1.0, trot_ticks=2)
     sequence.resume(0.0)
@@ -278,7 +278,7 @@ def test_um_resume_sem_hold_nao_faz_nada():
     assert _drain(sequence, 5.0, 5) == [_CMD_NONE] * 5
 
 
-def test_a_sequencia_serve_um_segundo_reset():
+def test_sequence_supports_a_second_reset():
     sequence = _RestandSequence(settle_s=1.0, trot_ticks=1)
     sequence.hold()
     sequence.next_command(0.0)
@@ -291,12 +291,12 @@ def test_a_sequencia_serve_um_segundo_reset():
     assert sequence.next_command(10.0) == _CMD_STAND_STEP
 
 
-def test_o_assentamento_nao_avanca_com_o_tempo_simulado_parado():
+def test_settling_does_not_advance_while_sim_time_is_paused():
     """
-    Um mundo pausado nao pode fazer a sequencia progredir.
+    A paused world must not make the sequence progress.
 
-    `now` e tempo simulado (ver _now no no). Se o operador pausar durante o
-    reset, a espera tem de esperar de verdade.
+    `now` is simulated time (see _now in the node). If the operator pauses
+    during the reset, the wait must actually wait.
     """
     sequence = _RestandSequence(settle_s=5.0, trot_ticks=2)
     sequence.hold()

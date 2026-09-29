@@ -18,8 +18,8 @@ setup(
         (os.path.join('share', package_name, 'urdf'), glob('urdf/*.xacro')),
         (os.path.join('share', package_name, 'worlds'),
             glob('worlds/*.sdf') + glob('worlds/*.png')),
-        # Modelos spawnaveis (ros_gz_sim create -file). Hoje so as cameras
-        # de cena do cockpit; ver launch/scene_cameras.launch.py.
+        # Spawnable models (ros_gz_sim create -file). Today just the
+        # cockpit's scene cameras; see launch/scene_cameras.launch.py.
         (os.path.join('share', package_name, 'models'), glob('models/*.sdf')),
     ],
     install_requires=['setuptools'],
@@ -36,15 +36,15 @@ setup(
             # TROTTING. Lives here, next to Gazebo, because it is part of the
             # plant — nothing outside the sim container knows it exists.
             'twist_to_inputs = demo_simulation.twist_to_inputs:main',
-            # Republica /clock a taxa fixa. Sem ele o clock de 1 kHz do passo
-            # de fisica satura o Aquila AM69 no modo hil.
+            # Republishes /clock at a fixed rate. Without it the 1 kHz clock
+            # from the physics step saturates the Aquila AM69 in hil mode.
             'clock_throttle = demo_simulation.clock_throttle:main',
-            # Câmera orbital das vistas de cena. Ela é quem sabe onde as
-            # câmeras estão; o cockpit só publica passos relativos.
+            # Orbital camera for the scene views. It is the one that knows
+            # where the cameras are; the cockpit only publishes relative steps.
             'scene_view_controller = '
             'demo_simulation.scene_view_controller:main',
-            # Fachada std_srvs para play/pause/reset. Existe porque o container
-            # do cockpit não tem (nem deve ter) ros_gz_interfaces.
+            # std_srvs facade for play/pause/reset. Exists because the
+            # cockpit container does not (and should not) have ros_gz_interfaces.
             'sim_control_relay = demo_simulation.sim_control_relay:main',
             'maze_escape_validator = '
             'demo_simulation.maze_escape_validator:main',

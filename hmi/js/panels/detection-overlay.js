@@ -2,8 +2,8 @@
  * Detection boxes drawn over an MJPEG stream.
  *
  * `/demo/perception/detections` is a vision_msgs/Detection2DArray in IMAGE
- * space — measured shape on 24/08/2026: centre (167,2, 240,0) px, size
- * 120x160 px, frame `front_camera`, class `box`, score 0,87. That is where it
+ * space — measured shape on 24/08/2026: centre (167.2, 240.0) px, size
+ * 120x160 px, frame `front_camera`, class `box`, score 0.87. That is where it
  * belongs on screen: over the picture, not on the floor plan. The map already
  * sees these obstacles through the costmap's perception_layer.
  *
@@ -57,8 +57,8 @@ export function labelOf(detection) {
 }
 
 export function createDetectionOverlay({ root, client, tracker, freshnessKey = 'detections' }) {
-  // Mesma fonte de cor do mapa: a meta e as detecções são as duas coisas que
-  // o operador aponta com o dedo, e devem ser a mesma cor.
+  // Same color source as the map: the goal and the detections are the two
+  // things the operator points at, and they must be the same color.
   const palette = readMapPalette(root);
 
   const canvas = root.querySelector('[data-role="detections"]');

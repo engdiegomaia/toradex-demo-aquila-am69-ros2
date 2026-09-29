@@ -3,7 +3,7 @@
 # Builds for: linux/amd64 AND linux/arm64. nginx:alpine publishes both.
 #
 # There is deliberately NO build step: no npm install, no bundler, no
-# node_modules (plano-cockpit-web.md Decisão 5). The bundle is HTML/CSS/ES
+# node_modules (plano-cockpit-web.md Decision 5). The bundle is HTML/CSS/ES
 # modules copied verbatim, which is what keeps the arm64 image reproducible and
 # keeps the npm supply chain out of the module. If you find yourself adding a
 # `RUN npm ...` here, the dependency belongs in the ROS layer or nowhere.

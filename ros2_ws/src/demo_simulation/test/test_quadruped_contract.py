@@ -6,10 +6,10 @@ import re
 import yaml
 
 
-# Escala uniforme dos labirintos. Uniforme de proposito: escalar so x e y
-# alargaria o corredor e deixaria a parede em 0.30 m, exatamente a altura do
-# plano de varredura do lidar L1, que produz scan intermitente parecido com
-# defeito de bridge.
+# Uniform maze scale. Uniform on purpose: scaling only x and y would widen the
+# corridor and leave the wall at 0.30 m, exactly the height of the L1 lidar's
+# scan plane, which produces an intermittent scan that looks like a bridge
+# defect.
 MAZE_SCALE = '0.002 0.002 0.002'
 
 EXPECTED_GZ_OUTPUTS = {
@@ -56,7 +56,7 @@ def test_scan_cloud_uses_sensor_data_qos() -> None:
 
 def _maze_worlds():
     worlds = sorted((Path(__file__).parents[1] / 'worlds').glob('quadruped_maze*.sdf'))
-    assert worlds, 'nenhum mundo de labirinto encontrado'
+    assert worlds, 'no maze world found'
     return worlds
 
 
@@ -74,9 +74,9 @@ def test_maze_worlds_reference_the_mesh_directly() -> None:
         body = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL)
 
         assert re.search(r'<uri>\s*model://maze\d+/meshes/maze\d+\.stl\s*</uri>', body), \
-            f'{world.name}: malha nao referenciada direto por <uri>model://mazeN/meshes/'
+            f'{world.name}: mesh not referenced directly by <uri>model://mazeN/meshes/'
         assert not re.search(r'<include>\s*<uri>\s*model://maze', body), \
-            f'{world.name}: <include>model://mazeN deita o labirinto de lado'
+            f'{world.name}: <include>model://mazeN lays the maze on its side'
 
 
 def test_maze_worlds_keep_uniform_scale_and_upright_pose() -> None:
@@ -92,15 +92,15 @@ def test_maze_worlds_keep_uniform_scale_and_upright_pose() -> None:
             r'<!--.*?-->', '', world.read_text(encoding='utf-8'), flags=re.DOTALL)
 
         scales = re.findall(r'<scale>\s*([^<]+?)\s*</scale>', body)
-        assert scales, f'{world.name}: nenhuma <scale> declarada'
+        assert scales, f'{world.name}: no <scale> declared'
         for scale in scales:
             assert ' '.join(scale.split()) == MAZE_SCALE, \
-                f'{world.name}: escala {scale!r} nao e a uniforme {MAZE_SCALE!r}'
+                f'{world.name}: scale {scale!r} is not the uniform {MAZE_SCALE!r}'
 
         maze = re.search(
             r'<model name="labirinto">.*?<pose>\s*([^<]+?)\s*</pose>', body, re.DOTALL)
-        assert maze, f'{world.name}: modelo "labirinto" sem <pose>'
+        assert maze, f'{world.name}: model "labirinto" missing <pose>'
         pose = maze.group(1).split()
-        assert len(pose) == 6, f'{world.name}: <pose> com {len(pose)} campos, esperado 6'
+        assert len(pose) == 6, f'{world.name}: <pose> has {len(pose)} fields, expected 6'
         assert [float(v) for v in pose[3:]] == [0.0, 0.0, 0.0], \
-            f'{world.name}: rpy {pose[3:]} nao e 0 0 0 (mazes 8-11 sao Z-up)'
+            f'{world.name}: rpy {pose[3:]} is not 0 0 0 (mazes 8-11 are Z-up)'

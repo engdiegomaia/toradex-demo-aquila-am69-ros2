@@ -1,110 +1,118 @@
 """
-Câmera orbital das vistas de cena — o que os botões do cockpit movem.
+Orbital camera for the scene views — what the cockpit buttons move.
 
-Roda em: workstation x86 SOMENTE, no container `sim`. Ele fala com o serviço
-`set_pose` do Gazebo, que só existe dentro do processo do simulador (regra 1 do
-CLAUDE.md).
+Runs on: x86 workstation ONLY, in the `sim` container. It talks to Gazebo's
+`set_pose` service, which only exists inside the simulator process (rule 1
+of CLAUDE.md).
 
-POR QUE ESTE NÓ EXISTE, EM VEZ DE O COCKPIT CHAMAR set_pose DIRETO
+WHY THIS NODE EXISTS, INSTEAD OF THE COCKPIT CALLING set_pose DIRECTLY
 
-Porque `set_pose` só aceita pose ABSOLUTA, e "girar 15° para a esquerda" é uma
-operação relativa. Alguém precisa saber onde a câmera está agora. Se esse
-alguém fosse o navegador, teríamos o enquadramento declarado em dois lugares —
-nos argumentos de `scene_cameras.launch.py` e outra vez em JavaScript — e eles
-divergiriam no primeiro cenário novo. Pior: com `SIM_ARGS` reenquadrando as
-câmeras para o labirinto, o primeiro clique num botão arrancaria a câmera do
-enquadramento do labirinto para um default de armazém escrito no navegador.
+Because `set_pose` only accepts an ABSOLUTE pose, and "rotate 15 degrees to
+the left" is a relative operation. Someone needs to know where the camera is
+right now. If that someone were the browser, the framing would be declared
+in two places — in `scene_cameras.launch.py`'s arguments and again in
+JavaScript — and they would diverge the moment a new scenario appeared.
+Worse: with `SIM_ARGS` reframing the cameras for the maze, the first click
+of a button would yank the camera from the maze framing to a warehouse
+default written into the browser.
 
-Então o estado orbital vive aqui, ao lado das câmeras, semeado pelos MESMOS
-parâmetros que as posicionaram no nascimento. O cockpit publica só um passo, e
-não precisa saber nada de geometria.
+So the orbital state lives here, next to the cameras, seeded by the SAME
+parameters that positioned them at spawn. The cockpit only publishes a step,
+and does not need to know anything about geometry.
 
-MODELO ORBITAL
+ORBITAL MODEL
 
-Uma câmera é (alvo T no chão, distância d, azimute a, inclinação p):
+A camera is (target T on the ground, distance d, azimuth a, pitch p):
 
     P = T - d * (cos p * cos a, cos p * sin a, -sin p)
 
-que se inverte, dado P e (p, a) com o alvo no plano z = 0:
+which inverts, given P and (p, a) with the target on the z = 0 plane:
 
     d = Pz / sin p        T = (Px, Py) + d * cos p * (cos a, sin a)
 
-A vista de TOPO é o caso degenerado e não precisa de código próprio: com
-p = pi/2 vem d = Pz e T = P, ou seja o alvo é o ponto sob a câmera, "zoom" vira
-altura e "girar" vira rotação da imagem no próprio eixo. Um `if` para a vista
-de topo seria um segundo modelo para manter em sincronia com o primeiro.
+The TOP view is the degenerate case and needs no code of its own: with
+p = pi/2 you get d = Pz and T = P, i.e. the target is the point under the
+camera, "zoom" becomes height, and "rotate" becomes the image spinning on
+its own axis. An `if` for the top view would be a second model to keep in
+sync with the first.
 
-SEGUIR O ROBO
+FOLLOWING THE ROBOT
 
-As duas vistas seguem o robo por default: o alvo da orbita passa a ser a pose do
-robo mais o pan que o operador aplicou. Distancia, azimute e inclinacao nao sao
-tocados, entao a vista iso mantem o enquadramento medido e desliza com o robo, e
-a de topo (pitch = pi/2, alvo = ponto sob a camera) fica sobre ele.
+Both views follow the robot by default: the orbit's target becomes the
+robot's pose plus whatever pan the operator applied. Distance, azimuth and
+pitch are not touched, so the iso view keeps the measured framing and slides
+along with the robot, and the top view (pitch = pi/2, target = point under
+the camera) stays over it.
 
-Sem isto, no maze11 o robo sai do quadro da vista iso em poucos metros e o
-operador perde justamente a testemunha independente da tela.
+Without this, on maze11 the robot leaves the iso view's frame within a few
+metres, and the operator loses precisely the screen's independent witness.
 
-Seguir NAO desliga o pan: enquanto segue, os botoes de mover deslocam o OFFSET
-em relacao ao robo, e nao um ponto do mundo. E por isso que segurar "mover para
-a direita" continua fazendo o que diz, com o robo no lugar onde o operador o
-deixou no quadro.
+Following does NOT disable panning: while following, the move buttons shift
+the OFFSET relative to the robot, not a point in the world. That is why
+holding "move right" keeps doing what it says, with the robot staying where
+the operator left it in the frame.
 
-O interruptor e /demo/cockpit/scene/follow (std_srvs/SetBool), porque a vista
-larga estatica — a que mostra o labirinto inteiro, com o enquadramento MEDIDO de
-scene_cameras.launch.py — continua sendo um recurso e nao pode desaparecer sem
-botao.
+The switch is /demo/cockpit/scene/follow (std_srvs/SetBool), because the
+static wide view — the one showing the whole maze, with the framing MEASURED
+in scene_cameras.launch.py — remains a resource and must not disappear
+without a button.
 
-E o estado sai daqui, em /demo/cockpit/scene/following (std_msgs/Bool, latched),
-nao do ultimo clique do cockpit. Mesma regra do rotulo de simulacao: o cockpit
-pode ser recarregado, aberto em duas telas, ou aberto depois de alguem ter
-desligado o seguimento pela linha de comando, e nos tres casos um botao pintado
-pelo proprio clique estaria mentindo. Latched (TRANSIENT_LOCAL) para que uma aba
-nova receba o valor sem esperar a proxima mudanca.
+And the state comes out of here, on /demo/cockpit/scene/following
+(std_msgs/Bool, latched), not from the cockpit's last click. Same rule as
+the simulation label: the cockpit can be reloaded, opened in two tabs, or
+opened after someone turned following off from the command line, and in all
+three cases a button painted by its own click would be lying. Latched
+(TRANSIENT_LOCAL) so a new tab receives the value without waiting for the
+next change.
 
-DE ONDE SAI A POSE DO ROBO, E A ARMADILHA QUE MORA NISSO
+WHERE THE ROBOT'S POSE COMES FROM, AND THE TRAP THAT LIVES IN THAT
 
-De /demo/odom. O que este no precisa e a pose no referencial do MUNDO, que e o
-unico que o set_pose do Gazebo entende, e /demo/odom so coincide com ele por
-sorte de configuracao:
+From /demo/odom. What this node needs is the pose in the WORLD frame, the
+only one Gazebo's set_pose understands, and /demo/odom only coincides with
+it by luck of configuration:
 
-  quadrupede   /go2/odom vem do gz-sim-odometry-publisher-system, que publica a
-               pose exata do modelo no mundo (ground truth). Coincide sempre,
-               inclusive com o `yaw:=1.5708` do maze11.
+  quadruped    /go2/odom comes from gz-sim-odometry-publisher-system, which
+               publishes the model's exact pose in the world (ground
+               truth). Always coincides, including with maze11's
+               `yaw:=1.5708`.
 
-  diff-drive   /odom vem do plugin DiffDrive, que INTEGRA os encoders a partir
-               de zero. A origem do odom e a pose de SPAWN, nao a do mundo.
-               Coincide so enquanto x/y/yaw do spawn sao 0 — que e o default.
+  diff-drive   /odom comes from the DiffDrive plugin, which INTEGRATES the
+               encoders starting from zero. The odom origin is the SPAWN
+               pose, not the world's. Only coincides while the spawn's
+               x/y/yaw are 0 — which is the default.
 
-Por isso existem os parametros follow_offset_{x,y,yaw}: eles sao o odom -> mundo,
-e simulation.launch.py os liga aos MESMOS x/y/yaw que spawnaram o robo.
-quadruped.launch.py deixa em zero, de proposito.
+That is why the follow_offset_{x,y,yaw} parameters exist: they are the
+odom -> world transform, and simulation.launch.py ties them to the SAME
+x/y/yaw that spawned the robot. quadruped.launch.py leaves them at zero, on
+purpose.
 
-Sem esse seed, um `x:=5` no diff-drive faria a camera seguir um fantasma 5 m ao
-lado do robo — errado por um deslocamento constante, que e exatamente o tipo de
-erro que se le como "a camera esta meio torta" e nao como "o referencial esta
-errado".
+Without that seed, an `x:=5` on the diff-drive would make the camera follow
+a ghost 5 m beside the robot — wrong by a constant offset, which is exactly
+the kind of error that reads as "the camera is a bit off" rather than "the
+reference frame is wrong".
 
-CONTRATO
+CONTRACT
 
-    /demo/cockpit/scene/cmd_view    geometry_msgs/TwistStamped   (entra)
-    /demo/cockpit/scene/reset_view  std_srvs/Trigger             (entra)
-    /demo/cockpit/scene/follow      std_srvs/SetBool             (entra)
-    /demo/odom                      nav_msgs/Odometry            (entra)
-    /demo/cockpit/scene/following   std_msgs/Bool                (sai, latched)
-    /demo/sim/set_entity_pose       ros_gz_interfaces/SetEntityPose (sai)
+    /demo/cockpit/scene/cmd_view    geometry_msgs/TwistStamped   (in)
+    /demo/cockpit/scene/reset_view  std_srvs/Trigger             (in)
+    /demo/cockpit/scene/follow      std_srvs/SetBool             (in)
+    /demo/odom                      nav_msgs/Odometry            (in)
+    /demo/cockpit/scene/following   std_msgs/Bool                (out, latched)
+    /demo/sim/set_entity_pose       ros_gz_interfaces/SetEntityPose (out)
 
-O `header.frame_id` do TwistStamped escolhe a câmera: `scene_iso` ou
-`scene_top`. Twist tem os seis graus de liberdade que a órbita precisa e é
-mensagem padrão — o CLAUDE.md pede para não redefinir equivalentes do Twist:
+The TwistStamped's `header.frame_id` selects the camera: `scene_iso` or
+`scene_top`. Twist has the six degrees of freedom the orbit needs and is a
+standard message — CLAUDE.md asks not to redefine Twist equivalents:
 
-    angular.z   azimute, rad          girar em torno do alvo
-    angular.y   inclinação, rad       subir/descer o ponto de vista
-    linear.x    aproximar, m          negativo = zoom in
-    linear.y    deslocar lateral, m   pan no eixo direita/esquerda da imagem
-    linear.z    deslocar frente, m    pan no eixo para dentro/fora da imagem
+    angular.z   azimuth, rad          rotate around the target
+    angular.y   pitch, rad            raise/lower the viewpoint
+    linear.x    move closer, m        negative = zoom in
+    linear.y    lateral shift, m      pan on the image's left/right axis
+    linear.z    forward shift, m      pan on the image's in/out axis
 
-Passos vêm do cliente e não daqui de propósito: o tamanho do passo é decisão de
-interface, e é a UI que sabe se o operador segurou o botão.
+Steps come from the client and not from here, on purpose: the step size is
+an interface decision, and it is the UI that knows whether the operator held
+the button down.
 """
 
 import math
@@ -123,66 +131,70 @@ from ros_gz_interfaces.srv import SetEntityPose
 from std_msgs.msg import Bool
 from std_srvs.srv import SetBool, Trigger
 
-# Limites. A câmera não pode passar do zênite (a órbita perde o azimute) nem
-# afundar até o chão (a vista vira uma parede de textura), e sem um teto de
-# distância um operador com o dedo preso no botão manda a câmera para o espaço,
-# de onde não há botão que a traga de volta — só o reset.
+# Limits. The camera must not pass the zenith (the orbit loses azimuth) or
+# sink into the ground (the view turns into a wall of texture), and without a
+# distance ceiling an operator with a finger stuck on the button sends the
+# camera into space, from where no button brings it back — only the reset.
 MIN_PITCH_RAD = 0.12
 MAX_PITCH_RAD = math.pi / 2
 MIN_DISTANCE_M = 1.0
 MAX_DISTANCE_M = 80.0
 
-# Alvo longe demais também é irrecuperável na prática.
+# A target too far away is also unrecoverable in practice.
 MAX_TARGET_RADIUS_M = 60.0
 
-# Quanto o alvo pode se afastar do ROBO enquanto a vista o segue. Menor que
-# MAX_TARGET_RADIUS_M porque a pergunta é outra: ali é "não mande a câmera para
-# o espaço", aqui é "não perca o robô de vista com o próprio botão de pan".
+# How far the target may drift from the ROBOT while the view is following it.
+# Smaller than MAX_TARGET_RADIUS_M because the question is different: there
+# it is "don't send the camera into space", here it is "don't lose the robot
+# from view with the pan button itself".
 MAX_FOLLOW_OFFSET_M = 15.0
 
-# Ritmo com que a pose seguida é reescrita no Gazebo. As câmeras de cena
-# renderizam a 10 Hz (models/cockpit_scene_*.sdf), então empurrar mais rápido
-# gasta chamada de serviço sem render novo para mostrar.
+# How often the followed pose is rewritten in Gazebo. The scene cameras
+# render at 10 Hz (models/cockpit_scene_*.sdf), so pushing faster spends a
+# service call with no new render to show for it.
 FOLLOW_PERIOD_S = 0.1
 
-# Movimento abaixo disto não vale uma chamada de set_pose. Com o robô parado a
-# odometria continua chegando a 50 Hz e trepida no último milímetro; sem esta
-# banda morta o nó chamaria set_pose 10 vezes por segundo para sempre.
+# Movement below this is not worth a set_pose call. With the robot stopped,
+# odometry keeps arriving at 50 Hz and jitters in the last millimetre;
+# without this deadband the node would call set_pose 10 times a second
+# forever.
 FOLLOW_DEADBAND_M = 0.02
 
-# Duas coisas diferentes têm nomes parecidos, e confundi-las custa uma tarde:
+# Two different things have similar names, and confusing them costs an
+# afternoon:
 #
-#   scene_iso           o SENSOR, e o prefixo dos tópicos
+#   scene_iso           the SENSOR, and the topic prefix
 #                       (/demo/cockpit/scene_iso/image_raw)
-#   cockpit_scene_iso   o MODELO no Gazebo, que é o que `set_pose` move
+#   cockpit_scene_iso   the Gazebo MODEL, which is what `set_pose` moves
 #
-# `set_pose` num nome de sensor devolve success=false e nada se mexe. Como as
-# duas grafias existem de verdade no sistema, as duas são aceitas aqui e
-# resolvidas para o nome do modelo — em vez de obrigar quem chama a saber qual
-# das duas o Gazebo queria.
+# `set_pose` on a sensor name returns success=false and nothing moves. Since
+# both spellings genuinely exist in the system, both are accepted here and
+# resolved to the model name — instead of forcing the caller to know which
+# of the two Gazebo wanted.
 MODELS = {
     'scene_iso': 'cockpit_scene_iso',
     'scene_top': 'cockpit_scene_top',
 }
-# As duas grafias resolvem para a CHAVE da órbita, nunca para o nome do modelo:
-# o nome do modelo é o que sai daqui em direção ao Gazebo, não o que indexa
-# o estado. Trocar os dois lados faz toda mensagem legítima cair no ramo de
-# 'câmera não existe' — com uma mensagem que lista justamente o nome enviado.
+# Both spellings resolve to the orbit's KEY, never to the model name: the
+# model name is what leaves here toward Gazebo, not what indexes the state.
+# Swapping the two sides would make every legitimate message fall into the
+# 'camera does not exist' branch — with a message that lists exactly the name
+# that was sent.
 ALIASES = {**{key: key for key in MODELS},
            **{model: key for key, model in MODELS.items()}}
 CAMERAS = tuple(MODELS)
 
 
 class Orbit:
-    """Estado orbital de UMA câmera, e a conversão de e para pose."""
+    """Orbital state of ONE camera, and the conversion to and from pose."""
 
     def __init__(self, x, y, z, pitch, yaw):
         self.home = (x, y, z, pitch, yaw)
-        # Ultima pose do robo conhecida, ou None. Fica NA orbita e nao so no nó
-        # porque `apply` precisa dela: sem isso, um pan aplicado enquanto segue
-        # deixa `target` desatualizado até o próximo tique, e `position()` mente
-        # nesse intervalo — que é justamente o instante em que o `_push` do
-        # comando lê a pose para mandar ao Gazebo.
+        # Last known robot pose, or None. It lives ON the orbit and not just
+        # on the node because `apply` needs it: without this, a pan applied
+        # while following leaves `target` stale until the next tick, and
+        # `position()` lies during that interval — which is exactly the
+        # moment the command's `_push` reads the pose to send to Gazebo.
         self.anchor = None
         self.reset()
 
@@ -190,34 +202,37 @@ class Orbit:
         x, y, z, pitch, yaw = self.home
         self.pitch = min(max(pitch, MIN_PITCH_RAD), MAX_PITCH_RAD)
         self.yaw = yaw
-        # sin(pitch) nunca é zero por causa de MIN_PITCH_RAD; uma câmera na
-        # horizontal não cruza o plano do chão e não tem alvo definido.
+        # sin(pitch) is never zero because of MIN_PITCH_RAD; a horizontal
+        # camera does not cross the ground plane and has no defined target.
         self.distance = min(max(z / math.sin(self.pitch), MIN_DISTANCE_M),
                             MAX_DISTANCE_M)
         reach = self.distance * math.cos(self.pitch)
         self.target = (x + reach * math.cos(self.yaw),
                        y + reach * math.sin(self.yaw))
-        # Pan acumulado ENQUANTO SEGUE, relativo ao robô. Zerar aqui é o que faz
-        # "recentrar" significar a mesma coisa nos dois modos: parado, volta ao
-        # enquadramento medido; seguindo, volta a ter o robô no centro.
+        # Pan accumulated WHILE FOLLOWING, relative to the robot. Zeroing it
+        # here is what makes "recentre" mean the same thing in both modes:
+        # stopped, it returns to the measured framing; following, it puts
+        # the robot back in the centre.
         #
-        # `anchor` NÃO é esquecido: recentrar é sobre enquadramento, não sobre
-        # deixar de saber onde o robô está. Quem decide se o alvo volta para o
-        # robô logo depois é o nó, e ele faz isso só quando está seguindo.
+        # `anchor` is NOT forgotten: recentring is about framing, not about
+        # forgetting where the robot is. The node decides whether the target
+        # goes back to the robot right afterwards, and it only does that
+        # while following.
         self.follow_offset = (0.0, 0.0)
 
     def follow(self, anchor):
         """
-        Guarda a pose do robô e reaponta o alvo. Chamado a cada tique.
+        Store the robot's pose and retarget. Called on every tick.
 
-        Só o ALVO se move: distância, azimute e inclinação são o enquadramento
-        que alguém mediu, e seguir o robô não é motivo para mexer neles.
+        Only the TARGET moves: distance, azimuth and pitch are the framing
+        someone measured, and following the robot is no reason to touch
+        them.
         """
         self.anchor = anchor
         self._retarget()
 
     def _retarget(self):
-        """Alvo = robô + pan. Sem robô conhecido, o alvo fica onde está."""
+        """Target = robot + pan. With no known robot, the target stays put."""
         if self.anchor is None:
             return
         self.target = (self.anchor[0] + self.follow_offset[0],
@@ -230,32 +245,34 @@ class Orbit:
                 self.distance * math.sin(self.pitch))
 
     def apply(self, twist, following=False):
-        """Aplica um passo relativo, já saturado nos limites."""
+        """Apply a relative step, already clamped to the limits."""
         self.yaw = _wrap(self.yaw + twist.angular.z)
         self.pitch = min(max(self.pitch + twist.angular.y, MIN_PITCH_RAD),
                          MAX_PITCH_RAD)
         self.distance = min(max(self.distance + twist.linear.x, MIN_DISTANCE_M),
                             MAX_DISTANCE_M)
 
-        # Pan no referencial da IMAGEM, não do mundo: o operador está olhando a
-        # tela e "para a direita" tem de ser para a direita na tela, qualquer
-        # que seja o azimute. `forward` é a projeção da linha de visada no chão.
+        # Pan in the IMAGE frame, not the world's: the operator is looking at
+        # the screen and "to the right" has to mean to the right on screen,
+        # whatever the azimuth. `forward` is the sightline's projection onto
+        # the ground.
         forward = (math.cos(self.yaw), math.sin(self.yaw))
         right = (forward[1], -forward[0])
         dx = right[0] * twist.linear.y + forward[0] * twist.linear.z
         dy = right[1] * twist.linear.y + forward[1] * twist.linear.z
 
-        # Seguindo, o pan move o OFFSET e não um ponto do mundo. Escrever no
-        # alvo aqui seria escrever num campo que o próximo `follow()` sobrepõe
-        # 100 ms depois — o botão de mover pareceria sem efeito, que é o pior
-        # jeito de quebrar isto.
+        # While following, panning moves the OFFSET and not a point in the
+        # world. Writing to the target here would be writing to a field the
+        # next `follow()` overwrites 100 ms later — the move button would
+        # look like it has no effect, which is the worst way for this to
+        # break.
         if following:
             self.follow_offset = _clamp_radius(
                 (self.follow_offset[0] + dx, self.follow_offset[1] + dy),
                 MAX_FOLLOW_OFFSET_M,
             )
-            # Reaponta AGORA, e não no próximo tique: quem chamou vai ler
-            # position() em seguida para escrever a pose no Gazebo.
+            # Retarget NOW, not on the next tick: the caller is about to read
+            # position() next to write the pose to Gazebo.
             self._retarget()
             return
 
@@ -264,7 +281,7 @@ class Orbit:
 
 
 def _clamp_radius(point, limit):
-    """Encolhe o vetor até o raio máximo, preservando a direção."""
+    """Shrink the vector to the maximum radius, preserving direction."""
     radius = math.hypot(point[0], point[1])
     if radius <= limit:
         return point
@@ -277,7 +294,7 @@ def _wrap(angle):
 
 
 def _quaternion(pitch, yaw):
-    """RPY -> quaternion com roll = 0. Uma câmera de cena nunca tomba."""
+    """RPY -> quaternion with roll = 0. A scene camera never tilts."""
     cy, sy = math.cos(yaw / 2), math.sin(yaw / 2)
     cp, sp = math.cos(pitch / 2), math.sin(pitch / 2)
     return (-sp * sy, sp * cy, cp * sy, cp * cy)
@@ -287,9 +304,10 @@ class SceneViewController(Node):
     def __init__(self):
         super().__init__('scene_view_controller')
 
-        # Os defaults DUPLICAM os de scene_cameras.launch.py, e é por isso que
-        # o launch os repassa explicitamente: quem inicia por launch nunca cai
-        # nestes valores. Eles existem só para `ros2 run` avulso não explodir.
+        # The defaults DUPLICATE those of scene_cameras.launch.py, and that is
+        # why the launch file passes them through explicitly: anything
+        # started via launch never falls back to these values. They exist
+        # only so a standalone `ros2 run` does not blow up.
         self.declare_parameter('iso_x', -3.0)
         self.declare_parameter('iso_y', 3.0)
         self.declare_parameter('iso_z', 2.4)
@@ -301,15 +319,16 @@ class SceneViewController(Node):
         self.declare_parameter('top_pitch', math.pi / 2)
         self.declare_parameter('top_yaw', math.pi / 2)
 
-        # Seguir o robô. Ligado por default: perder o robô de vista é o modo de
-        # falha comum do painel azul, e a vista larga estática continua a um
-        # clique de distância (/demo/cockpit/scene/follow).
+        # Follow the robot. On by default: losing sight of the robot is the
+        # blue panel's common failure mode, and the static wide view remains
+        # one click away (/demo/cockpit/scene/follow).
         self.declare_parameter('follow', True)
         self.declare_parameter('follow_topic', '/demo/odom')
-        # odom -> mundo. Zero quando a odometria é ground truth (quadrúpede);
-        # a pose de spawn quando ela é integrada dos encoders (diff-drive). Ver
-        # a seção "DE ONDE SAI A POSE DO ROBÔ" no cabeçalho — este é o parâmetro
-        # que o erro silencioso descrito lá tem como causa.
+        # odom -> world. Zero when odometry is ground truth (quadruped); the
+        # spawn pose when it is integrated from the encoders (diff-drive).
+        # See the "WHERE THE ROBOT'S POSE COMES FROM" section in the module
+        # docstring — this is the parameter behind the silent error described
+        # there.
         self.declare_parameter('follow_offset_x', 0.0)
         self.declare_parameter('follow_offset_y', 0.0)
         self.declare_parameter('follow_offset_yaw', 0.0)
@@ -323,10 +342,11 @@ class SceneViewController(Node):
 
         self._orbits = {'scene_iso': orbit('iso'), 'scene_top': orbit('top')}
 
-        # ReentrantCallbackGroup: a chamada a set_pose acontece DENTRO do
-        # callback do tópico. Com o grupo mutuamente exclusivo default o
-        # executor não roda a resposta do serviço enquanto o callback do tópico
-        # não retorna, e o nó trava no primeiro botão — sem erro nenhum.
+        # ReentrantCallbackGroup: the call to set_pose happens INSIDE the
+        # topic's callback. With the default mutually exclusive group the
+        # executor does not run the service response until the topic
+        # callback returns, and the node hangs on the first button press —
+        # with no error at all.
         group = ReentrantCallbackGroup()
 
         self._set_pose = self.create_client(
@@ -340,23 +360,24 @@ class SceneViewController(Node):
             Trigger, '/demo/cockpit/scene/reset_view', self._on_reset,
             callback_group=group)
 
-        # --- seguir o robô --------------------------------------------------
+        # --- follow the robot -------------------------------------------------
         self._following = bool(self.get_parameter('follow').value)
         self._seed = (self.get_parameter('follow_offset_x').value,
                       self.get_parameter('follow_offset_y').value,
                       self.get_parameter('follow_offset_yaw').value)
-        # Nenhuma amostra ainda: até a primeira, seguir não muda nada e as duas
-        # vistas ficam no enquadramento que o launch mediu. Um `(0, 0)` inicial
-        # arrancaria as câmeras do labirinto para a origem do mundo antes de o
-        # robô sequer publicar odometria.
+        # No sample yet: until the first one, following changes nothing and
+        # both views stay at the framing the launch file measured. An
+        # initial `(0, 0)` would yank the cameras from the maze to the
+        # world's origin before the robot has even published odometry.
         self._anchor = None
 
         follow_topic = self.get_parameter('follow_topic').value
-        # SENSOR_DATA, o mesmo perfil com que demo_bringup/odom_tf.py já lê
-        # este tópico — e esse é o único caminho de /demo/odom validado no
-        # Aquila. Best-effort contra o publicador reliable da ponte é
-        # compatível; escolher outro perfil aqui seria estrear uma combinação
-        # de QoS na câmera, e QoS incompatível não dá erro, só silêncio.
+        # SENSOR_DATA, the same profile demo_bringup/odom_tf.py already uses
+        # to read this topic — and that is the only /demo/odom path
+        # validated on the Aquila. Best-effort against the bridge's reliable
+        # publisher is compatible; choosing another profile here would be
+        # debuting a new QoS combination on the camera, and incompatible QoS
+        # gives no error, only silence.
         self.create_subscription(
             Odometry, follow_topic, self._on_odom, qos_profile_sensor_data,
             callback_group=group)
@@ -365,44 +386,46 @@ class SceneViewController(Node):
             SetBool, '/demo/cockpit/scene/follow', self._on_follow,
             callback_group=group)
 
-        # Estado publicado, e latched. Ver a seção "SEGUIR O ROBO" no cabeçalho:
-        # o botão do cockpit é pintado por isto e não pelo próprio clique.
+        # Published state, and latched. See the "FOLLOWING THE ROBOT" section
+        # in the module docstring: the cockpit button is painted by this,
+        # not by its own click.
         self._following_pub = self.create_publisher(
             Bool, '/demo/cockpit/scene/following',
             QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self._announce_following()
 
-        # Timer, e não o próprio callback de odometria: a odometria chega a
-        # 50 Hz e o render das câmeras é 10 Hz. Empurrar set_pose a 50 Hz
-        # gastaria cinco chamadas de serviço por quadro renderizado.
+        # A timer, and not the odometry callback itself: odometry arrives at
+        # 50 Hz and the cameras render at 10 Hz. Pushing set_pose at 50 Hz
+        # would spend five service calls per rendered frame.
         self.create_timer(FOLLOW_PERIOD_S, self._on_follow_tick,
                           callback_group=group)
 
         framing = ', '.join(
-            f'{name} em ({x:.2f}, {y:.2f}, {z:.2f})'
+            f'{name} at ({x:.2f}, {y:.2f}, {z:.2f})'
             for name, (x, y, z) in
             ((n, o.position()) for n, o in self._orbits.items()))
-        # rclpy nao tem logging no estilo printf: o RcutilsLogger aceita UMA
-        # string. Passar args posicionais levanta TypeError na construcao do no,
-        # que morre antes de existir para qualquer diagnostico.
+        # rclpy has no printf-style logging: RcutilsLogger accepts ONE
+        # string. Passing positional args raises TypeError while
+        # constructing the node, which dies before it exists for any
+        # diagnostics.
         self.get_logger().info(
-            f'controle de vista pronto: {framing}; '
-            f'seguindo={self._following} por {follow_topic} '
-            f'com seed odom->mundo {self._seed}')
+            f'view control ready: {framing}; '
+            f'following={self._following} via {follow_topic} '
+            f'with odom->world seed {self._seed}')
 
-    # --- entrada -----------------------------------------------------------
+    # --- input -----------------------------------------------------------
 
     def _on_command(self, message):
         requested = message.header.frame_id or 'scene_iso'
         name = ALIASES.get(requested)
         orbit = self._orbits.get(name) if name else None
         if orbit is None:
-            # Nomear as opções: um frame_id errado é um erro de digitação no
-            # cliente, e "câmera desconhecida" sem a lista manda a pessoa ler
-            # código para descobrir o nome certo.
+            # Name the options: a wrong frame_id is a typo in the client, and
+            # "unknown camera" without the list sends the person to read code
+            # to find out the right name.
             self.get_logger().warning(
-                f'câmera "{requested}" não existe; '
-                f'use uma de {", ".join(CAMERAS)}')
+                f'camera "{requested}" does not exist; '
+                f'use one of {", ".join(CAMERAS)}')
             return
         orbit.apply(message.twist, following=self._is_following())
         self._apply_follow(orbit)
@@ -415,17 +438,17 @@ class SceneViewController(Node):
             self._apply_follow(orbit)
             self._push(name, orbit)
         response.success = True
-        response.message = 'vistas de cena de volta ao enquadramento inicial'
+        response.message = 'scene views back to the initial framing'
         return response
 
     def _on_odom(self, message):
         """
-        Guarda a pose do robô já no referencial do mundo.
+        Store the robot pose already in the world frame.
 
-        A composição é `mundo = seed ∘ odom`, com o seed vindo dos parâmetros:
-        rotaciona o ponto pelo yaw de spawn e depois translada. Aplicar só a
-        translação estaria certo enquanto o spawn não gira — e é justamente o
-        maze11 que gira (`yaw:=1.5708`).
+        The composition is `world = seed ∘ odom`, with the seed coming from the
+        parameters: rotate the point by the spawn yaw, then translate. Applying
+        only the translation would be right as long as the spawn does not
+        rotate -- and maze11 is precisely the one that rotates (`yaw:=1.5708`).
         """
         position = message.pose.pose.position
         sx, sy, syaw = self._seed
@@ -441,23 +464,24 @@ class SceneViewController(Node):
         self._following = bool(request.data)
         self._announce_following()
         if not self._following:
-            # Desligar deixa as câmeras EXATAMENTE onde estão, mirando o último
-            # ponto seguido. Voltar ao enquadramento inicial é o que "recentrar"
-            # faz, e fazer as duas coisas neste botão tiraria do operador a
-            # única forma de congelar a vista que está boa.
+            # Switching off leaves the cameras EXACTLY where they are, aimed at
+            # the last followed point. Returning to the initial framing is what
+            # "recenter" does, and doing both on this button would take from the
+            # operator the only way to freeze a view that is good.
             response.success = True
-            response.message = 'vistas de cena paradas onde estão'
+            response.message = 'scene views frozen where they are'
             return response
 
-        # Ao religar, o pan acumulado no modo livre não tem sentido como offset
-        # em relação ao robô: ele foi medido contra o mundo. Zerar é o que faz
-        # "seguir" voltar a significar "robô no centro".
+        # When switching back on, the pan accumulated in free mode is
+        # meaningless as an offset relative to the robot: it was measured
+        # against the world. Zeroing it is what makes "follow" mean "robot at
+        # the centre" again.
         for name, orbit in self._orbits.items():
             orbit.follow_offset = (0.0, 0.0)
             self._apply_follow(orbit)
             self._push(name, orbit)
         response.success = True
-        response.message = 'vistas de cena seguindo o robô'
+        response.message = 'scene views following the robot'
         return response
 
     def _on_follow_tick(self):
@@ -467,36 +491,37 @@ class SceneViewController(Node):
             before = orbit.position()
             self._apply_follow(orbit)
             after = orbit.position()
-            # Banda morta sobre a POSIÇÃO DA CÂMERA e não sobre a do robô: na
-            # vista iso um passo do robô move a câmera do mesmo tanto, mas na de
-            # topo com pitch = pi/2 há razões para os dois números divergirem, e
-            # o que decide se vale uma chamada é o que a câmera faz.
+            # Deadband on the CAMERA POSITION, not on the robot's: in the iso
+            # view a robot step moves the camera by the same amount, but in the
+            # top view with pitch = pi/2 there are reasons for the two numbers
+            # to diverge, and what decides whether a call is worth it is what
+            # the camera does.
             if math.dist(before, after) < FOLLOW_DEADBAND_M:
                 continue
             self._push(name, orbit)
 
-    # --- estado ------------------------------------------------------------
+    # --- state ------------------------------------------------------------
 
     def _announce_following(self):
         self._following_pub.publish(Bool(data=self._following))
 
     def _is_following(self):
-        """Seguir de verdade exige alvo: sem odometria não há o que seguir."""
+        """Following for real needs a target: without odometry there is nothing to follow."""
         return self._following and self._anchor is not None
 
     def _apply_follow(self, orbit):
         if self._is_following():
             orbit.follow(self._anchor)
 
-    # --- saída -------------------------------------------------------------
+    # --- output -------------------------------------------------------------
 
     def _push(self, name, orbit):
         if not self._set_pose.service_is_ready():
-            # A ponte de serviços sobe junto com o Gazebo e pode demorar. Dizer
-            # isso é melhor que enfileirar chamadas que ninguém vai atender.
+            # The service bridge comes up along with Gazebo and may take a
+            # while. Saying so is better than queueing calls nobody will answer.
             self.get_logger().warning(
-                '/demo/sim/set_entity_pose ainda não existe; '
-                'a ponte ros_gz do controle da simulação subiu?')
+                '/demo/sim/set_entity_pose does not exist yet; '
+                'is the ros_gz simulation control bridge up?')
             return
 
         x, y, z = orbit.position()
@@ -518,14 +543,15 @@ class SceneViewController(Node):
     def _log_result(self, name, future):
         try:
             result = future.result()
-        except Exception as error:  # noqa: BLE001 - queremos qualquer falha no log
-            self.get_logger().error(f'set_pose de {name} falhou: {error}')
+        except Exception as error:  # noqa: BLE001 - we want any failure in the log
+            self.get_logger().error(f'set_pose for {name} failed: {error}')
             return
         if not result.success:
-            # O Gazebo devolve success=false quando o modelo não existe, e é
-            # exatamente o que acontece quando o mundo subiu sem as câmeras.
+            # Gazebo returns success=false when the model does not exist, which
+            # is exactly what happens when the world came up without the
+            # cameras.
             self.get_logger().warning(
-                f'o Gazebo recusou mover "{name}"; o modelo foi spawnado?')
+                f'Gazebo refused to move "{name}"; was the model spawned?')
 
 
 def main(args=None):

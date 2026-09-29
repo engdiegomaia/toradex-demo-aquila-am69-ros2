@@ -1,19 +1,19 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Cockpit — Demo Aquila AM69</title>
 
     <!--
-      ML3.5 cockpit-web, fases F1 e F3b.
+      ML3.5 cockpit-web, phases F1 and F3b.
 
-      Sem etapa de build: ES modules servidos como estão (plano-cockpit-web.md
-      Decisão 5). Nada de npm, bundler ou node_modules — o mesmo diretório vira
-      o kiosk arm64 do módulo no M3, e é justamente a cadeia npm que não deve
-      viajar para lá.
+      No build step: ES modules served as-is (plano-cockpit-web.md
+      Decision 5). No npm, bundler, or node_modules — the same directory
+      becomes the module's arm64 kiosk in M3, and it is precisely the npm
+      chain that must not travel there.
 
-      Layout: docs/ml35/cockpit-division-view.png, cinco regiões.
+      Layout: docs/ml35/cockpit-division-view.png, five regions.
     -->
     <link rel="stylesheet" href="css/tokens.css" />
     <link rel="stylesheet" href="css/layout.css" />
@@ -22,12 +22,12 @@
 
   <body>
     <main class="cockpit" data-role="cockpit" data-link="connecting">
-      <!-- ---------- azul: vista da cena ---------- -->
+      <!-- ---------- blue: scene view ---------- -->
       <!--
-        Duas câmeras estáticas do MUNDO (não do robô), alternadas no mesmo
-        <img>. É o único painel que responde "o robô se mexeu?" sem depender de
-        nenhum nó do stack: se o Nav2, a TF e a odometria mentirem juntos, esta
-        imagem continua honesta.
+        Two static WORLD cameras (not the robot's), alternating on the same
+        <img>. It is the only panel that answers "did the robot actually
+        move?" without depending on any node in the stack: if Nav2, TF, and
+        odometry all lie together, this image stays honest.
       -->
       <section
         class="panel"
@@ -36,11 +36,11 @@
         aria-labelledby="scene-title"
       >
         <header class="panel__head">
-          <h2 class="panel__title" id="scene-title">Cena</h2>
+          <h2 class="panel__title" id="scene-title">Scene</h2>
           <p class="panel__source" data-role="scene-source-label">
             /demo/cockpit/scene_iso/image_raw
           </p>
-          <div class="switch" role="group" aria-label="Vista da cena">
+          <div class="switch" role="group" aria-label="Scene view">
             <button
               class="switch__btn"
               type="button"
@@ -57,7 +57,7 @@
               data-source="top"
               aria-pressed="false"
             >
-              topo
+              top
             </button>
           </div>
           <span
@@ -68,56 +68,56 @@
           ></span>
         </header>
         <div class="panel__body">
-          <img class="stream" data-role="stream" alt="Vista externa da cena" />
+          <img class="stream" data-role="stream" alt="External scene view" />
 
           <!--
-            Comandos de camera, sobre a imagem e nao na barra: o alvo do
-            comando e ESTA imagem, e um controle a 80 px do que ele move nao
-            precisa de rotulo explicando o que move.
+            Camera controls, over the image and not in the bar: the target of
+            the command IS this image, and a control 80 px from what it moves
+            does not need a label explaining what it moves.
 
-            Nada aqui conhece a geometria da camera. Cada botao publica um
-            delta em /demo/cockpit/scene/cmd_view e quem integra, satura e
-            aplica a pose e o scene_view_controller, do lado do simulador. O
-            navegador nao sabe onde a camera esta, e e por isso que recarregar
-            a pagina nao mexe no enquadramento.
+            Nothing here knows the camera's geometry. Each button publishes a
+            delta on /demo/cockpit/scene/cmd_view, and the simulator-side
+            scene_view_controller integrates, clamps, and applies the pose.
+            The browser does not know where the camera is, which is why
+            reloading the page does not move the framing.
           -->
           <div
             class="viewpad"
             data-role="view-pad"
             role="group"
-            aria-label="Controle da camera de cena"
+            aria-label="Scene camera control"
           >
-            <button class="viewpad__btn" type="button" data-role="view" data-command="orbit-left" title="girar para a esquerda" aria-label="girar para a esquerda">&#8634;</button>
-            <button class="viewpad__btn" type="button" data-role="view" data-command="pitch-up" title="subir o ponto de vista" aria-label="subir o ponto de vista">&#9650;</button>
-            <button class="viewpad__btn" type="button" data-role="view" data-command="pitch-down" title="descer o ponto de vista" aria-label="descer o ponto de vista">&#9660;</button>
-            <button class="viewpad__btn" type="button" data-role="view" data-command="orbit-right" title="girar para a direita" aria-label="girar para a direita">&#8635;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="orbit-left" title="rotate left" aria-label="rotate left">&#8634;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pitch-up" title="raise viewpoint" aria-label="raise viewpoint">&#9650;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pitch-down" title="lower viewpoint" aria-label="lower viewpoint">&#9660;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="orbit-right" title="rotate right" aria-label="rotate right">&#8635;</button>
 
-            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-left" title="mover para a esquerda" aria-label="mover para a esquerda">&#9664;</button>
-            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-forward" title="mover para frente" aria-label="mover para frente">&#9651;</button>
-            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-back" title="mover para tras" aria-label="mover para tras">&#9661;</button>
-            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-right" title="mover para a direita" aria-label="mover para a direita">&#9654;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-left" title="pan left" aria-label="pan left">&#9664;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-forward" title="pan forward" aria-label="pan forward">&#9651;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-back" title="pan back" aria-label="pan back">&#9661;</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="pan-right" title="pan right" aria-label="pan right">&#9654;</button>
 
-            <button class="viewpad__btn" type="button" data-role="view" data-command="zoom-in" title="aproximar" aria-label="aproximar">+</button>
-            <button class="viewpad__btn" type="button" data-role="view" data-command="zoom-out" title="afastar" aria-label="afastar">&#8722;</button>
-            <button class="viewpad__btn viewpad__btn--wide" type="button" data-role="view-reset" title="voltar ao enquadramento inicial">recentrar</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="zoom-in" title="zoom in" aria-label="zoom in">+</button>
+            <button class="viewpad__btn" type="button" data-role="view" data-command="zoom-out" title="zoom out" aria-label="zoom out">&#8722;</button>
+            <button class="viewpad__btn viewpad__btn--wide" type="button" data-role="view-reset" title="return to the initial framing">recenter</button>
 
             <!--
-              Seguir o robo. Vale para as DUAS vistas de uma vez, e nao so para
-              a que esta na tela: o alvo da orbita e a pose do robo, e deixar
-              uma seguindo e a outra parada faria o botao iso/topo trocar de
-              comportamento junto com a imagem.
+              Follow the robot. Applies to BOTH views at once, not just the
+              one on screen: the orbit target is the robot's pose, and
+              leaving one following while the other stays static would make
+              the iso/top button change behavior along with the image.
 
-              Comeca pressionado porque o no comeca seguindo. Desligar volta a
-              vista larga estatica -- o enquadramento MEDIDO em
-              scene_cameras.launch.py, que e o que mostra o labirinto inteiro.
+              Starts pressed because the node starts out following. Turning
+              it off returns to the static wide view -- the framing MEASURED
+              in scene_cameras.launch.py, which is what shows the whole maze.
             -->
             <button
               class="viewpad__btn viewpad__btn--full"
               type="button"
               data-role="view-follow"
               aria-pressed="true"
-              title="a camera acompanha o robo; desligue para congelar a vista larga"
-            >seguir robo</button>
+              title="the camera follows the robot; turn off to freeze the wide view"
+            >follow robot</button>
           </div>
 
           <div class="notice" data-role="notice" hidden>
@@ -127,14 +127,16 @@
         </div>
       </section>
 
-      <!-- ---------- verde: navegação 2D ---------- -->
+      <!-- ---------- green: 2D navigation ---------- -->
       <!--
-        Canvas único, redesenhado inteiro a cada tick. Sem SVG e sem camadas
-        empilhadas: o costmap é um raster que muda por completo a cada mensagem,
-        e mantê-lo em nós de DOM custaria muito mais do que redesenhar.
+        Single canvas, fully redrawn every tick. No SVG and no stacked
+        layers: the costmap is a raster that changes completely with every
+        message, and keeping it as DOM nodes would cost far more than
+        redrawing.
 
-        O clique manda meta. É o único controle vivo da tela no F3b — a barra de
-        baixo continua desligada até o F4 trazer o twist_mux.
+        Clicking sends a goal. It is the only live control on screen in
+        F3b — the bar at the bottom stays disabled until F4 brings in
+        twist_mux.
       -->
       <section
         class="panel"
@@ -143,14 +145,14 @@
         aria-labelledby="nav-title"
       >
         <header class="panel__head">
-          <h2 class="panel__title" id="nav-title">Navegação</h2>
+          <h2 class="panel__title" id="nav-title">Navigation</h2>
           <p class="panel__source">/global_costmap/costmap · /plan</p>
           <button
             class="switch__btn"
             type="button"
             data-role="exploration-start"
           >
-            iniciar busca
+            start search
           </button>
           <button
             class="switch__btn switch__btn--alert"
@@ -158,7 +160,7 @@
             data-role="exploration-cancel"
             hidden
           >
-            cancelar busca
+            cancel search
           </button>
           <button
             class="switch__btn switch__btn--alert"
@@ -166,30 +168,32 @@
             data-role="nav-cancel"
             hidden
           >
-            cancelar meta
+            cancel goal
           </button>
           <!--
-            Reiniciar a pilha de navegacao — o Nav2 que roda no Aquila no modo
-            hil. Nao mata container nenhum: chama /demo/nav/reset, e a fachada
-            do lado da navegacao cancela a meta, esvazia os dois costmaps e faz
-            PAUSE + RESUME nos servidores do Nav2.
+            Restart the navigation stack — the Nav2 that runs on the Aquila in
+            hil mode. It does not kill any container: it calls
+            /demo/nav/reset, and the navigation-side facade cancels the goal,
+            clears both costmaps, and does PAUSE + RESUME on the Nav2
+            servers.
 
-            Dois cliques, igual ao reset da simulacao, e pela mesma razao: sao
-            6,6 s medidos na workstation e mais no modulo, com o robo parado no
-            meio, e um clique por engano durante uma demo custa a demo.
+            Two clicks, same as the simulation reset, and for the same
+            reason: it measures 6.6 s on the workstation and more on the
+            module, with the robot stopped in the middle, and one accidental
+            click during a demo costs the demo.
 
-            SEMPRE VISIVEL, ao contrario do `cancelar meta`. O caso em que ele
-            e necessario e justamente o Nav2 travado, e um botao que aparece
-            so quando ha meta ativa nao estaria la quando a acao parou de
-            responder.
+            ALWAYS VISIBLE, unlike `cancel goal`. The case where it is needed
+            is precisely a stuck Nav2, and a button that only appears while a
+            goal is active would not be there when the action stopped
+            responding.
           -->
           <button
             class="switch__btn switch__btn--danger"
             type="button"
             data-role="nav-reset"
-            title="reinicia a pilha do Nav2: descarta a meta, esvazia os costmaps e reativa os servidores"
+            title="restarts the Nav2 stack: discards the goal, clears the costmaps, and re-activates the servers"
           >
-            reiniciar nav
+            restart nav
           </button>
           <span
             class="dot"
@@ -202,31 +206,31 @@
           <canvas
             class="canvas canvas--clickable"
             data-role="nav-canvas"
-            aria-label="Mapa de navegação. Clique para enviar uma meta."
+            aria-label="Navigation map. Click to send a goal."
           ></canvas>
-          <div class="map-zoom" role="group" aria-label="Zoom do mapa de navegação">
+          <div class="map-zoom" role="group" aria-label="Navigation map zoom">
             <button
               class="map-zoom__btn"
               type="button"
               data-role="nav-zoom-out"
-              title="afastar mapa"
-              aria-label="afastar mapa"
+              title="zoom map out"
+              aria-label="zoom map out"
             >&#8722;</button>
             <button
               class="map-zoom__btn"
               type="button"
               data-role="nav-zoom-in"
-              title="aproximar mapa"
-              aria-label="aproximar mapa"
+              title="zoom map in"
+              aria-label="zoom map in"
             >+</button>
           </div>
           <p class="hud" data-role="nav-hud" data-state="idle" aria-live="polite">
-            clique no mapa para mandar uma meta
+            click on the map to send a goal
           </p>
         </div>
       </section>
 
-      <!-- ---------- rosa: logs de movimentação ---------- -->
+      <!-- ---------- pink: movement log ---------- -->
       <section
         class="panel"
         data-area="log"
@@ -234,7 +238,7 @@
         aria-labelledby="log-title"
       >
         <header class="panel__head">
-          <h2 class="panel__title" id="log-title">Logs de movimentação</h2>
+          <h2 class="panel__title" id="log-title">Movement log</h2>
           <p class="panel__source">/demo/target/ops_log · /demo/target/status</p>
           <span
             class="dot"
@@ -245,9 +249,9 @@
         </header>
 
         <!--
-          Faixa de telemetria. Fica no topo do painel de logs, e não na barra,
-          porque responde à mesma pergunta que a lista abaixo: o que o robô está
-          fazendo agora.
+          Telemetry strip. Sits at the top of the log panel, not in the bar,
+          because it answers the same question as the list below: what the
+          robot is doing right now.
         -->
         <div class="telemetry">
           <span class="telemetry__item">
@@ -294,7 +298,7 @@
         </div>
       </section>
 
-      <!-- ---------- rosa claro: câmera do robô ---------- -->
+      <!-- ---------- light pink: robot camera ---------- -->
       <section
         class="panel"
         data-area="camera"
@@ -302,7 +306,7 @@
         aria-labelledby="camera-title"
       >
         <header class="panel__head">
-          <h2 class="panel__title" id="camera-title">Câmera</h2>
+          <h2 class="panel__title" id="camera-title">Camera</h2>
           <p class="panel__source">/demo/camera/image_raw</p>
           <span
             class="dot"
@@ -313,26 +317,26 @@
         </header>
         <div class="panel__body">
           <!--
-            Sem src aqui: a URL depende de host e porta resolvidos em runtime
-            (config.js). Um src fixo no HTML seria exatamente o hostname
-            hard-coded que o AGENTS.md §5.7 proíbe.
+            No src here: the URL depends on host and port resolved at runtime
+            (config.js). A fixed src in the HTML would be exactly the
+            hard-coded hostname that AGENTS.md §5.7 forbids.
           -->
-          <img class="stream" data-role="stream" alt="Câmera frontal do robô" />
+          <img class="stream" data-role="stream" alt="Robot front camera" />
           <!--
-            NÃO há canvas de detecções aqui, e a ausência é deliberada.
+            There is NO detection canvas here, and the absence is deliberate.
 
-            O `demo_perception` de hoje é um stub determinístico: ele varre uma
-            caixa sintética pela imagem quer haja um objeto ali ou não. Sobre o
-            vídeo isso vira um retângulo passeando de um lado para o outro, que
-            é ativamente pior que nada — durante uma demo o espectador lê aquilo
-            como detecção de verdade, e a única pergunta que sobra é por que a
-            caixa não gruda em nada.
+            Today's `demo_perception` is a deterministic stub: it sweeps a
+            synthetic box across the image whether or not there is an object
+            there. Over the video that turns into a rectangle wandering back
+            and forth, which is actively worse than nothing — during a demo
+            the viewer reads that as a real detection, and the only question
+            left is why the box does not stick to anything.
 
-            As detecções continuam chegando e continuam alimentando a
-            perception_layer do costmap (contrato de tópicos do CLAUDE.md); o
-            que saiu foi só o desenho. Quando o TIDL substituir o stub, o
-            overlay volta — js/panels/detection-overlay.js segue no bundle,
-            testado, esperando exatamente isso.
+            Detections keep arriving and keep feeding the costmap's
+            perception_layer (topic contract in CLAUDE.md); only the drawing
+            was removed. When TIDL replaces the stub, the overlay comes back
+            — js/panels/detection-overlay.js stays in the bundle, tested,
+            waiting for exactly that.
           -->
           <div class="notice" data-role="notice" hidden>
             <p class="notice__headline" data-role="notice-headline"></p>
@@ -341,13 +345,13 @@
         </div>
       </section>
 
-      <!-- ---------- cinza: barra de controles ---------- -->
+      <!-- ---------- gray: control bar ---------- -->
       <footer class="bar" data-area="bar" data-role="bar">
         <!--
-          As duas marcas sao PNG com alfa e tinta branca, e e por isso que a
-          barra e azul #00508c e nao branca: sobre branco elas desapareceriam.
-          O alt carrega o nome porque num kiosk sem imagem a barra ainda tem de
-          dizer de quem e a demo.
+          Both marks are PNGs with alpha and white ink, which is why the bar
+          is blue #00508c and not white: over white they would disappear.
+          The alt carries the name because on a kiosk without the image the
+          bar still has to say whose demo it is.
         -->
         <div class="brand">
           <img class="brand__logo" src="img/toradex.png" alt="Toradex" />
@@ -357,24 +361,26 @@
         <span class="brand__sub">Aquila AM69 &middot; demo ROS 2</span>
 
         <!--
-          Simulacao. O Gazebo roda na workstation x86 (regra 1 do CLAUDE.md: o
-          AM69 so expoe OpenGL ES 3.2/Vulkan 1.2 e o OGRE 2 precisa de OpenGL de
-          desktop). O que estes botoes fazem e chamar /demo/sim/control pelo
-          grafo ROS, do mesmo jeito que a meta do Nav2 ja atravessa hoje —
-          controlar a simulacao PELO cockpit, nao roda-la no modulo.
+          Simulation. Gazebo runs on the x86 workstation (CLAUDE.md rule 1:
+          the AM69 exposes only OpenGL ES 3.2/Vulkan 1.2, and OGRE 2 needs
+          desktop OpenGL). What these buttons do is call /demo/sim/control
+          over the ROS graph, the same way the Nav2 goal already crosses
+          today — controlling the simulation FROM the cockpit, not running it
+          on the module.
 
-          O rotulo de estado nao repete o ultimo clique: ele sai do /clock, que
-          e a unica fonte que sabe se o simulador esta mesmo andando.
+          The state label does not just echo the last click: it comes from
+          /clock, the only source that knows whether the simulator is really
+          running.
         -->
-        <div class="bar__group" role="group" aria-label="Simulação">
-          <span class="bar__label">simulação</span>
-          <button class="btn" type="button" data-role="sim" data-command="play" title="retomar a simulação">&#9654;</button>
-          <button class="btn" type="button" data-role="sim" data-command="pause" title="pausar a simulação">&#10073;&#10073;</button>
-          <button class="btn btn--warn" type="button" data-role="sim" data-command="reset" title="repor o robô na pose inicial de nascimento — não apaga o mundo, não zera o relógio e não limpa o costmap (para isso use reiniciar nav)">&#8635;</button>
+        <div class="bar__group" role="group" aria-label="Simulation">
+          <span class="bar__label">simulation</span>
+          <button class="btn" type="button" data-role="sim" data-command="play" title="resume the simulation">&#9654;</button>
+          <button class="btn" type="button" data-role="sim" data-command="pause" title="pause the simulation">&#10073;&#10073;</button>
+          <button class="btn btn--warn" type="button" data-role="sim" data-command="reset" title="reset the robot to its initial spawn pose — does not clear the world, does not reset the clock, and does not clear the costmap (use restart nav for that)">&#8635;</button>
           <span class="bar__state" data-role="sim-state">—</span>
         </div>
 
-        <div class="bar__group" role="group" aria-label="Controle manual">
+        <div class="bar__group" role="group" aria-label="Manual control">
           <button class="btn" type="button" data-role="control" data-command="forward">
             ▲
           </button>
@@ -400,7 +406,7 @@
         <span class="bar__spacer"></span>
 
         <span class="badge" data-role="badge" data-state="connecting">
-          <span data-role="badge-label">conectando</span>
+          <span data-role="badge-label">connecting</span>
           <span class="badge__detail" data-role="badge-detail"></span>
         </span>
         <span class="build" data-role="build"></span>

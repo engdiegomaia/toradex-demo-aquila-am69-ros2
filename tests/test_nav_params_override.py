@@ -18,14 +18,14 @@ ROOT = Path(__file__).resolve().parents[1]
 NAV_SELECT = ROOT / 'ros2_ws/src/demo_bringup/launch/nav_select.launch.py'
 HOST_COMPOSE = ROOT / 'docker/compose.host.yml'
 MODULE_COMPOSE = ROOT / 'docker/compose.module.yml'
-NAV_CAMPAIGN = ROOT / 'scripts/nav_campaign.py'
-NAV_ROADMAP = ROOT / 'docs/ml35/proximos-passos-navegacao.md'
+NAV_CAMPAIGN = ROOT / 'tools/evaluation/nav_campaign.py'
+EVALUATION_GUIDE = ROOT / 'docs/evaluation.md'
 GO2_PARAMS = ROOT / 'ros2_ws/src/demo_navigation/config/nav2_params_go2.yaml'
 ALIGN8_PARAMS = ROOT / 'ros2_ws/src/demo_navigation/config/params-align8.yaml'
 FOOTPRINT_PARAMS = (
     ROOT / 'ros2_ws/src/demo_navigation/config/nav2_params_go2_footprint.yaml')
 
-# Tronco do Go2, medido: 0,70 x 0,31 m.
+# Go2 trunk, measured: 0.70 x 0.31 m.
 TRUNK_LENGTH_M = 0.70
 TRUNK_WIDTH_M = 0.31
 
@@ -82,7 +82,7 @@ def test_campaign_docs_use_a_path_inside_the_nav_image() -> None:
     command = f'NAV2_PARAMS={expected} \\'
 
     assert command in NAV_CAMPAIGN.read_text(encoding='utf-8')
-    assert command in NAV_ROADMAP.read_text(encoding='utf-8')
+    assert command in EVALUATION_GUIDE.read_text(encoding='utf-8')
 
 
 def test_align8_changes_only_the_path_alignment_weight() -> None:
@@ -139,10 +139,10 @@ def test_local_and_global_costmaps_share_the_same_default_footprint() -> None:
 
 def test_footprint_variant_never_declares_a_radius_beside_the_polygon() -> None:
     """
-    `robot_radius` e `footprint` juntos deixam a forma efetiva ambigua.
+    `robot_radius` and `footprint` together leave the effective shape ambiguous.
 
-    O costmap aceita os dois e usa um deles; qual, depende da ordem de leitura
-    dos parametros. Medir uma rodada nesse estado nao mede nada.
+    The costmap accepts both and uses one of them; which one depends on the
+    parameter read order. Measuring a run in this state measures nothing.
     """
     variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
     for name in ('local_costmap', 'global_costmap'):
@@ -151,7 +151,7 @@ def test_footprint_variant_never_declares_a_radius_beside_the_polygon() -> None:
 
 
 def test_footprint_encloses_the_measured_trunk() -> None:
-    """A pegada tem de conter o tronco medido, senao ela nao descreve o robo."""
+    """The footprint must contain the measured trunk, or it does not describe the robot."""
     variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
     for name in ('local_costmap', 'global_costmap'):
         points = ast.literal_eval(_costmap_params(variant, name)['footprint'])
@@ -164,10 +164,10 @@ def test_footprint_encloses_the_measured_trunk() -> None:
 
 def test_inflation_still_covers_the_circumscribed_footprint() -> None:
     """
-    Inflacao menor que a pegada deixa o planejador raspar o canto na parede.
+    Inflation smaller than the footprint lets the planner scrape the corner against the wall.
 
-    A regra ja estava no arquivo default contra `robot_radius`; com um poligono
-    o piso passa a ser o raio CIRCUNSCRITO, que e maior que o inscrito.
+    The rule was already in the default file against `robot_radius`; with a polygon
+    the floor becomes the CIRCUMSCRIBED radius, which is larger than the inscribed one.
     """
     variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
     for name in ('local_costmap', 'global_costmap'):
@@ -180,11 +180,12 @@ def test_inflation_still_covers_the_circumscribed_footprint() -> None:
 
 def test_footprint_variant_uses_polygon_collision_checking() -> None:
     """
-    Promovido em 30/08/2026 após a pegada explícita virar o default.
+    Promoted on 30/08/2026 after the explicit footprint became the default.
 
-    O alias histórico não pode reativar a amostragem apenas pelo ponto central;
-    sem polígono publicado este modo derrubaria o nav2_container com SIGSEGV,
-    por isso a igualdade integral com o default também é testada acima.
+    The historical alias must not reactivate point-only sampling from the
+    central point; without a published polygon this mode would crash the
+    nav2_container with SIGSEGV, which is why the full equality with the
+    default is also tested above.
     """
     variant = yaml.safe_load(FOOTPRINT_PARAMS.read_text(encoding='utf-8'))
     critic = variant['controller_server']['ros__parameters']['FollowPath']

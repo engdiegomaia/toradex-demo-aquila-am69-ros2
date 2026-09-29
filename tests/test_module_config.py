@@ -117,7 +117,7 @@ def test_verify_requires_a_real_clock_sample_not_only_discovery() -> None:
 
     assert 'ros2 topic echo --once /clock rosgraph_msgs/msg/Clock' in script
     assert "grep -q '^clock:'" in script
-    assert '/clock: SEM MENSAGEM' in script
+    assert '/clock: NO MESSAGE' in script
 
 
 def test_hil_render_prefers_routed_interface_over_loopback() -> None:
@@ -126,8 +126,8 @@ def test_hil_render_prefers_routed_interface_over_loopback() -> None:
 
     assert '<NetworkInterface name=\\"lo\\" priority=\\"default\\"' in script
     assert 'priority=\\"10\\"' in script
-    assert 'nao rebaixou loopback no modo HIL' in script
-    assert 'nao priorizou a interface roteada no modo HIL' in script
+    assert 'did not downgrade loopback in HIL mode' in script
+    assert 'did not prioritize the routed interface in HIL mode' in script
 
 
 def test_module_up_recreates_containers_after_dds_render() -> None:
@@ -142,7 +142,7 @@ def test_every_required_topic_survives_the_collection_filter() -> None:
     The weaker sibling test above only asserts that each topic name appears
     somewhere in the script. That passed while `verify` was collecting with a
     bare `grep /demo/` and then demanding /clock, which is not under /demo/ and
-    could never match: the step reported "AUSENTE: /clock" against a module
+    could never match: the step reported "MISSING: /clock" against a module
     that was reading /clock at 616 Hz. Presence of a string is not evidence
     that the pipeline can produce it.
     """
@@ -166,21 +166,21 @@ def test_every_required_topic_survives_the_collection_filter() -> None:
 
 
 def test_verify_checks_that_nav2_is_active_and_not_merely_running() -> None:
-    """Topico existir nao e servico funcionar.
+    """A topic existing is not a service working.
 
-    Em 26/08/2026 as tres etapas anteriores passaram inteiras contra um Nav2
-    cujo bringup havia ABORTADO: o `local_costmap` nao ativou porque a TF
-    `odom -> base` nao atravessou a fronteira em 60 s, e o gerenciador desistiu
-    em definitivo. `verify` retornou 0 e toda meta era recusada com
+    On 26/08/2026 the three earlier steps passed entirely against a Nav2 whose
+    bringup had ABORTED: the `local_costmap` did not activate because the
+    `odom -> base` TF did not cross the boundary within 60 s, and the manager
+    gave up for good. `verify` returned 0 and every goal was refused with
     "Action server is inactive".
     """
     script = MODULE_SH.read_text(encoding='utf-8')
 
     assert 'ros2 lifecycle get /bt_navigator' in script, (
-        'verify nao pergunta o estado de ciclo de vida do Nav2'
+        'verify does not ask for the Nav2 lifecycle state'
     )
 
-    # A resposta tem de DECIDIR o resultado, nao so ser impressa.
+    # The answer must DECIDE the result, not just be printed.
     tail = script[script.index('ros2 lifecycle get /bt_navigator'):]
     decision = tail[:tail.index('return "${verify_failed}"')]
     assert "grep -Eq '^active([[:space:]]|$)'" in decision
@@ -188,10 +188,10 @@ def test_verify_checks_that_nav2_is_active_and_not_merely_running() -> None:
     assert "tail -1 || true" in decision
     assert 'verify_failed=1' in decision
 
-    # E as etapas precisam estar renumeradas, senao o operador le "3/3" e
-    # conclui que a bateria acabou antes da etapa que importa.
+    # And the steps must be renumbered, otherwise the operator reads "3/3" and
+    # concludes the battery ended before the step that matters.
     for step in ('1/4', '2/4', '3/4', '4/4'):
-        assert f'say "{step}' in script, f'etapa {step} ausente'
+        assert f'say "{step}' in script, f'step {step} missing'
 
 
 def test_nav2_lifecycle_match_rejects_inactive() -> None:
@@ -200,9 +200,9 @@ def test_nav2_lifecycle_match_rejects_inactive() -> None:
     for state in ('active', 'active [3]'):
         result = subprocess.run(
             ['grep', '-Eq', pattern], input=state, text=True, check=False)
-        assert result.returncode == 0, f'{state!r} deveria ser aceito'
+        assert result.returncode == 0, f'{state!r} should be accepted'
 
     for state in ('inactive', 'inactive [2]', 'unconfigured [1]', ''):
         result = subprocess.run(
             ['grep', '-Eq', pattern], input=state, text=True, check=False)
-        assert result.returncode != 0, f'{state!r} nao deveria ser aceito'
+        assert result.returncode != 0, f'{state!r} should not be accepted'

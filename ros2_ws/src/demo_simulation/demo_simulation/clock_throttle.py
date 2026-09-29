@@ -1,92 +1,99 @@
 #!/usr/bin/env python3
 """
-Republica `/clock` a taxa fixa, a partir do clock cru do Gazebo.
+Republishes `/clock` at a fixed rate, from the Gazebo raw clock.
 
-Roda no host x86, dentro do container do simulador, ao lado do Gazebo.
+Runs on the x86 host, inside the simulator container, next to Gazebo.
 
-LEIA ISTO PRIMEIRO: O ESTRANGULAMENTO ESTA DESLIGADO POR DEFAULT
-================================================================
+READ THIS FIRST: THROTTLING IS OFF BY DEFAULT
+==============================================
 
-`rate_hz: 0` (o default do launch) e passagem direta. Este no nasceu para
-estrangular o `/clock` e reduzir a carga do Aquila, e o ensaio REFUTOU a ideia.
-Medido em 21/08/2026, modo hil, mesmo mundo e mesmas metas:
+`rate_hz: 0` (the launch default) is pass-through. This node was created to
+throttle `/clock` and reduce load on the Aquila, and the test REFUTED the
+idea. Measured on 21/08/2026, hil mode, same world and same goals:
 
-    /clock     CPU do container nav    velocidade media    cmd_vx de pico
-    ~750 Hz    470% de 800%            0.0251 m/s          0.138 m/s
-     100 Hz    324% de 800%            0.0039 m/s          0.003 m/s
+    /clock     nav container CPU    average speed    peak cmd_vx
+    ~750 Hz    470% of 800%         0.0251 m/s        0.138 m/s
+     100 Hz    324% of 800%         0.0039 m/s        0.003 m/s
 
-A CPU caiu de verdade. A navegacao morreu junto: o robo passou 180 s girando no
-lugar, `cmd_wz` ativo em 1721 de 1800 amostras e `cmd_vx` em zero. O mecanismo
-exato de como a granularidade de 10 ms quebra o MPPI nao esta isolado -- o que
-esta medido e a relacao de causa. Economia de CPU que faz o robo parar de andar
-nao e otimizacao.
+CPU really did drop. Navigation died along with it: the robot spent 180 s
+spinning in place, `cmd_wz` active in 1721 of 1800 samples and `cmd_vx` at
+zero. The exact mechanism of how 10 ms granularity breaks the MPPI has not
+been isolated -- what is measured is the causal relationship. CPU savings
+that make the robot stop walking is not optimization.
 
-O ataque certo ao MESMO custo e compor o Nav2 num processo unico: uma assinatura
-de `/clock` em vez de treze, e comunicacao intraprocesso no lugar de DDS. Isso
-esta em `demo_bringup/launch/nav_quadruped.launch.py`, no bloco `nav2_container`.
+The correct attack on the SAME cost is to compose Nav2 into a single process:
+one subscription to `/clock` instead of thirteen, and intra-process
+communication instead of DDS. That is in
+`demo_bringup/launch/nav_quadruped.launch.py`, in the `nav2_container` block.
 
-ESTE NO NAO ESTA EM NENHUM LAUNCH. Nao basta rodar `ros2 run` para usa-lo: o
-`bridge_quadruped.yaml` publica `/clock` DIRETO, entao subir este no sem mudar o
-bridge cria dois publicadores no mesmo topico -- falha silenciosa, o robo anda
-estranho e nada em log nomeia o relogio. Para repetir o A/B sao duas mudancas:
+THIS NODE IS NOT IN ANY LAUNCH FILE. Running `ros2 run` alone is not enough
+to use it: `bridge_quadruped.yaml` publishes `/clock` DIRECTLY, so bringing
+up this node without changing the bridge creates two publishers on the same
+topic -- a silent failure, the robot moves oddly and nothing in the log
+names the clock as the cause. Repeating the A/B takes two changes:
 
-    1. em demo_simulation/config/bridge_quadruped.yaml, trocar o
-       `ros_topic_name` do clock de "/clock" para "/demo/clock_raw";
-    2. subir este no com `rate_hz` no valor a ensaiar (0 = passagem direta,
-       que reproduz o basal com o hop extra ja no lugar).
+    1. in demo_simulation/config/bridge_quadruped.yaml, change the clock's
+       `ros_topic_name` from "/clock" to "/demo/clock_raw";
+    2. bring up this node with `rate_hz` set to the value under test (0 =
+       pass-through, which reproduces the baseline with the extra hop
+       already in place).
 
-Ele ficou fora do caminho default porque e intermediario sem funcao depois do
-A/B, nao porque o hop tenha sido medido como caro: em passagem direta a
-diferenca ficou DENTRO do ruido de corrida (0.0202 m/s com o hop, 0.0232 sem, na
-mesma configuracao e no mesmo mundo). Quem procurar aqui a explicacao para uma
-queda de velocidade nao vai encontrar -- o hop nao e ela.
+It was kept out of the default path because it is a pass-through with no
+function after the A/B, not because the hop was measured as expensive: in
+pass-through, the difference fell WITHIN run-to-run noise (0.0202 m/s with
+the hop, 0.0232 without, same configuration and same world). Anyone looking
+here for the explanation of a speed drop will not find it -- the hop is not
+the cause.
 
-O diagnostico abaixo continua valido -- e o custo que existe.
+The diagnosis below still holds -- it is the cost that actually exists.
 
-O CUSTO QUE O CLOCK DE 1 kHz REALMENTE IMPOE
-============================================
+THE COST THE 1 kHz CLOCK REALLY IMPOSES
+========================================
 
-O mundo do Go2 usa `<max_step_size>0.001</max_step_size>` porque a marcha
-precisa de 1 ms de passo de fisica. O Gazebo publica `/clock` a cada passo,
-entao o bridge entrega ~1000 mensagens por segundo.
+The Go2 world uses `<max_step_size>0.001</max_step_size>` because the gait
+needs a 1 ms physics step. Gazebo publishes `/clock` on every step, so the
+bridge delivers ~1000 messages per second.
 
-No host x86 isso e absorvivel. No Aquila AM69 nao e, e a falha NAO se parece com
-falha de clock. Medido em 21/08/2026, modo hil, Nav2 no modulo:
+On the x86 host that is absorbable. On the Aquila AM69 it is not, and the
+failure does NOT look like a clock failure. Measured on 21/08/2026, hil mode,
+Nav2 on the module:
 
-    /clock no host        989 Hz
-    /clock no modulo      870 Hz
-    CPU do container nav  660% de 800% disponiveis
-    load average          15 a 23, com 8 nucleos
-    odom_tf               87% de um nucleo
-    cmd_vel_si_to_stick   89% de um nucleo
+    /clock on the host        989 Hz
+    /clock on the module      870 Hz
+    nav container CPU         660% of 800% available
+    load average               15 to 23, with 8 cores
+    odom_tf                   87% of one core
+    cmd_vel_si_to_stick       89% of one core
 
-`odom_tf` e `cmd_vel_si_to_stick` sao republicadores triviais em Python. A unica
-coisa de alta taxa que ambos processam e `/clock`, porque `use_sim_time: true`
-faz TODO no do Nav2 assinar esse topico: ~13 nos x 870 Hz = ~11 mil entregas por
-segundo num Cortex-A72. O sintoma visivel e o robo navegando devagar, com
-`cmd_vx` de pico normal (0.138) e MEDIA quase zero (0.0067) -- o controlador
-esta faminto, nao mal sintonizado.
+`odom_tf` and `cmd_vel_si_to_stick` are trivial Python republishers. The only
+high-rate thing either of them processes is `/clock`, because
+`use_sim_time: true` makes EVERY Nav2 node subscribe to that topic: ~13 nodes
+x 870 Hz = ~11 thousand deliveries per second on a Cortex-A72. The visible
+symptom is the robot navigating slowly, with a normal peak `cmd_vx` (0.138)
+and a near-zero MEAN (0.0067) -- the controller is starved, not mistuned.
 
-Nada em log nomeia o clock. Os nos apenas ficam lentos.
+Nothing in the log names the clock. The nodes just get slow.
 
-POR QUE ESTRANGULAR AQUI NAO AMEACA A MARCHA
-============================================
+WHY THROTTLING HERE DOES NOT THREATEN THE GAIT
+================================================
 
-O `controller_manager` deste robo roda DENTRO do processo do Gazebo, via
-`gz_quadruped_hardware`, e e passado pelo loop de fisica -- nao por `/clock`.
-Verificado em `quadruped.launch.py`, que comenta exatamente isso. Portanto a
-malha de 1 kHz da marcha continua a 1 kHz com o clock publicado a 100 Hz.
+This robot's `controller_manager` runs INSIDE the Gazebo process, via
+`gz_quadruped_hardware`, and is stepped by the physics loop -- not by
+`/clock`. Verified in `quadruped.launch.py`, which comments on exactly this.
+So the gait's 1 kHz loop stays at 1 kHz with the clock published at 100 Hz.
 
-Quem consome `/clock` sao os nos com `use_sim_time`, e para eles 100 Hz da 10 ms
-de granularidade, folgado para Nav2, TF e para os ensaios (que amostram a 10 Hz).
+The consumers of `/clock` are the nodes with `use_sim_time`, and for them
+100 Hz gives 10 ms of granularity, comfortable for Nav2, TF, and for tests
+(which sample at 10 Hz).
 
-O QoS DE SAIDA E BEST-EFFORT, DE PROPOSITO
+THE OUTPUT QoS IS BEST-EFFORT, ON PURPOSE
 ==========================================
 
-`rclcpp::ClockQoS` do proprio ROS 2 e KeepLast(1) best-effort, e e o certo aqui:
-perder uma mensagem de clock e inofensivo, porque a proxima vem em 10 ms.
-Entrega CONFIAVEL de clock sobre Wi-Fi custa retransmissao e ACK por mensagem,
-para nenhum ganho. Este no publica com a mesma politica.
+ROS 2's own `rclcpp::ClockQoS` is KeepLast(1) best-effort, and that is the
+right choice here: losing one clock message is harmless, because the next
+one arrives in 10 ms. RELIABLE clock delivery over Wi-Fi costs
+retransmission and an ACK per message, for no gain. This node publishes with
+the same policy.
 """
 
 import rclpy
@@ -95,7 +102,7 @@ from rclpy.qos import (QoSDurabilityPolicy, QoSHistoryPolicy,
                        QoSProfile, QoSReliabilityPolicy)
 from rosgraph_msgs.msg import Clock
 
-# Equivalente ao ClockQoS do ROS 2: o ultimo valor e o unico que importa.
+# Equivalent to ROS 2's ClockQoS: the last value is the only one that matters.
 CLOCK_QOS = QoSProfile(
     depth=1,
     history=QoSHistoryPolicy.KEEP_LAST,
@@ -105,16 +112,17 @@ CLOCK_QOS = QoSProfile(
 
 
 class ClockThrottle(Node):
-    """Guarda o ultimo clock cru e o republica num timer de tempo REAL."""
+    """Holds the latest raw clock and republishes it on a REAL-time timer."""
 
     def __init__(self) -> None:
         super().__init__('clock_throttle')
-        # NUNCA use_sim_time verdadeiro neste no: ele PRODUZ o /clock. Seguir o
-        # proprio relogio simulado o deixaria esperando por si mesmo, e o
-        # sintoma seria a simulacao subir sem tempo nenhum -- o mesmo travamento
-        # que `wait_for_clock` existe para diagnosticar. Quem passa `False` e o
-        # launch; declarar aqui levanta ParameterAlreadyDeclaredException,
-        # porque o Node do rclpy JA declara use_sim_time sozinho.
+        # NEVER true use_sim_time on this node: it PRODUCES /clock. Following
+        # the simulated clock itself would leave it waiting on itself, and
+        # the symptom would be the simulation coming up with no time
+        # advancing at all -- the same lockup that `wait_for_clock` exists to
+        # diagnose. The launch file is what passes `False`; declaring it here
+        # raises ParameterAlreadyDeclaredException, because rclpy's Node
+        # ALREADY declares use_sim_time on its own.
         self.declare_parameter('rate_hz', 100.0)
         self.declare_parameter('input_topic', '/demo/clock_raw')
 
@@ -124,32 +132,32 @@ class ClockThrottle(Node):
         self._latest = None
         self._in = 0
         self._out = 0
-        # rate_hz = 0 e PASSAGEM DIRETA: cada mensagem sai como entrou, com o
-        # timestamp original. Existe para o braco A de um A/B -- provar que uma
-        # mudanca de comportamento veio, ou nao veio, do estrangulamento. Nao da
-        # para imitar isso com um rate alto: um timer a 2000 Hz republica a
-        # ULTIMA mensagem repetidamente e entrega MAIS trafego que o Gazebo
-        # produz, o que mede outra coisa.
+        # rate_hz = 0 is PASS-THROUGH: every message leaves as it arrived,
+        # with its original timestamp. It exists for arm A of an A/B test --
+        # to prove that a behaviour change came, or did not come, from the
+        # throttling. This cannot be imitated with a high rate: a timer at
+        # 2000 Hz republishes the LAST message repeatedly and delivers MORE
+        # traffic than Gazebo produces, which measures something else.
         self._bypass = rate <= 0.0
 
         self.create_subscription(Clock, source, self._on_clock, CLOCK_QOS)
         self.pub = self.create_publisher(Clock, '/clock', CLOCK_QOS)
         if not self._bypass:
-            # Timer de tempo real: com use_sim_time falso, create_timer usa o
-            # relogio do sistema, que e o que se quer para cadenciar a saida.
+            # Real-time timer: with use_sim_time false, create_timer uses the
+            # system clock, which is what is wanted to pace the output.
             self.create_timer(1.0 / rate, self._tick)
         self.create_timer(10.0, self._report)
 
         if self._bypass:
             self.get_logger().warning(
-                'PASSAGEM DIRETA de %s -> /clock (rate_hz=0). Sem '
-                'estrangulamento: o Aquila recebe os ~880 Hz do Gazebo. Modo de '
-                'ensaio, nao de operacao.' % source)
+                'PASS-THROUGH from %s -> /clock (rate_hz=0). No throttling: '
+                'the Aquila receives the ~880 Hz from Gazebo. Test mode, '
+                'not operating mode.' % source)
         else:
             self.get_logger().info(
-                'republicando %s -> /clock a %.0f Hz. O passo de fisica NAO '
-                'muda: a marcha e passada pelo loop do Gazebo, nao pelo /clock.'
-                % (source, rate))
+                'republishing %s -> /clock at %.0f Hz. The physics step does '
+                'NOT change: the gait is stepped by the Gazebo loop, not by '
+                '/clock.' % (source, rate))
 
     def _on_clock(self, msg: Clock) -> None:
         self._latest = msg
@@ -159,19 +167,20 @@ class ClockThrottle(Node):
             self._out += 1
 
     def _tick(self) -> None:
-        # Sem clock cru ainda: nao publique nada. Publicar zero faria os nos com
-        # use_sim_time saltarem para t=0 e a TF inteira ficaria no passado.
+        # No raw clock yet: publish nothing. Publishing zero would make the
+        # nodes with use_sim_time jump to t=0 and the whole TF tree would
+        # sit in the past.
         if self._latest is None:
             return
         self.pub.publish(self._latest)
         self._out += 1
 
     def _report(self) -> None:
-        # A razao entrada/saida e o que prova que o estrangulamento agiu. Sem
-        # isto, "mudei a taxa e nada aconteceu" nao tem como ser distinguido de
-        # "a taxa nunca mudou".
+        # The in/out ratio is what proves the throttling took effect.
+        # Without it, "I changed the rate and nothing happened" cannot be
+        # distinguished from "the rate never changed".
         self.get_logger().info(
-            'clock: entrada %d msg, saida %d msg nos ultimos 10 s '
+            'clock: in %d msg, out %d msg over the last 10 s '
             '(~%.0f Hz -> ~%.0f Hz)'
             % (self._in, self._out, self._in / 10.0, self._out / 10.0))
         self._in = 0
@@ -179,7 +188,7 @@ class ClockThrottle(Node):
 
 
 def main(args=None) -> None:
-    """Sobe o no e roda ate ser interrompido."""
+    """Bring up the node and spin until interrupted."""
     rclpy.init(args=args)
     node = ClockThrottle()
     try:

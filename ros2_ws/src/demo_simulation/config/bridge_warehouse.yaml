@@ -148,23 +148,25 @@
   gz_type_name: "gz.msgs.IMU"
   direction: GZ_TO_ROS
 
-# --- Cameras de cena do cockpit (painel azul, ML3.5 F3b) ---------------------
+# --- Cockpit scene cameras (blue panel, ML3.5 F3b) ---------------------------
 #
-# Duas vistas externas do mundo, spawnadas por launch/scene_cameras.launch.py.
-# Nao pertencem ao robo: sao a camera do OPERADOR, e existem para responder "o
-# robo se mexeu?" sem depender de nenhum no do stack.
+# Two external views of the world, spawned by
+# launch/scene_cameras.launch.py. They do not belong to the robot: they are
+# the OPERATOR's camera, and exist to answer "did the robot move?" without
+# depending on any node in the stack.
 #
-# O camera_info de cada uma e bridged por um motivo que NAO e geometria: e o
-# batimento cardiaco do painel. Um <img> ligado a um multipart/x-mixed-replace
-# nunca dispara `load` e reporta complete=false enquanto o stream esta saudavel
-# (medido no Firefox em 24/08/2026), entao o painel nao consegue saber pelo
-# proprio elemento se ha video. Ele decide pela frescura do camera_info, que
-# chega no mesmo ritmo da imagem e custa alguns bytes. Sem estes dois topicos o
-# painel azul mostra "sem sinal" por cima de video que esta correndo.
+# Each one's camera_info is bridged for a reason that is NOT geometry: it is
+# the panel's heartbeat. An <img> wired to a multipart/x-mixed-replace stream
+# never fires `load` and reports complete=false while the stream is healthy
+# (measured in Firefox on 24/08/2026), so the panel cannot tell from the
+# element itself whether there is video. It decides based on the freshness of
+# camera_info, which arrives at the same rate as the image and costs a few
+# bytes. Without these two topics the blue panel shows "no signal" on top of
+# video that is actually running.
 #
-# Sem qos_profile: SENSOR_DATA de proposito. Mesmo raciocinio da imagem da
-# camera do robo — no enlace Ethernet do HIL os fragmentos de 800x600 RGB se
-# perdiam por completo como best-effort. Confiavel e o padrao da bridge.
+# Deliberately without qos_profile: SENSOR_DATA. Same reasoning as the robot's
+# camera image -- on the HIL Ethernet link, 800x600 RGB fragments were
+# completely lost as best-effort. Reliable is the bridge's default.
 - ros_topic_name: "/demo/cockpit/scene_iso/image_raw"
   gz_topic_name: "/cockpit/scene_iso/image"
   ros_type_name: "sensor_msgs/msg/Image"

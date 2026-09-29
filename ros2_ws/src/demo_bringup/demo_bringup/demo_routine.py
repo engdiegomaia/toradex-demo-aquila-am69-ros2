@@ -12,7 +12,7 @@ WHAT IT IS FOR
 
 An exhibition loop: the robot walks a repeating pattern indefinitely so the demo
 can be left running in front of an audience. It is not a test harness -- for
-measurement use `scripts/gait_trial.sh`, which records evidence and aborts on a
+measurement use `tools/evaluation/gait_trial.sh`, which records evidence and aborts on a
 fallen robot.
 
 THREE CONSTRAINTS THAT ARE NOT OBVIOUS
@@ -69,23 +69,24 @@ CRUISE_MPS = 0.10
 STRAFE_MPS = 0.08
 TURN_RPS = 0.10
 
-# Rastreamento medido em 20/08/2026, tres passadas da rotina contra /demo/odom
-# real (scratchpad exp/csv/routine.csv). Sao os numeros que fazem o padrao
-# fechar; sem eles a coreografia caminha para fora da area de exposicao.
+# Tracking measured on 20/08/2026, three passes of the routine against real
+# /demo/odom (scratchpad exp/csv/routine.csv). These are the numbers that make
+# the pattern close; without them the choreography walks out of the display
+# area.
 #
-#   giro no lugar: 23.4 deg medidos contra 24.06 pedidos -> 0.973
-#   arco:          46.5 deg medidos contra 46.98 pedidos -> 0.990
+#   in-place turn: 23.4 deg measured against 24.06 requested -> 0.973
+#   arc:           46.5 deg measured against 46.98 requested -> 0.990
 #
-# A guinada e sub-rastreada em 1-3%, entao um giro comandado por tempo fecha
-# curto. Comandar o angulo dividido por estes ganhos e o que fecha a figura.
+# Yaw is under-tracked by 1-3%, so a turn commanded by time falls short.
+# Commanding the angle divided by these gains is what closes the figure.
 YAW_TRACKING_SPOT = 0.973
 YAW_TRACKING_ARC = 0.990
 
-# A marcha anda para tras 36% MAIS RAPIDO que para frente com o mesmo comando:
-# 0.132-0.139 m/s medidos contra 0.10 comandados, contra 0.098-0.102 para
-# frente. Nao esta compensado aqui porque a coreografia abaixo nao usa nenhum
-# par frente/re -- ela fecha por geometria, nao por cancelamento de erro. Fica
-# registrado porque qualquer par espelhado que alguem adicione precisa disso.
+# The gait walks backward 36% FASTER than forward with the same command:
+# 0.132-0.139 m/s measured against 0.10 commanded, versus 0.098-0.102 for
+# forward. Not compensated here because the choreography below does not use
+# any forward/reverse pair -- it closes by geometry, not by error
+# cancellation. Recorded because any mirrored pair someone adds will need it.
 AFT_OVERSPEED = 1.36
 
 
@@ -133,7 +134,7 @@ def default_choreography(cruise: float = CRUISE_MPS,
     accumulating.
 
     What was measured NOT to work, and must not come back: pairing
-    `arco esquerda(+cruise, +turn)` with `arco direita(+cruise, -turn)`. Flipping
+    `arc-left(+cruise, +turn)` with `arc-right(+cruise, -turn)`. Flipping
     the sign of wz is not the mirror of an arc -- the mirror is the time reverse,
     (v, w) -> (-v, -w). The sign-flipped pair traced an S and walked the robot
     1.32 m in x and 0.89 m in y PER PASS, off the display area in minutes
@@ -147,14 +148,14 @@ def default_choreography(cruise: float = CRUISE_MPS,
     """
     box = []
     for index in range(4):
-        box.append(Segment('frente %d/4' % (index + 1), cruise, 0.0, 0.0, move_s))
-        box.append(_spot_turn('giro 90 deg %d/4' % (index + 1), 90.0, turn))
-    circle = [_arc('arco 90 deg %d/4' % (index + 1), 90.0, cruise, turn)
+        box.append(Segment('forward %d/4' % (index + 1), cruise, 0.0, 0.0, move_s))
+        box.append(_spot_turn('turn 90 deg %d/4' % (index + 1), 90.0, turn))
+    circle = [_arc('arc 90 deg %d/4' % (index + 1), 90.0, cruise, turn)
               for index in range(4)]
     strafe_s = move_s * 0.5
     return tuple(box + circle + [
-        Segment('lado esquerdo', 0.0, strafe, 0.0, strafe_s),
-        Segment('lado direito', 0.0, -strafe, 0.0, strafe_s),
+        Segment('left side', 0.0, strafe, 0.0, strafe_s),
+        Segment('right side', 0.0, -strafe, 0.0, strafe_s),
     ])
 
 
@@ -259,9 +260,9 @@ class DemoRoutine(Node):
 
         self.create_timer(1.0 / self._rate_hz, self._tick)
         self.get_logger().info(
-            'rotina de demonstracao: %d segmentos, %.1f s cada movimento, '
-            '%.1f s de ajuste de postura entre eles, passada de %.1f s. '
-            'Aguardando o robo ficar de pe (z >= %.2f m).'
+            'demo routine: %d segments, %.1f s per movement, %.1f s of '
+            'posture settle between them, %.1f s per pass. Waiting for the '
+            'robot to stand up (z >= %.2f m).'
             % (self._schedule.segment_count, self._move_s, self._settle_s,
                self._schedule.total_s, self._stand_z))
 
@@ -284,7 +285,7 @@ class DemoRoutine(Node):
             if self._z < self._stand_z:
                 return
             self._started_at = self._now()
-            self.get_logger().info('robo de pe; iniciando a rotina')
+            self.get_logger().info('robot standing; starting the routine')
             return
 
         # A fallen robot is not something to keep commanding. Stop publishing and
@@ -292,23 +293,23 @@ class DemoRoutine(Node):
         if self._z <= self._min_z:
             if not self._down:
                 self.get_logger().warn(
-                    'robo caido (z = %.3f m): comandos suspensos ate se levantar'
-                    % self._z)
+                    'robot fallen (z = %.3f m): commands suspended until it '
+                    'stands back up' % self._z)
                 self._down = True
             return
         if self._down:
-            self.get_logger().info('robo de pe novamente; retomando a rotina')
+            self.get_logger().info('robot standing again; resuming the routine')
             self._down = False
             self._started_at = self._now()
 
         segment, finished = self._schedule.at(self._now() - self._started_at)
         if finished:
-            self._log_phase('rotina concluida')
+            self._log_phase('routine finished')
             return
 
         if segment is None:
             # Settle: publish nothing. Silence is the stop command.
-            self._log_phase('ajuste de postura')
+            self._log_phase('posture settle')
             return
 
         self._log_phase(segment.name)

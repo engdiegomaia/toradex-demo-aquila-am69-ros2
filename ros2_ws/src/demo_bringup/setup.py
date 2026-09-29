@@ -38,19 +38,20 @@ setup(
             # /demo/cmd_vel, so it lives with the commanders and not in
             # demo_simulation, which is part of the plant.
             'demo_routine = demo_bringup.demo_routine:main',
-            # Fecha o topo da arvore TF. Ver o cabecalho do modulo para os
-            # dois publicadores que nao podem coexistir com ele.
+            # Closes the top of the TF tree. See the module header for the
+            # two publishers that cannot coexist with it.
             'odom_tf = demo_bringup.odom_tf:main',
-            # Patrulha sob Nav2. Manda METAS, nao velocidades -- e por isso que
-            # ela desvia e demo_routine nao. Os dois nao podem rodar juntos;
-            # ver o cabecalho do modulo.
+            # Patrols under Nav2. Sends GOALS, not velocities -- that is why
+            # it steers around obstacles and demo_routine does not. The two
+            # cannot run together; see the module header.
             'patrol_commander = demo_bringup.patrol_commander:main',
-            # Fronteira de unidades entre o Nav2 (SI) e o contrato
-            # /demo/cmd_vel (manche). Ver o cabecalho do modulo: sem ele
-            # o robo anda a 40% do pedido e nada acusa.
+            # Unit boundary between Nav2 (SI) and the /demo/cmd_vel contract
+            # (stick). See the module header: without it the robot moves at
+            # 40% of what was requested and nothing flags it.
             'cmd_vel_si_to_stick = demo_bringup.cmd_vel_si_to_stick:main',
-            # Telemetria operacional do target para o cockpit: eixos comandados,
-            # CPU, memoria e temperatura sem depender de /rosout bruto.
+            # Operational telemetry from the target for the cockpit: commanded
+            # axes, CPU, memory and temperature without depending on raw
+            # /rosout.
             'target_monitor = demo_bringup.target_monitor:main',
         ],
     },

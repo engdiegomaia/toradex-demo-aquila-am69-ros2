@@ -1,91 +1,90 @@
 <?xml version="1.0"?>
 <!--
-  Camera de cena isometrica do cockpit web (ML3.5 F3b).
+  Isometric scene camera for the web cockpit (ML3.5 F3b).
 
-  Alimenta o painel azul: a vista de fora que mostra o robo ANDANDO. E o unico
-  painel que responde "o robo se mexeu?" sem depender de nenhum no do stack.
+  Feeds the blue panel: the external view showing the robot MOVING. It is the
+  only panel that answers "did the robot move?" without depending on a stack node.
 
-  POR QUE UM MODELO SPAWNADO E NAO UM BLOCO DENTRO DOS worlds/*.sdf
-  A primeira versao colocou as duas cameras direto em quadruped_empty.sdf e
-  quadruped_maze11.sdf. Isso deixa o painel azul MORTO na configuracao padrao:
-  docker/compose.host.yml nao passa `world:=`, e o default de sim.launch.py e o
-  warehouse.sdf de nav2_minimal_tb4_sim, que e arquivo de pacote instalado e nao
-  pode ser editado. Um painel que so funciona em mundo nao padrao e pior que um
-  painel ausente. Spawnado, o mesmo modelo entra em QUALQUER mundo, inclusive o
-  warehouse, com a pose vindo de argumento de launch.
+  WHY THIS IS A SPAWNED MODEL INSTEAD OF A BLOCK INSIDE worlds/*.sdf
+  The first version put both cameras directly in quadruped_empty.sdf and
+  quadruped_maze11.sdf. That leaves the blue panel DEAD in the default setup:
+  docker/compose.host.yml does not pass `world:=`, and sim.launch.py defaults to
+  warehouse.sdf from nav2_minimal_tb4_sim, an installed package file that cannot
+  be edited. A panel that works only in a non-default world is worse than no
+  panel. As a spawned model, the same model works in ANY world, including the
+  warehouse, with its pose supplied as a launch argument.
 
-  E por que nao pendurar a camera no robo: go2_description e vendorizado com
-  garantia byte-a-byte que sustenta o argumento de licenca (ver o README dele).
-  Editar o pacote esta proibido. Ver a decisao 6 de
+  And why not attach the camera to the robot: go2_description is vendored with
+  a byte-for-byte guarantee that supports its licensing claim (see its README).
+  Editing that package is prohibited. See decision 6 in
   docs/ml35/plano-cockpit-web.md.
 
-  DEPENDE DO gz-sim-sensors-system ESTAR NO MUNDO. Sem esse plugin o sensor
-  existe, nao publica nada, e nenhuma linha de log nomeia o plugin ausente.
-  Conferido: warehouse.sdf, quadruped_empty.sdf e os demais mundos do projeto
-  carregam o plugin.
+  REQUIRES gz-sim-sensors-system TO BE IN THE WORLD. Without this plugin, the
+  sensor exists but publishes nothing, and no log line names the missing plugin.
+  Checked: warehouse.sdf, quadruped_empty.sdf, and the other project worlds all
+  load the plugin.
 
-  A pose vem do `create` (-x -y -z -R -P -Y), nao daqui. Ver
-  launch/scene_cameras.launch.py para os valores e a conta do enquadramento.
+  The pose comes from `create` (-x -y -z -R -P -Y), not from here. See
+  launch/scene_cameras.launch.py for the values and framing calculations.
 
   1600x1200 a 10 Hz.
 
-  ATENCAO: 1200x900 foi tentado em 25/08/2026 e REVERTIDO sem conclusao. O
-  raciocinio continua valendo e esta registrado abaixo, mas as corridas feitas
-  com ele terminaram com o robo CAINDO (inclinacao 31,6 graus em t=62 s, e uma
-  segunda queda na partida com 26 RECOVER do supervisor), e "zero quedas" e
-  criterio do portao V3. A queda NAO foi atribuida a este parametro: o fator de
-  tempo real da bancada havia desabado para ~0,5 e continuou em 0,54 com a
-  percepcao parada, o que aponta para estado acumulado da bancada. Como nao deu
-  para separar, o valor validado foi restaurado. Quem retomar isto: meca com a
-  bancada recem-reiniciada, n >= 3, e registre o RTF de cada corrida.
+  CAUTION: 1200x900 was tried on 25/08/2026 and REVERTED without a conclusion.
+  The reasoning still applies and is recorded below, but runs with that setting
+  ended with the robot FALLING (31.6-degree tilt at t=62 s, and a second fall at
+  startup with 26 supervisor RECOVER actions); "zero falls" is a V3 gate
+  criterion. The fall was NOT attributed to this parameter: bench real-time
+  factor had dropped to ~0.5 and stayed at 0.54 with perception stopped,
+  pointing to accumulated bench state. Since the causes could not be separated,
+  the validated value was restored. To revisit this: measure with a freshly
+  restarted bench, n >= 3, and record the RTF for every run.
 
-  A primeira versao era 800x600 a 5 Hz "porque o painel nao precisa de mais", e
-  precisava: o painel de cena ocupa cerca de 1200 px de largura na tela, entao
-  800 px de sensor eram esticados e as paredes do labirinto — superficies grandes
-  e de cor quase uniforme, o pior caso do JPEG — chegavam sujas nas bordas. A
-  resposta foi 1600x1200, que resolveu o visual e passou de largo do necessario:
-  1600 px num painel de 1200 px e reducao, nao nitidez.
+  The first version used 800x600 at 5 Hz because "the panel does not need more."
+  It did: the scene panel is about 1200 px wide, so the 800 px sensor image was
+  enlarged and maze walls — large, nearly uniform surfaces, the worst case for
+  JPEG — arrived with dirty edges. 1600x1200 fixed the image and overshot what
+  was needed: 1600 px on a 1200 px panel means downscaling, not added sharpness.
 
-  1200x900 casaria o sensor com o painel EXATAMENTE, atendendo o mesmo criterio
-  que reprovou 800x600 (nada de esticar) com 44% menos pixels que 1600x1200, e
-  e por ai que uma proxima tentativa deve ir. A regra util e "sensor = largura do
-  painel", nao um valor decorado.
+  1200x900 would match the sensor to the panel EXACTLY, meeting the same criterion
+  that ruled out 800x600 (no upscaling) with 44% fewer pixels than 1600x1200.
+  That is the direction for the next attempt. The useful rule is "sensor = panel
+  width," not a decorative number.
 
-  POR QUE OS PIXELS IMPORTAM, E POR QUE O FATOR DE TEMPO REAL NAO CONTA A
-  HISTORIA. Medido na bancada em 25/08/2026, host x86, maze11, protocolo do
-  nav_trial (180 s, prazo de meta 90 s), com a percepcao parada nas duas pontas:
+  WHY PIXELS MATTER, AND WHY REAL-TIME FACTOR DOES NOT TELL THE WHOLE STORY.
+  Measured on the bench on 25/08/2026, x86 host, maze11, nav_trial protocol
+  (180 s, 90 s goal timeout), with perception stopped at both ends:
 
-      cameras de cena LIGADAS  ->  0,0155 m/s,  cmd_vx pico 0,012 m/s
-      cameras de cena DESLIGADAS -> 0,0515 m/s,  cmd_vx pico 0,139 m/s
+      scene cameras ON  ->  0.0155 m/s,  peak cmd_vx 0.012 m/s
+      scene cameras OFF ->  0.0515 m/s,  peak cmd_vx 0.139 m/s
 
-  Mais de 3x na velocidade media da navegacao, com FATOR DE TEMPO REAL EM 0,96
-  NAS DUAS. Foi por isso que este cabecalho antes concluia que 10 Hz "custava
-  quase nada": o RTF media a fisica e nao a fila de sensores. Os dois numeros de
-  RTF abaixo continuam validos e continuam insuficientes como criterio.
+  Over 3x the average navigation speed, with REAL-TIME FACTOR AT 0.96 IN BOTH
+  RUNS. That is why this header previously concluded that 10 Hz "cost almost
+  nothing": RTF measured physics, not the sensor queue. The two RTF values below
+  remain valid and remain insufficient as a criterion.
 
-  Ao medir navegacao, desligue as cameras (scene_cameras:=false) ou compare
-  sempre com as cameras no MESMO estado. Comparar entre estados diferentes da
-  regressao onde nao houve nenhuma — foi o que aconteceu em 25/08/2026, com a
-  sintonia V3 intacta no repositorio parecendo ter piorado 15x.
+  When measuring navigation, turn off the cameras (scene_cameras:=false) or
+  always compare runs with the cameras in the SAME state. Comparing different
+  states creates an apparent regression where none occurred — that happened on
+  25/08/2026, making the unchanged V3 tuning in the repository appear 15x worse.
 
-  A proporcao continua 4:3 DE PROPOSITO. O horizontal_fov e o enquadramento das
-  duas cameras foram medidos nesta proporcao (ver scene_cameras.launch.py); ir
-  para 16:9 mantendo o hfov cortaria vertical e desenquadraria as duas cenas de
-  uma vez.
+  The 4:3 aspect ratio is DELIBERATE. The horizontal_fov and framing of both
+  cameras were measured at this ratio (see scene_cameras.launch.py); switching
+  to 16:9 while keeping the hfov would crop vertically and misframe both scenes.
 
-  A TAXA E 10 Hz E NAO 15 POR MEDICAO, nao por cautela. Cada camera renderiza no
-  mesmo processo do Gazebo do operador, e nesta resolucao a workstation nao
-  entrega 15 Hz de qualquer jeito. Medido na bancada, mesmo mundo (maze11):
+  THE RATE IS 10 Hz, NOT 15, BASED ON MEASUREMENT, not caution. Each camera
+  renders in the operator's Gazebo process, and at this resolution the
+  workstation cannot deliver 15 Hz anyway. Measured on the bench, same world
+  (maze11):
 
-      update_rate 15  ->  9,4 Hz entregues,  fator de tempo real 0,59  (a 1600x1200)
-      update_rate 10  ->  9,8 Hz entregues,  fator de tempo real 0,97  (a 1600x1200)
+      update_rate 15  ->  9.4 Hz delivered, real-time factor 0.59 (at 1600x1200)
+      update_rate 10  ->  9.8 Hz delivered, real-time factor 0.97 (at 1600x1200)
 
-  Ou seja: pedir 15 nao rendia um quadro a mais e custava 40% da velocidade da
-  simulacao — o que estica cada meta do Nav2 na mesma proporcao. Antes de subir
-  este numero, meca de novo; e se o gargalo for banda e nao render (modo hil,
-  Ethernet ate o Aquila), o parametro a baixar primeiro e a qualidade JPEG em
-  hmi/js/config.js, que degrada suavemente, e nao a resolucao daqui, que desloca
-  o enquadramento em pixels.
+  In other words, requesting 15 delivered no extra frames and cost 40% of
+  simulation speed — stretching every Nav2 goal by the same proportion. Measure
+  again before raising this value. If the bottleneck is bandwidth rather than
+  rendering (HIL mode, Ethernet to the Aquila), lower JPEG quality first in
+  hmi/js/config.js; it degrades gracefully, unlike changing this resolution,
+  which shifts the framing in pixels.
 -->
 <sdf version="1.9">
   <model name="cockpit_scene_iso">
@@ -98,9 +97,8 @@
             <width>1600</width>
             <height>1200</height>
           </image>
-          <!-- 8 amostras: as bordas das paredes do labirinto sao quase todas
-               diagonais, e serrilhado em diagonal e o artefato que mais aparece
-               num render parado. -->
+          <!-- 8 samples: maze wall edges are mostly diagonal, and diagonal
+               aliasing is the most visible artifact in a static render. -->
           <anti_aliasing>8</anti_aliasing>
           <clip>
             <near>0.1</near>

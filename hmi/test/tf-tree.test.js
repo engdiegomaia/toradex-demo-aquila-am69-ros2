@@ -20,7 +20,7 @@ const quatZ = (theta) => ({ x: 0, y: 0, z: Math.sin(theta / 2), w: Math.cos(thet
 const near = (actual, expected, message) =>
   assert.ok(
     Math.abs(actual - expected) < 1e-9,
-    `${message}: esperado ${expected}, veio ${actual}`,
+    `${message}: expected ${expected}, received ${actual}`,
   );
 
 test('yawOf recovers the angle from a yaw-only quaternion', () => {

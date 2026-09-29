@@ -48,14 +48,14 @@ def test_position_near_spawn_is_allowed() -> None:
 
     assert result.returncode == 0
     assert 'GUARD_EXIT=0' in result.stdout
-    assert 'RECUSADO' not in result.stderr
+    assert 'REFUSED' not in result.stderr
 
 
 def test_position_far_from_spawn_is_refused() -> None:
     result = run_guard('0', 'printf "5.0 0.1\\n"')
 
     assert result.returncode == 1
-    assert 'RECUSADO' in result.stderr
+    assert 'REFUSED' in result.stderr
     assert '5.00 m' in result.stderr
 
 
@@ -72,7 +72,7 @@ def test_force_spawn_bypasses_a_refusal() -> None:
 
     assert result.returncode == 0
     assert 'GUARD_EXIT=0' in result.stdout
-    assert 'RECUSADO' not in result.stderr
+    assert 'REFUSED' not in result.stderr
 
 
 def test_missing_odometry_is_allowed_through() -> None:
@@ -114,7 +114,7 @@ def test_refusal_message_never_suggests_resetting_after_up() -> None:
     # The message explicitly disclaims the dangerous reading (a negation, not
     # a suggestion) -- that sentence is expected and is not what this test
     # guards against.
-    assert 'nao significa' in text
+    assert 'does not mean' in text
 
     # The numbered action list is what an operator actually follows. Its
     # --force-spawn option must never pair "force" with "reset" as a

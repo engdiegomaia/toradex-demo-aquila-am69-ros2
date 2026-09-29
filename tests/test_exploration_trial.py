@@ -1,4 +1,4 @@
-"""Unit tests for the pure helpers of scripts/exploration_trial.py.
+"""Unit tests for the pure helpers of tools/evaluation/exploration_trial.py.
 
 These run WITHOUT ROS. That is the reason `exploration_trial` imports `rclpy`
 and the message packages inside `build_recorder()` instead of at module scope —
@@ -15,7 +15,7 @@ from types import SimpleNamespace
 import pytest
 
 
-SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
+SCRIPTS = Path(__file__).resolve().parents[1] / 'tools' / 'evaluation'
 sys.path.insert(0, str(SCRIPTS))
 
 from exploration_trial import (  # noqa: E402

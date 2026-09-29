@@ -112,75 +112,88 @@ class MazeExplorer(Node):
         super().__init__('maze_explorer')
         self.declare_parameter('exploration_bt_xml', '')
         self.declare_parameter('total_timeout_s', 600.0)
-        # 90 s, e NAO 180 s. A rodada 3 (29/08) subiu para 180 e o resultado
-        # foi pior em tudo: 4,26 m contra 21,93 m, 3746 celulas contra 8915,
-        # razao de trabalho 8,6% contra 41,7%, e nenhuma deteccao do marcador.
+        # 90 s, and NOT 180 s. Round 3 (29/08) raised it to 180 and the result
+        # was worse across the board: 4.26 m against 21.93 m, 3746 cells
+        # against 8915, work ratio 8.6% against 41.7%, and no marker
+        # detection at all.
         #
-        # A rodada 2 tinha expirado tres metas distantes em exatamente 90,0 s e
-        # a leitura foi "o teto e curto demais". Era leitura errada: a rodada 3
-        # travou 180 s numa meta a 0,4 m do robo. O teto nao esta cortando
-        # travessia lenta, esta cortando travamento -- e dobra-lo so torna cada
-        # travamento duas vezes mais caro.
+        # Round 2 had timed out three distant goals at exactly 90.0 s, and the
+        # reading was "the ceiling is too short". That reading was wrong:
+        # round 3 got stuck for 180 s on a goal 0.4 m from the robot. The
+        # ceiling is not cutting off slow traversal, it is cutting off a
+        # stall -- and doubling it only makes each stall twice as expensive.
         #
-        # O que continua errado e a PERMANENCIA: uma meta que expira vai para a
-        # blacklist dura e nunca volta. Ver docs/results/ml35-f5-exploration-r3.md.
-        # Medido em R5 (arm B, 21 metas): as 12 metas que deram certo levaram
-        # 6,1-35,1 s; as 3 que estouraram gastaram 90,0 s cada, 270 s de um
-        # orcamento de 600 s. 45 s cobre a pior meta boa com 28% de margem e
-        # corta pela metade o custo de cada meta travada.
+        # What is still wrong is PERMANENCE: a goal that times out goes to the
+        # hard blacklist and never comes back. See
+        # docs/results/ml35-f5-exploration-r3.md. Measured in R5 (arm B, 21
+        # goals): the 12 goals that succeeded took 6.1-35.1 s; the 3 that
+        # timed out spent 90.0 s each, 270 s out of a 600 s budget. 45 s
+        # covers the worst good goal with a 28% margin and halves the cost of
+        # every stuck goal.
         self.declare_parameter('goal_timeout_s', 45.0)
         self.declare_parameter('marker_stale_s', 2.0)
         self.declare_parameter('marker_stop_distance_m', 0.7)
-        # Espelha `xy_goal_tolerance` do `general_goal_checker` do Nav2. Serve
-        # para nao comandar passo que o controlador nao distingue de zero;
-        # um teste de contrato mantem os dois valores iguais.
+        # Mirrors `xy_goal_tolerance` of Nav2's `general_goal_checker`. This
+        # keeps it from commanding a step the controller can't distinguish
+        # from zero; a contract test keeps the two values equal.
         self.declare_parameter('nav_goal_tolerance_m', 0.25)
         self.declare_parameter('homing_step_m', 0.5)
-        # Orcamento da aproximacao as cegas. `marker_stale_s` diz quando o
-        # marcador deixou de ser visto; este diz por quanto tempo ainda vale
-        # caminhar ate a pose ja travada. Sem ele o homing desistia na
-        # primeira parede que cortava a visada -- 0 de 11 aproximacoes em campo.
+        # Budget for the blind approach. `marker_stale_s` says when the
+        # marker stopped being seen; this one says for how long it is still
+        # worth walking toward the already-latched pose. Without it, homing
+        # gave up at the first wall that cut the line of sight -- 0 of 11
+        # approaches in the field.
         self.declare_parameter('homing_persistence_s', 90.0)
-        # Portao de ENTRADA, dimensionado com as 131 amostras de R7 contra o
-        # marcador do SDF: o erro absoluto medio da estimativa e 0,41 m na faixa
-        # 3-4 m, 1,14 m em 4-6 m e 3,08 m acima de 6 m. R7 comprometeu-se a
-        # 7,35 m e a aproximacao, agora persistente, prendeu a corrida 520 s.
+        # ENTRY gate, sized from R7's 131 samples against the SDF marker: the
+        # estimate's mean absolute error is 0.41 m in the 3-4 m range, 1.14 m
+        # at 4-6 m, and 3.08 m above 6 m. R7 committed at 7.35 m, and the
+        # approach, now persistent, tied up the run for 520 s.
         self.declare_parameter('homing_max_distance_m', 4.0)
-        # Histerese: a estimativa oscilou de 1,27 a 7,94 m na mesma corrida, e
-        # uma amostra unica nao pode cancelar a exploracao.
+        # Hysteresis: the estimate swung from 1.27 to 7.94 m within the same
+        # run, and a single sample must not be able to cancel exploration.
         self.declare_parameter('homing_confirm_observations', 3)
+        # Fail-safe for the blind approach: a large body tilt means the Go2 is
+        # no longer in a trustworthy walking posture.  Cancel the active goal
+        # instead of continuing to command toward a latched marker pose.
+        # Normal trotting tilt is well below this value; the threshold is kept
+        # deliberately conservative because this guard is only active during
+        # homing and is not a navigation controller.
+        self.declare_parameter('homing_max_tilt_deg', 15.0)
         self.declare_parameter('blacklist_radius_m', 0.75)
-        # Ciclos CONSECUTIVOS de selecao sem nenhum candidato viavel antes
-        # de declarar falha. Existe porque aposentar fronteiras reprovadas
-        # (ver `_on_path_result`) pode acabar engolindo todas elas, e o
-        # robo parado nao gera mapa novo -- a situacao nunca se resolve
-        # sozinha. A 1 Hz do `_tick`, 10 e ~10 s: folgado para a janela em
-        # que o mapa ainda nao atualizou depois de uma chegada, e curto o
-        # bastante para nao gastar o orcamento parado.
+        # CONSECUTIVE selection cycles with no viable candidate before
+        # declaring failure. Exists because retiring refused frontiers (see
+        # `_on_path_result`) can end up swallowing all of them, and a
+        # stationary robot does not produce a new map -- the situation never
+        # resolves itself. At `_tick`'s 1 Hz, 10 is ~10 s: loose enough for
+        # the window where the map has not yet updated after an arrival, and
+        # short enough to not burn the budget while stalled.
         self.declare_parameter('barren_selections_limit', 10)
-        # Distancia minima entre o robo e uma fronteira para ela ser candidata.
+        # Minimum distance between the robot and a frontier for it to be a
+        # candidate.
         #
-        # O `xy_goal_tolerance` do Nav2 e 0,25 m (`nav2_params_go2.yaml`). Uma
-        # fronteira mais perto que isso faz o Nav2 devolver sucesso SEM que
-        # nada se mova: a selecao volta ao mesmo ponto, o mapa nao muda, e o
-        # ciclo se repete. Rodada 4 de 29/08: 565 vezes em 580 s, robo dentro
-        # de uma caixa de 11 mm x 25 mm, mapa congelado em 2669 celulas.
+        # Nav2's `xy_goal_tolerance` is 0.25 m (`nav2_params_go2.yaml`). A
+        # frontier closer than that makes Nav2 return success WITHOUT
+        # anything moving: selection goes back to the same point, the map
+        # doesn't change, and the cycle repeats. Round 4 of 29/08: 565 times
+        # in 580 s, robot inside an 11 mm x 25 mm box, map frozen at 2669
+        # cells.
         #
-        # 0,35 m da folga sobre a tolerancia sem esconder fronteira util. O
-        # corte e relativo a pose ATUAL e recalculado a cada ciclo -- nao e
-        # anotacao, nao entra em nenhuma das tres listas de supressao, e andar
-        # alguns centimetros devolve a fronteira a disputa sozinho.
+        # 0.35 m gives margin over the tolerance without hiding a useful
+        # frontier. The cutoff is relative to the CURRENT pose and
+        # recomputed every cycle -- it is not an annotation, it does not
+        # enter any of the three suppression lists, and walking a few
+        # centimeters returns the frontier to contention on its own.
         self.declare_parameter('min_frontier_distance_m', 0.35)
-        # Raio, em `extract_frontiers`, que uma celula-alvo precisa manter
-        # livre de qualquer celula ocupada para virar candidata (`has_clearance`
-        # em frontier.py). O default anterior, 0,45 m, e maior que o meio-
-        # comprimento do footprint (0,37 m, `nav2_params_go2.yaml`) e reprovava
-        # celulas perto de vaos e cantos -- exatamente onde uma fronteira
-        # estreita encontra a parede. 0,38 m mantem uma folga real sobre o
-        # footprint (nao sobre `robot_radius`, que ja foi substituido) e deixa
-        # o robo se aproximar mais da parede a frente antes de a fronteira
-        # daquele lado ser descartada. Feedback de 29/08: o robo desistia cedo
-        # demais perto de paredes e perdia aberturas.
+        # Radius, in `extract_frontiers`, that a target cell must keep clear
+        # of any occupied cell to become a candidate (`has_clearance` in
+        # frontier.py). The previous default, 0.45 m, is larger than half the
+        # footprint's length (0.37 m, `nav2_params_go2.yaml`) and rejected
+        # cells near gaps and corners -- exactly where a narrow frontier
+        # meets the wall. 0.38 m keeps real margin over the footprint (not
+        # over `robot_radius`, which has already been replaced) and lets the
+        # robot get closer to the wall ahead before the frontier on that side
+        # gets discarded. Feedback from 29/08: the robot was giving up too
+        # early near walls and missing openings.
         self.declare_parameter('frontier_wall_clearance_m', 0.38)
         # Alternates per cluster, and how far apart they must sit. R10
         # (29/08) died in 28.5 s because its one frontier cluster had exactly
@@ -204,59 +217,61 @@ class MazeExplorer(Node):
         # (`frontier_score`/`information_gain_m`) so scoring still reflects
         # the real frontier, not the shortened approach.
         self.declare_parameter('frontier_endpoint_setback_m', 0.40)
-        # R15 (30/08/2026). Vigia de movimento durante `navigating`: meta
-        # aceita mas o robo nao progride (nem translacao nem rotacao). Medido
-        # em R13 (docs/results/ml35-f5-exploration-r13.md): 5 janelas reais de
-        # imobilidade com comando, 10,2-24,2 s de duracao, e 4 das 7 metas
-        # com timeout (45 s) tinham uma dessas janelas dentro.
+        # R15 (30/08/2026). Movement watchdog during `navigating`: goal
+        # accepted but the robot makes no progress (neither translation nor
+        # rotation). Measured in R13
+        # (docs/results/ml35-f5-exploration-r13.md): 5 real windows of
+        # commanded stillness, 10.2-24.2 s long, and 4 of the 7 goals that
+        # timed out (45 s) had one of these windows inside them.
         #
-        # CORRECAO (revisao de codigo pos-R14c): a versao original deste
-        # comentario dizia "15 s fica abaixo da mais curta das 5" -- errado,
-        # 15 > 10,2. Na verdade 15 s so captura 2 das 5 janelas medidas em
-        # R13 (15,1 e 24,2 s); as outras tres (11,7, 10,7 e 10,2 s) ficam
-        # abaixo do limiar e NAO disparariam o vigia. Isto e uma escolha
-        # deliberada (nao capturar toda pausa curta de replanejamento normal
-        # como travamento), nao uma alegacao de cobertura total -- mas o
-        # comentario anterior alegava cobertura total por engano. Ainda sobra
-        # folga grande contra os 45 s de `goal_timeout_s`; o objetivo e agir
-        # ANTES de esgotar o prazo da meta nas janelas mais longas, nao
-        # substitui-lo nem capturar cada caso.
+        # CORRECTION (code review post-R14c): the original version of this
+        # comment said "15 s stays below the shortest of the 5" -- wrong,
+        # 15 > 10.2. In fact 15 s only catches 2 of the 5 windows measured in
+        # R13 (15.1 and 24.2 s); the other three (11.7, 10.7, and 10.2 s)
+        # fall below the threshold and would NOT trigger the watchdog. This
+        # is a deliberate choice (not capturing every short pause of normal
+        # replanning as a stall), not a claim of total coverage -- but the
+        # previous comment mistakenly claimed total coverage. There is still
+        # a large margin left against `goal_timeout_s`'s 45 s; the goal is to
+        # act BEFORE the goal's deadline runs out in the longer windows, not
+        # to replace it or catch every case.
         self.declare_parameter('stall_window_s', 15.0)
-        # Mesmo limiar de deslocamento que `find_stalled_navigating_windows`
-        # em `scripts/exploration_trial.py` ja usa contra dado real de R13 --
-        # os dois tem de concordar, ou o watchdog em campo e o diagnostico
-        # offline classificariam a mesma corrida de jeitos diferentes.
+        # Same displacement threshold that
+        # `find_stalled_navigating_windows` in
+        # `tools/evaluation/exploration_trial.py` already uses against real
+        # R13 data -- the two have to agree, or the field watchdog and the
+        # offline diagnostic would classify the same run differently.
         self.declare_parameter('stall_move_threshold_m', 0.05)
-        # R15a (30/08/2026). Progresso ANGULAR equivalente ao de translacao
-        # acima -- sem isto, uma rotacao legitima em pé (por exemplo, virar
-        # para encarar um corredor) sem deslocamento xy seria classificada
-        # como travamento. 0.05 rad (~2,9 graus) fica acima do ruido tipico
-        # de localizacao com o robo parado e bem abaixo de qualquer rotacao
-        # deliberada -- julgamento de codigo, ainda sem dado de HIL dedicado
-        # a travamentos rotacionais (CLAUDE.md regra 7: nao alegar validacao
-        # de hardware que nao foi feita).
+        # R15a (30/08/2026). ANGULAR progress, equivalent to the translation
+        # one above -- without it, a legitimate rotation in place (e.g.
+        # turning to face a corridor) with no xy displacement would be
+        # classified as a stall. 0.05 rad (~2.9 degrees) sits above typical
+        # localization noise with the robot stationary and well below any
+        # deliberate rotation -- a code-level judgment call, still without
+        # dedicated HIL data on rotational stalls (CLAUDE.md rule 7: never
+        # claim hardware validation that was not performed).
         self.declare_parameter('stall_rotate_threshold_rad', 0.05)
-        # Varredura de observacao quando NENHUM cluster de fronteira bruto
-        # existe (nao quando existe mas foi filtrado -- girar nao revela
-        # nada de novo nesse caso). ~60 graus: uma volta completa a
-        # max_rotational_vel 0.12 rad/s (behavior_server, nav2_params_go2.yaml)
-        # leva ~52 s, quase o orcamento de uma meta inteira; uma fatia menor,
-        # repetida a cada versao de mapa que continuar sem cluster algum,
-        # cobre o entorno progressivamente sem monopolizar o orcamento total.
+        # Observation sweep when NO raw frontier cluster exists at all (not
+        # when one exists but was filtered out -- spinning reveals nothing
+        # new in that case). ~60 degrees: a full turn at max_rotational_vel
+        # 0.12 rad/s (behavior_server, nav2_params_go2.yaml) takes ~52 s,
+        # almost an entire goal's budget; a smaller slice, repeated on every
+        # map version that keeps having no cluster at all, covers the
+        # surroundings progressively without monopolizing the total budget.
         self.declare_parameter('recovery_spin_rad', 1.047)
-        # R17 (30/08/2026). Cone de rumo (graus) dentro do qual uma fronteira
-        # ainda conta como "adiante" -- ate 120 graus de desvio do rumo
-        # estabelecido, o suficiente para curvas e corredores laterais sem
-        # tratar toda mudanca de direcao como retorno. So o arco de 60 graus
-        # de cada lado do sentido exatamente oposto (os 120 graus restantes
-        # dos 360) conta como reversa. Enquanto existir ao menos uma
-        # fronteira adiante alcancavel, nenhuma reversa e considerada --
-        # prioridade explicita, nao uma penalidade suave.
+        # R17 (30/08/2026). Heading cone (degrees) within which a frontier
+        # still counts as "forward" -- up to 120 degrees of deviation from
+        # the established heading, enough for turns and side corridors
+        # without treating every change of direction as a return. Only the
+        # 60-degree arc on each side of the exact opposite direction (the
+        # remaining 120 of the 360 degrees) counts as reverse. As long as at
+        # least one reachable forward frontier exists, no reverse one is
+        # considered -- an explicit priority, not a soft penalty.
         self.declare_parameter('forward_cone_deg', 120.0)
-        # R17. Espacamento minimo entre breadcrumbs consecutivos, para nao
-        # empilhar pontos quase identicos quando metas ficam proximas umas
-        # das outras -- a pilha existe para marcar cruzamentos reais
-        # (spawn -> corredor A -> cruzamento B -> ...), nao cada parada.
+        # R17. Minimum spacing between consecutive breadcrumbs, so as not to
+        # stack nearly identical points when goals end up close to one
+        # another -- the stack exists to mark real intersections
+        # (spawn -> corridor A -> intersection B -> ...), not every stop.
         self.declare_parameter('breadcrumb_min_spacing_m', 0.75)
 
         transient = QoSProfile(
@@ -286,26 +301,27 @@ class MazeExplorer(Node):
         self._state = 'idle'
         self._message = ''
         self._map: OccupancyGrid | None = None
-        # Sequencia do mapa, e nao o proprio mapa, como chave de cache: comparar
-        # duas OccupancyGrid celula a celula custaria mais que a extracao que o
-        # cache existe para evitar.
+        # Map sequence, and not the map itself, as the cache key: comparing
+        # two OccupancyGrids cell by cell would cost more than the extraction
+        # the cache exists to avoid.
         #
-        # R15 (30/08/2026): so avanca quando o CONTEUDO muda (`_on_map` compara
-        # um checksum, nao apenas conta mensagens). `slam_toolbox` republica
-        # `/map` periodicamente mesmo sem mudanca real, e antes desta correcao
-        # cada republicacao contava como "mapa novo" para
-        # `map_seq > last_provisional_map_seq` em `_begin_selection` --
-        # liberando uma supressao provisoria que nenhuma observacao nova
-        # desmentiu. O teste
+        # R15 (30/08/2026): only advances when the CONTENT changes (`_on_map`
+        # compares a checksum, not just a message count). `slam_toolbox`
+        # republishes `/map` periodically even without a real change, and
+        # before this fix every republication counted as a "new map" for
+        # `map_seq > last_provisional_map_seq` in `_begin_selection` --
+        # releasing a provisional suppression that no new observation had
+        # disproved. The test
         # `test_map_republication_does_not_release_a_provisional_recovery`
-        # cobre exatamente este caso.
+        # covers exactly this case.
         self._map_seq = 0
         self._map_content_hash: int | None = None
         self._selection_key: tuple[int, int, int] | None = None
         self._frontier_count = 0
-        # Instrumentacao. Medida com relogio MONOTONICO, nunca com /clock: sob
-        # `use_sim_time` o relogio de simulacao pode pausar, saltar ou correr
-        # fora do tempo real, e o que se quer aqui e CPU gasta de verdade.
+        # Instrumentation. Measured with a MONOTONIC clock, never with
+        # /clock: under `use_sim_time` the simulation clock can pause, jump,
+        # or run out of step with real time, and what matters here is actual
+        # CPU time spent.
         self._frontier_extract_ms = 0.0
         self._frontier_cells = 0
         self._frontier_clusters = 0
@@ -315,28 +331,30 @@ class MazeExplorer(Node):
         self._near_skipped = 0
         self._current: Frontier | None = None
         self._blacklist: list[tuple[float, float]] = []
-        # TRES listas, porque as tres falhas nao significam a mesma coisa.
+        # THREE lists, because the three kinds of failure don't mean the
+        # same thing.
         #
-        # `_blacklist` e dura: o Nav2 recusou a meta, ou devolveu falha
-        # explicita para ela. Isso e falha de EXECUCAO daquela fronteira, e
-        # mapa novo nao a desmente.
+        # `_blacklist` is hard: Nav2 refused the goal, or returned an
+        # explicit failure for it. That is an EXECUTION failure of that
+        # frontier, and a new map does not disprove it.
         #
-        # `_timed_out` e provisoria: a meta estourou `goal_timeout_s`. Isso
-        # marca a TENTATIVA, nao a fronteira -- a rodada 3 de 29/08 gastou
-        # 180 s numa meta a 0,4 m do robo, entao o teto corta travamento, e
-        # travamento fala da pose, do costmap e do plano daquele instante. Na
-        # rodada 2 tres expiracoes viraram tres pontos permanentes que
-        # engoliram os quatro clusters restantes aos 570 s.
+        # `_timed_out` is provisional: the goal exceeded `goal_timeout_s`.
+        # This marks the ATTEMPT, not the frontier -- round 3 of 29/08 spent
+        # 180 s on a goal 0.4 m from the robot, so the ceiling cuts off a
+        # stall, and a stall speaks to the pose, the costmap, and the plan of
+        # that instant. In round 2, three timeouts turned into three
+        # permanent points that swallowed the remaining four clusters by
+        # 570 s.
         #
-        # `_refused` e provisoria: o planejador nao achou caminho AGORA.
-        # `ExplorationGrid` roda com `allow_unknown: false`, entao toda
-        # fronteira distante e reprovada enquanto o caminho ate ela
-        # atravessar desconhecido -- e e exatamente isso que a exploracao vai
-        # desfazer. Medido na rodada 1 de 29/08: as duas unicas reprovacoes
-        # foram a 2,3 m e 2,7 m do robo, e aposenta-las de vez deixou 3
-        # clusters e 157 celulas de fronteira real sem nenhum candidato
-        # permitido. Reduzir o raio nao ajudaria: o ponto anotado E o
-        # centroide do cluster.
+        # `_refused` is provisional: the planner found no path RIGHT NOW.
+        # `ExplorationGrid` runs with `allow_unknown: false`, so every
+        # distant frontier is refused while the path to it crosses unknown
+        # space -- and that is exactly what exploration is going to undo.
+        # Measured in round 1 of 29/08: the only two refusals were 2.3 m and
+        # 2.7 m from the robot, and retiring them for good left 3 clusters
+        # and 157 cells of real frontier with no candidate allowed at all.
+        # Reducing the radius would not help: the annotated point IS the
+        # cluster's centroid.
         self._refused: list[tuple[float, float]] = []
         self._timed_out: list[tuple[float, float]] = []
         # Guards the provisional-recovery release below: a fresh entry must
@@ -395,34 +413,36 @@ class MazeExplorer(Node):
         self._marker_far_ignored = 0
         self._near_marker_streak = 0
         self._homing_abandons = 0
-        # Vigia de movimento (R15/R15a): ultima pose (x, y, yaw) e instante em
-        # que o robo realmente progrediu (xy ou angular) desde a ACEITACAO da
-        # meta ATUAL de `navigating` -- setado em `_on_nav_accepted`, nao no
-        # despacho, para nao contar tempo de resposta do Nav2 como travamento.
+        # Movement watchdog (R15/R15a): last pose (x, y, yaw) and instant at
+        # which the robot actually made progress (xy or angular) since the
+        # ACCEPTANCE of the CURRENT `navigating` goal -- set in
+        # `_on_nav_accepted`, not at dispatch, so as not to count Nav2's
+        # response time as a stall.
         self._nav_last_pose: tuple[float, float, float] | None = None
         self._nav_last_progress_s = 0.0
-        # Varredura de observacao (R15) quando nenhum cluster bruto existe.
+        # Observation sweep (R15) when no raw cluster exists.
         self._recovery_pending = False
         self._recovery_handle = None
         self._recovery_map_seq = -1
         self._recovery_attempts = 0
-        # R17: exploracao direcional com backtracking por breadcrumbs.
+        # R17: directional exploration with breadcrumb backtracking.
         #
-        # Rumo real (direcao do deslocamento, nao a guinada final) desde a
-        # ultima meta concluida -- `None` ate a primeira, quando nao ha base
-        # para classificar nada como "adiante" ou "reverso".
+        # Real heading (direction of displacement, not the final yaw) since
+        # the last completed goal -- `None` until the first one, when there
+        # is no basis to classify anything as "forward" or "reverse".
         self._current_heading: float | None = None
-        # Pose do robo no despacho da meta ATUAL, para medir o deslocamento
-        # real na chegada (`_update_heading`) -- nao a pose no fim, que so
-        # diz onde parou, nao de onde veio.
+        # Robot pose at the dispatch of the CURRENT goal, to measure the
+        # real displacement on arrival (`_update_heading`) -- not the pose
+        # at the end, which only says where it stopped, not where it came
+        # from.
         self._nav_departure_pose: tuple[float, float] | None = None
-        # Pilha de poses seguras, uma por meta de exploracao concluida
-        # (nao por retorno), espacadas por `breadcrumb_min_spacing_m`. Cada
-        # entrada e a pose de PARTIDA da meta concluida: ao chegar a um beco,
-        # o topo aponta para onde o robo estava antes de entrar nele, nunca
-        # para a propria pose atual.
-        # Consumida (removida) no momento em que um retorno comeca -- nunca
-        # reutilizada, o que impede um ciclo entre dois pontos.
+        # Stack of safe poses, one per completed exploration goal (not per
+        # return), spaced by `breadcrumb_min_spacing_m`. Each entry is the
+        # DEPARTURE pose of the completed goal: on reaching a dead end, the
+        # top points to where the robot was before entering it, never to
+        # its own current pose.
+        # Consumed (removed) the moment a return begins -- never reused,
+        # which prevents a cycle between two points.
         self._breadcrumbs: list[tuple[float, float]] = []
         self._is_backtrack_goal = False
         self._backtrack_attempts = 0
@@ -436,11 +456,11 @@ class MazeExplorer(Node):
     def _start(self, _request, response):
         if self._state in {'waiting_map', 'selecting', 'navigating', 'homing_exit'}:
             response.success = False
-            response.message = 'busca ja esta em andamento'
+            response.message = 'search already in progress'
             return response
         self._epoch += 1
         self._state = 'waiting_map'
-        self._message = 'aguardando mapa, TF e Nav2'
+        self._message = 'waiting for map, TF and Nav2'
         self._started_s = self._now_s()
         self._blacklist.clear()
         self._refused.clear()
@@ -491,28 +511,28 @@ class MazeExplorer(Node):
             self._nav_cancel_client.call_async(CancelGoal.Request())
         self._publish_status()
         response.success = True
-        response.message = 'busca iniciada'
+        response.message = 'search started'
         return response
 
     def _cancel(self, _request, response):
         self._epoch += 1
         self._cancel_goal()
         self._state = 'cancelled'
-        self._message = 'busca cancelada pelo operador'
+        self._message = 'search cancelled by operator'
         self._publish_status()
         response.success = True
         response.message = self._message
         return response
 
     def _on_map(self, message: OccupancyGrid) -> None:
-        # Guardar e contar, so. Um mapa novo NAO troca a meta em voo: quem
-        # decide seleção é `_tick`, e ele só chama `_begin_selection` no estado
-        # `selecting`. Reagir aqui faria o robô abandonar a fronteira a cada
-        # publicação do SLAM.
+        # Store and count, that's all. A new map does NOT swap the in-flight
+        # goal: `_tick` is the one that decides selection, and it only calls
+        # `_begin_selection` in the `selecting` state. Reacting here would
+        # make the robot abandon the frontier on every SLAM publication.
         #
-        # `_map_seq` só avança quando o mapa muda de verdade -- geometria OU
-        # celulas, ver `_map_fingerprint` -- comentário junto da declaração
-        # do campo em `__init__`.
+        # `_map_seq` only advances when the map truly changes -- geometry OR
+        # cells, see `_map_fingerprint` -- comment next to the field's
+        # declaration in `__init__`.
         self._map = message
         content_hash = _map_fingerprint(message)
         if content_hash != self._map_content_hash:
@@ -570,7 +590,7 @@ class MazeExplorer(Node):
         self._epoch += 1
         self._cancel_goal()
         self._state = 'homing_exit'
-        self._message = 'marcador da saida detectado'
+        self._message = 'exit marker detected'
         self._near_marker_streak = 0
         # Preserve the exact entry event for a slower external recorder.
         self._publish_status()
@@ -597,13 +617,22 @@ class MazeExplorer(Node):
         now = self._now_s()
         if now - self._started_s >= float(
                 self.get_parameter('total_timeout_s').value):
-            self._fail('prazo total de exploracao excedido')
+            self._fail('total exploration deadline exceeded')
             return
         marker_fresh = self._exit_candidate_pose_map is not None \
             and now - self._exit_seen_s <= float(
                 self.get_parameter('marker_stale_s').value)
         self._marker_distance_m = self._distance_to_pose(
             self._exit_candidate_pose_map)
+
+        if self._state == 'homing_exit':
+            tilt_deg = self._robot_tilt_deg()
+            if tilt_deg is not None and tilt_deg > float(
+                    self.get_parameter('homing_max_tilt_deg').value):
+                self._fail(
+                    'homing interrupted by body tilt: '
+                    f'{tilt_deg:.1f} degrees')
+                return
 
         if self._state == 'waiting_map':
             if self._map is not None and self._robot_pose() is not None \
@@ -616,23 +645,24 @@ class MazeExplorer(Node):
         elif self._state == 'navigating':
             if now - self._goal_started_s >= float(
                     self.get_parameter('goal_timeout_s').value):
-                self._timeout_current('meta de fronteira expirou')
+                self._timeout_current('frontier goal timed out')
             elif self._navigation_stalled(now):
                 self._timeout_current(
-                    'vigia de movimento: robo parado (sem progresso xy/angular)')
+                    'movement watchdog: robot stationary (no xy/angular progress)')
         elif self._state == 'homing_exit' and not self._pending \
                 and self._goal_handle is None:
             if marker_fresh:
                 self._send_homing_step()
             elif now - self._exit_seen_s <= float(
                     self.get_parameter('homing_persistence_s').value):
-                # A saida ja esta travada em `_exit_pose_map`; a visada servia
-                # para aprende-la, nao para chegar la. Segue as cegas.
+                # The exit is already latched in `_exit_pose_map`; the line
+                # of sight served to learn it, not to reach it. Keep going
+                # blind.
                 self._send_homing_step(blind=True)
             else:
                 self._homing_abandons += 1
                 self._state = 'selecting'
-                self._message = 'marcador perdido; retomando fronteiras'
+                self._message = 'marker lost; resuming frontiers'
                 self._exit_pose_map = None
                 self._near_marker_streak = 0
         self._publish_status()
@@ -641,16 +671,17 @@ class MazeExplorer(Node):
         """
         Return True when an accepted goal has produced no real progress.
 
-        Janela deslizante: deslocamento xy acima de `stall_move_threshold_m`
-        OU rotacao acima de `stall_rotate_threshold_rad` reinicia o relogio
-        -- uma rotacao legitima em pé (virar para encarar um corredor) nao e
-        travamento so por nao andar em linha reta. So dispara depois de
-        `stall_window_s` sem nenhum dos dois -- ver a justificativa com os
-        numeros de R13 junto da declaracao dos parametros em `__init__`.
+        Sliding window: xy displacement above `stall_move_threshold_m` OR
+        rotation above `stall_rotate_threshold_rad` resets the clock -- a
+        legitimate rotation in place (turning to face a corridor) is not a
+        stall just for not moving in a straight line. Only fires after
+        `stall_window_s` with neither of the two -- see the justification
+        with R13's numbers next to the parameters' declaration in
+        `__init__`.
 
-        So avalia depois que Nav2 aceitou a meta (`_goal_handle` setado em
-        `_on_nav_accepted`) -- antes disso nao ha comando em execucao para
-        travar, so uma chamada de servico ainda em voo.
+        Only evaluated after Nav2 has accepted the goal (`_goal_handle` set
+        in `_on_nav_accepted`) -- before that there is no command in
+        execution to stall, only a service call still in flight.
         """
         if self._goal_handle is None:
             return False
@@ -690,9 +721,9 @@ class MazeExplorer(Node):
 
     def _begin_selection(self) -> None:
         if self._recovery_pending:
-            # Varredura de observacao em voo -- ver
-            # `_start_observation_recovery`. Reextrair agora correria sobre o
-            # mesmo mapa que a justificou.
+            # Observation sweep in flight -- see
+            # `_start_observation_recovery`. Re-extracting now would run over
+            # the same map that justified it.
             return
         grid = self._grid()
         robot = self._robot_pose()
@@ -700,27 +731,31 @@ class MazeExplorer(Node):
             self._state = 'waiting_map'
             return
 
-        # Sem mapa novo, sem blacklist nova e sem epoca nova, a extracao daria
-        # exatamente o mesmo resultado. Sem esta guarda, o caso "planner
-        # rejeitou todas as fronteiras" deixa `_pending` em False e o `_tick`
-        # reextrai o mapa INTEIRO a cada segundo, indefinidamente -- que era o
-        # explorador segurando um core do AM69 sem produzir nada.
+        # With no new map, no new blacklist and no new epoch, extraction
+        # would give exactly the same result. Without this guard, the
+        # "planner rejected all frontiers" case leaves `_pending` at False
+        # and `_tick` re-extracts the ENTIRE map every second, indefinitely --
+        # which was the explorer holding an AM69 core with nothing to show
+        # for it.
         #
-        # A epoca entra na chave para que iniciar ou cancelar a busca force uma
-        # extracao, mesmo que o mapa e a blacklist estejam iguais.
-        # R17: a pilha de breadcrumbs entra na chave porque um retorno pode
-        # mudar o resultado da selecao SEM mudar epoca, mapa ou supressao --
-        # a mudanca real e a pose do robo apos o retorno. Sem isto, a
-        # chegada ao breadcrumb reproduziria a MESMA chave da ultima falha
-        # de selecao e cairia no atalho de "nada mudou, conta como estéril"
-        # antes de sequer reextrair fronteiras da nova posicao.
+        # The epoch enters the key so that starting or cancelling the search
+        # forces an extraction, even if the map and the blacklist are
+        # unchanged.
+        # R17: the breadcrumb stack enters the key because a return can
+        # change the selection result WITHOUT changing epoch, map, or
+        # suppression -- the real change is the robot's pose after the
+        # return. Without this, arriving at the breadcrumb would reproduce
+        # the SAME key as the last selection failure and would fall into the
+        # "nothing changed, counts as barren" shortcut before even
+        # re-extracting frontiers from the new position.
         key = (self._epoch, self._map_seq,
                len(self._blacklist) + len(self._refused)
                + len(self._timed_out), len(self._breadcrumbs))
         if key == self._selection_key:
-            # Nada mudou desde o ciclo anterior, entao nao ha o que reextrair --
-            # mas tambem nao houve progresso, e ficar aqui e indistinguivel de
-            # estar travado. Conta para o limite.
+            # Nothing changed since the previous cycle, so there is nothing
+            # to re-extract -- but there was also no progress, and staying
+            # here is indistinguishable from being stuck. Counts toward the
+            # limit.
             self._note_barren_selection()
             return
         self._selection_key = key
@@ -749,9 +784,9 @@ class MazeExplorer(Node):
             math.hypot(item.x - x, item.y - y) <= float(
                 self.get_parameter('blacklist_radius_m').value)
             for x, y in self._blacklist)]
-        # Depois da supressao e ANTES da ordenacao: a ordenacao e por
-        # proximidade, entao sem este corte a fronteira degenerada seria sempre
-        # a primeira candidata.
+        # After suppression and BEFORE sorting: sorting is by proximity, so
+        # without this cutoff the degenerate frontier would always be the
+        # first candidate.
         near_limit = float(
             self.get_parameter('min_frontier_distance_m').value)
         reachable = [item for item in frontiers if math.hypot(
@@ -780,8 +815,8 @@ class MazeExplorer(Node):
         frontiers.sort(key=lambda item: math.hypot(
             item.x - robot[0], item.y - robot[1]))
         self._frontier_count = len(frontiers)
-        # R17: adiante vence sempre que existir -- so considera reversa
-        # quando nao ha nenhuma fronteira adiante alcancavel.
+        # R17: forward wins whenever it exists -- reverse is only considered
+        # when there is no reachable forward frontier at all.
         forward, reverse = self._split_forward_reverse(frontiers, robot)
         self._forward_candidates_count = len(forward)
         self._reverse_candidates_count = len(reverse)
@@ -799,17 +834,18 @@ class MazeExplorer(Node):
         self._candidate_alt_index = 0
         self._best = None
         if not self._candidates:
-            # R15: classificacao honesta de por que nao ha candidato, em vez
-            # de um unico rotulo 'nenhuma fronteira segura alcancavel' para
-            # tres causas distintas -- ver `classify_stop_reason` em
-            # `scripts/exploration_trial.py`, que ja separa estas contagens.
+            # R15: honest classification of why there is no candidate,
+            # instead of a single 'no safe frontier reachable' label for
+            # three distinct causes -- see `classify_stop_reason` in
+            # `tools/evaluation/exploration_trial.py`, which already
+            # separates these counts.
             if self._near_skipped:
-                self._message = ('todas as fronteiras estao dentro da '
-                                 'tolerancia de chegada')
+                self._message = ('all frontiers are within arrival '
+                                 'tolerance')
             elif self._frontier_clusters_raw == 0:
-                self._message = 'nenhum cluster de fronteira bruto'
+                self._message = 'no raw frontier cluster'
             else:
-                self._message = 'fronteiras existem mas foram filtradas'
+                self._message = 'frontiers exist but were filtered out'
             self._handle_no_usable_frontier()
             return
         self._validate_next()
@@ -820,9 +856,9 @@ class MazeExplorer(Node):
         """
         Split frontiers into forward (within the heading cone) and reverse.
 
-        R17: sem rumo estabelecido ainda (nenhuma meta de exploracao
-        concluida nesta busca), trata tudo como adiante -- nao ha base para
-        penalizar nada antes do primeiro deslocamento real.
+        R17: with no heading established yet (no exploration goal completed
+        in this search), treats everything as forward -- there is no basis
+        to penalize anything before the first real displacement.
         """
         if self._current_heading is None:
             return list(frontiers), []
@@ -839,15 +875,15 @@ class MazeExplorer(Node):
 
     def _handle_no_usable_frontier(self) -> None:
         """
-        R17: sem candidato usavel -- backtrack por breadcrumb primeiro.
+        R17: no usable candidate -- breadcrumb backtrack first.
 
-        Ordem: um breadcrumb ainda nao consumido e a opcao mais barata (nao
-        gira, nao gasta orcamento de varredura) e a mais alinhada ao
-        objetivo de so recuar quando de fato nao ha por onde seguir. A
-        varredura de observacao so entra quando a pilha ja esvaziou, e
-        exatamente nas mesmas condicoes de antes (nenhum cluster bruto,
-        no maximo uma tentativa por versao de mapa) -- sem breadcrumbs
-        disponiveis, o comportamento e identico ao de R15.
+        Order: a not-yet-consumed breadcrumb is the cheapest option
+        (doesn't spin, doesn't spend sweep budget) and the one most aligned
+        with the goal of only backing off when there truly is nowhere else
+        to go. The observation sweep only comes in once the stack is
+        already empty, and under exactly the same conditions as before (no
+        raw cluster, at most one attempt per map version) -- with no
+        breadcrumbs available, the behavior is identical to R15's.
         """
         if self._breadcrumbs:
             self._start_backtrack()
@@ -861,13 +897,13 @@ class MazeExplorer(Node):
 
     def _start_backtrack(self) -> None:
         """
-        Retorna ao breadcrumb mais recente em vez de declarar falha na hora.
+        Return to the most recent breadcrumb instead of declaring failure outright.
 
-        Consumido (retirado da pilha) no momento em que a navegacao de
-        volta comeca, nao quando ela termina -- um retorno que falhe (Nav2
-        recusa ou expira) nao pode ficar tentando o MESMO ponto para
-        sempre. A pilha so encolhe, nunca reutiliza uma entrada ja
-        retirada: e isso que impede um ciclo infinito entre dois pontos.
+        Consumed (popped from the stack) the moment the return navigation
+        starts, not when it ends -- a return that fails (Nav2 refuses or
+        times out) must not keep trying the SAME point forever. The stack
+        only shrinks, never reuses an entry already popped: that is what
+        prevents an infinite cycle between two points.
         """
         x, y = self._breadcrumbs.pop()
         self._backtrack_attempts += 1
@@ -880,9 +916,10 @@ class MazeExplorer(Node):
         """
         Spin in place, within the limits `behavior_server` already validated.
 
-        Gira dentro de `max_rotational_vel: 0.12` (`nav2_params_go2.yaml`),
-        medido para nao derrubar o robo em recuperacao. So chamada quando
-        nenhum cluster de fronteira bruto existe -- ver `_begin_selection`.
+        Spins within `max_rotational_vel: 0.12` (`nav2_params_go2.yaml`),
+        measured so as not to knock the robot over during recovery. Only
+        called when no raw frontier cluster exists -- see
+        `_begin_selection`.
         """
         self._recovery_pending = True
         self._recovery_attempts += 1
@@ -911,16 +948,16 @@ class MazeExplorer(Node):
             return
         self._recovery_pending = False
         self._recovery_handle = None
-        # A varredura em si nao decide nada; o proximo /map com conteudo
-        # novo e que conta como progresso (`_map_seq`). Sem mapa novo, este
-        # ciclo barren avanca em direcao ao limite normal -- uma varredura
-        # que nao revelou nada nao pode girar para sempre.
+        # The sweep itself decides nothing; it is the next /map with new
+        # content that counts as progress (`_map_seq`). With no new map,
+        # this barren cycle advances toward the normal limit -- a sweep that
+        # revealed nothing cannot spin forever.
         self._note_barren_selection()
 
     def _validate_next(self) -> None:
         if self._candidate_index >= len(self._candidates):
             if self._best is None:
-                self._message = 'planner rejeitou todas as fronteiras'
+                self._message = 'planner rejected all frontiers'
                 self._pending = False
                 return
             _, frontier, target = self._best
@@ -930,18 +967,18 @@ class MazeExplorer(Node):
         points = ((frontier.x, frontier.y),) + frontier.alternates
         if self._candidate_alt_index >= len(points):
             # Every point of this cluster (primary and alternates) was
-            # refused. O planejador REPROVOU esta fronteira. Sem aposenta-la,
-            # ela volta identica no proximo ciclo, para sempre: foi o que
-            # consumiu 459 s dos 600 s da fumaca de 28/08, com o mapa
-            # congelado e um `ComputePathToPose` por segundo sobre a mesma
-            # coordenada morta.
+            # refused. The planner REJECTED this frontier. Without retiring
+            # it, it comes back identical on the next cycle, forever: that
+            # is what consumed 459 s of 600 s in the 28/08 smoke test, with
+            # the map frozen and one `ComputePathToPose` per second against
+            # the same dead coordinate.
             #
-            # Anotada pelo ponto PRIMARIO (o que identifica o cluster para as
-            # supressoes por raio), nao pelo ultimo ponto tentado -- as
-            # supressoes suprimem a REGIAO, nao um ponto especifico dentro
-            # dela. `len(self._blacklist)`/`_refused` ja fazem parte da chave
-            # de `_begin_selection`, entao o append sozinho ja forca uma
-            # extracao nova no proximo ciclo.
+            # Annotated by the PRIMARY point (the one that identifies the
+            # cluster for the radius-based suppressions), not by the last
+            # point tried -- the suppressions suppress the REGION, not a
+            # specific point within it. `len(self._blacklist)`/`_refused`
+            # are already part of `_begin_selection`'s key, so the append
+            # alone already forces a fresh extraction on the next cycle.
             self._refused.append((frontier.x, frontier.y))
             self._last_provisional_map_seq = self._map_seq
             self._candidate_index += 1
@@ -1032,9 +1069,10 @@ class MazeExplorer(Node):
         nav_x, nav_y = target if target is not None else (frontier.x, frontier.y)
         self._last_nav_original = (frontier.x, frontier.y)
         self._last_nav_target = (nav_x, nav_y)
-        # R17: pose de partida desta meta, para medir o deslocamento REAL na
-        # chegada (`_update_heading`) -- e o angulo entre o rumo estabelecido
-        # e esta fronteira, para telemetria (`heading_delta_deg`).
+        # R17: this goal's departure pose, to measure the REAL displacement
+        # on arrival (`_update_heading`) -- and the angle between the
+        # established heading and this frontier, for telemetry
+        # (`heading_delta_deg`).
         self._nav_departure_pose = (robot[0], robot[1])
         if exploration and self._current_heading is not None:
             bearing = math.atan2(
@@ -1053,12 +1091,13 @@ class MazeExplorer(Node):
         self._pending = True
         self._barren_cycles = 0
         self._goal_started_s = self._now_s()
-        # Vigia de movimento: NAO armar aqui. `send_goal_async` ainda esta em
-        # voo -- armar so em `_on_nav_accepted`, quando Nav2 de fato aceitou a
-        # meta, para nao contar o tempo de resposta da acao como travamento.
+        # Movement watchdog: do NOT arm here. `send_goal_async` is still in
+        # flight -- arm only in `_on_nav_accepted`, when Nav2 has actually
+        # accepted the goal, so as not to count the action's response time
+        # as a stall.
         self._state = 'navigating' if exploration else 'homing_exit'
-        self._message = 'navegando para fronteira' if exploration \
-            else 'aproximando marcador da saida'
+        self._message = 'navigating to frontier' if exploration \
+            else 'approaching exit marker'
         epoch = self._epoch
         future = self._nav_client.send_goal_async(goal)
         future.add_done_callback(
@@ -1071,14 +1110,14 @@ class MazeExplorer(Node):
         handle = future.result()
         if not handle.accepted:
             if exploration:
-                self._blacklist_current('Nav2 recusou fronteira')
+                self._blacklist_current('Nav2 refused frontier')
             else:
-                self._homing_failed('Nav2 recusou aproximacao')
+                self._homing_failed('Nav2 refused approach')
             return
         self._goal_handle = handle
-        # Vigia de movimento: arma agora, no aceite -- nao no despacho (ver
-        # `_send_navigation`). `None` descarta a pose da meta anterior, se
-        # houver; o primeiro `_navigation_stalled` desta meta inicializa a
+        # Movement watchdog: arms now, on acceptance -- not on dispatch (see
+        # `_send_navigation`). `None` discards the previous goal's pose, if
+        # any; the first `_navigation_stalled` of this goal initializes the
         # baseline.
         self._nav_last_pose = None
         self._nav_last_progress_s = self._now_s()
@@ -1091,33 +1130,34 @@ class MazeExplorer(Node):
         status = future.result().status
         if exploration:
             if status != GoalStatus.STATUS_SUCCEEDED:
-                self._blacklist_current(f'fronteira terminou com status {status}')
+                self._blacklist_current(f'frontier ended with status {status}')
             else:
-                # R17: captura ANTES de `_release_goal`, que zera a flag.
-                # Um retorno concluido nao empilha um novo breadcrumb sobre
-                # o ponto que acabou de ser retirado da pilha -- o rumo real
-                # ainda e atualizado, so o registro de posicao e que muda.
+                # R17: captured BEFORE `_release_goal`, which clears the
+                # flag. A completed return does not stack a new breadcrumb
+                # on the point that was just popped from the stack -- the
+                # real heading is still updated, only the position record
+                # changes.
                 was_backtrack = self._is_backtrack_goal
                 self._update_heading(push_breadcrumb=not was_backtrack)
                 self._release_goal()
-                # Chegar mudou pose, costmap e mapa, que sao exatamente os
-                # tres motivos pelos quais o planejador reprovou e pelos quais
-                # a meta travou. As duas supressoes provisorias caem juntas; a
-                # blacklist dura fica.
+                # Arriving changed pose, costmap and map, which are exactly
+                # the three reasons the planner rejected and the goal
+                # stalled. Both provisional suppressions drop together; the
+                # hard blacklist stays.
                 self._refused.clear()
                 self._timed_out.clear()
                 self._last_provisional_map_seq = -1
                 self._provisional_recovery_used = False
                 self._state = 'selecting'
                 self._message = (
-                    'retorno concluido; selecionando novamente' if was_backtrack
-                    else 'fronteira alcancada; atualizando mapa')
+                    'return complete; selecting again' if was_backtrack
+                    else 'frontier reached; updating map')
         elif status == GoalStatus.STATUS_SUCCEEDED:
             self._release_goal()
             self._state = 'homing_exit'
-            self._message = 'passo de aproximacao concluido'
+            self._message = 'approach step complete'
         else:
-            self._homing_failed(f'aproximacao terminou com status {status}')
+            self._homing_failed(f'approach ended with status {status}')
 
     def _send_homing_step(self, blind: bool = False) -> None:
         robot = self._robot_pose()
@@ -1127,19 +1167,20 @@ class MazeExplorer(Node):
         dx, dy = target[0] - robot[0], target[1] - robot[1]
         distance = math.hypot(dx, dy)
         stop = float(self.get_parameter('marker_stop_distance_m').value)
-        # O que falta pode ser menor que a tolerancia de chegada do Nav2. Nesse
-        # caso a meta seria satisfeita sem o robo andar, o explorador veria a
-        # distancia inalterada e mandaria de novo -- 94 s parado a 0,75 m em R6.
-        # Faltando menos que a tolerancia, ja se chegou.
+        # What's left may be smaller than Nav2's arrival tolerance. In that
+        # case the goal would be satisfied without the robot moving, the
+        # explorer would see the distance unchanged and send another one --
+        # 94 s stuck at 0.75 m in R6. With less than the tolerance left,
+        # arrival has already happened.
         tolerance = float(self.get_parameter('nav_goal_tolerance_m').value)
         if distance - stop <= tolerance + 1e-9:
             self._state = 'completed'
-            self._message = 'marcador alcancado; aguardando confirmacao de cruzamento'
+            self._message = 'marker reached; awaiting crossing confirmation'
             return
-        # Com marcador fresco o passo curto reaproveita cada nova deteccao para
-        # corrigir a mira. As cegas nao ha o que corrigir, e uma sequencia de
-        # retas de 0,5 m so da ao planejador paredes para recusar: manda uma
-        # meta unica e deixa o Nav2 contornar.
+        # With a fresh marker, the short step reuses each new detection to
+        # correct the aim. Blind, there's nothing to correct, and a sequence
+        # of 0.5 m straight legs only gives the planner walls to refuse:
+        # send a single goal and let Nav2 route around.
         step = distance - stop if blind else min(
             float(self.get_parameter('homing_step_m').value), distance - stop)
         ratio = step / distance
@@ -1152,7 +1193,7 @@ class MazeExplorer(Node):
         self._release_goal()
         if self._homing_failures >= 3:
             self._state = 'selecting'
-            self._message = f'{message}; retomando exploracao'
+            self._message = f'{message}; resuming exploration'
             self._homing_failures = 0
             self._exit_pose_map = None
             self._near_marker_streak = 0
@@ -1161,14 +1202,14 @@ class MazeExplorer(Node):
             self._message = message
 
     def _note_barren_selection(self) -> None:
-        """Um ciclo de selecao que nao produziu meta. Falha se virar habito."""
+        """Fail a selection cycle that produces no goal repeatedly."""
         self._barren_cycles += 1
         if self._barren_cycles >= int(
                 self.get_parameter('barren_selections_limit').value):
-            self._fail('nenhuma fronteira segura alcancavel')
+            self._fail('no safe frontier reachable')
 
     def _timeout_current(self, message: str) -> None:
-        """Meta estourou o teto: suprime a fronteira, mas nao para sempre."""
+        """Goal exceeded the ceiling: suppresses the frontier, but not forever."""
         if self._current is not None:
             self._timed_out.append((self._current.x, self._current.y))
             self._last_provisional_map_seq = self._map_seq
@@ -1198,21 +1239,22 @@ class MazeExplorer(Node):
         self._goal_handle = None
         self._pending = False
         self._current = None
-        # R17: ponto de saida unico para toda meta (sucesso, blacklist,
-        # timeout e cancelamento passam por aqui) -- garante que a flag
-        # nunca vaze de uma meta de retorno para a proxima meta normal.
+        # R17: single exit point for every goal (success, blacklist, timeout
+        # and cancellation all pass through here) -- guarantees the flag
+        # never leaks from a return goal into the next normal goal.
         self._is_backtrack_goal = False
 
     def _update_heading(self, push_breadcrumb: bool) -> None:
         """
-        Registra o rumo real (nao a guinada final) e, se pedido, um breadcrumb.
+        Record the real heading (not the final yaw) and, if asked, a breadcrumb.
 
-        R17: rumo = direcao do deslocamento desde o despacho desta meta
-        (`_nav_departure_pose`), nao a orientacao final do robo -- um robo
-        que chega de lado ou virado ainda estava indo NAQUELA direcao.
-        Segmentos curtos demais (ruido de localizacao, nao deslocamento
-        real) nao atualizam o rumo, para nao deixar uma chegada quase no
-        lugar redefinir "adiante" ao acaso.
+        R17: heading = direction of displacement since this goal was
+        dispatched (`_nav_departure_pose`), not the robot's final
+        orientation -- a robot that arrives sideways or turned was still
+        heading in THAT direction. Segments that are too short (localization
+        noise, not real displacement) do not update the heading, so as not
+        to let an arrival that is almost in place redefine "forward" at
+        random.
         """
         robot = self._robot_pose()
         if robot is None or self._nav_departure_pose is None:
@@ -1222,9 +1264,9 @@ class MazeExplorer(Node):
         if math.hypot(dx, dy) >= 0.05:
             self._current_heading = math.atan2(dy, dx)
         if push_breadcrumb:
-            # Guarde o inicio do segmento percorrido. Usar a pose de chegada
-            # criaria um primeiro "retorno" para a posicao em que o robo ja
-            # esta, consumindo tempo antes de recuar de fato.
+            # Save the start of the segment travelled. Using the arrival pose
+            # would create a first "return" to the position the robot is
+            # already at, spending time before actually backing off.
             self._push_breadcrumb(self._nav_departure_pose)
 
     def _push_breadcrumb(self, pose: tuple[float, float]) -> None:
@@ -1252,6 +1294,20 @@ class MazeExplorer(Node):
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         return translation.x, translation.y, yaw
 
+    def _robot_tilt_deg(self) -> float | None:
+        """Return the body's tilt from the latest ``map -> base`` TF."""
+        try:
+            transform = self._tf_buffer.lookup_transform('map', 'base', Time())
+        except TransformException:
+            return None
+        q = transform.transform.rotation
+        # Angle between the body's +z axis and the world's +z axis.  Roll and
+        # pitch are intentionally combined: either direction can precede a
+        # fall, while yaw must not affect this safety check.
+        cos_tilt = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
+        cos_tilt = max(-1.0, min(1.0, cos_tilt))
+        return math.degrees(math.acos(cos_tilt))
+
     def _pose(self, x: float, y: float, yaw: float) -> PoseStamped:
         pose = PoseStamped()
         pose.header.frame_id = 'map'
@@ -1278,8 +1334,8 @@ class MazeExplorer(Node):
             'blacklisted': len(self._blacklist),
             'refused': len(self._refused),
             'timed_out': len(self._timed_out),
-            # Custo da busca, para o operador e para o gate de CPU. Estes cinco
-            # campos sao aditivos: o cockpit ignora o que nao conhece.
+            # Search cost, for the operator and for the CPU gate. These five
+            # fields are additive: the cockpit ignores what it doesn't know.
             'frontier_extract_ms': self._frontier_extract_ms,
             'frontier_cells': self._frontier_cells,
             'frontier_clusters': self._frontier_clusters,
@@ -1350,10 +1406,10 @@ class MazeExplorer(Node):
             'homing_entries': self._homing_entries,
             'homing_abandons': self._homing_abandons,
             'marker_far_ignored': self._marker_far_ignored,
-            # R17: exploracao direcional com backtracking por breadcrumbs.
-            # `decision_mode` e `None` ate a primeira selecao com
-            # candidatos; o cockpit deve tratar isso como "ainda
-            # selecionando", nao como um quarto modo.
+            # R17: directional exploration with breadcrumb backtracking.
+            # `decision_mode` is `None` until the first selection with
+            # candidates; the cockpit should treat that as "still
+            # selecting", not as a fourth mode.
             'decision_mode': self._decision_mode,
             'breadcrumbs': len(self._breadcrumbs),
             'backtrack_attempts': self._backtrack_attempts,

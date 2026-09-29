@@ -53,7 +53,7 @@ test('non-ASCII survives the round trip', () => {
   // This is the reason the decoder uses TextDecoder rather than
   // String.fromCharCode: the server encodes UTF-8, and a rosout line with an
   // accent is routine in this project.
-  const message = { op: 'publish', msg: { name: 'navegação · atenção' } };
+  const message = { op: 'publish', msg: { name: 'navigation · attention · naïve café' } };
   assert.deepEqual(bytesToMessage(unpackRgb(encodeToRgba(message))), message);
 });
 
@@ -69,7 +69,7 @@ test('a payload whose length is an exact multiple of three needs no padding', ()
   // Off-by-one in the padding maths only shows on this boundary.
   const message = { abc: 1 };
   const json = JSON.stringify(message);
-  assert.equal(json.length % 3, 0, 'fixture deve cair no limite');
+  assert.equal(json.length % 3, 0, 'fixture must land on the boundary');
   assert.deepEqual(bytesToMessage(unpackRgb(encodeToRgba(message))), message);
 });
 
@@ -135,7 +135,7 @@ test('the decoder reuses one canvas across frames', async () => {
 
   await decode('AA');
   await decode('AA');
-  // A canvas per frame at 0,5 Hz is survivable; at 10 Hz it is not, and the
+  // A canvas per frame at 0.5 Hz is survivable; at 10 Hz it is not, and the
   // difference is invisible until it is not.
   assert.equal(canvases, 1);
 });

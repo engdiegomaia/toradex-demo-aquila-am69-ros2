@@ -109,7 +109,7 @@ ssh_target="${MODULE_USER}@${MODULE_HOST}"
 # instead of hanging on a password prompt inside a script.
 SSH_OPTS=(-o BatchMode=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10)
 
-die() { printf '\n[module.sh] ERRO: %s\n' "$*" >&2; exit 1; }
+die() { printf '\n[module.sh] ERROR: %s\n' "$*" >&2; exit 1; }
 say() { printf '\n[module.sh] %s\n' "$*"; }
 
 remote() { ssh "${SSH_OPTS[@]}" "${ssh_target}" "$@"; }
@@ -124,7 +124,7 @@ host_cfg=""
 resolve_addresses() {
   if [[ -z "${MODULE_IP:-}" ]]; then
     MODULE_IP="$(getent hosts "${MODULE_HOST}" | awk '{print $1}' | grep -E '^[0-9.]+$' | head -1 || true)"
-    [[ -n "${MODULE_IP}" ]] || die "nao resolvi MODULE_IP para ${MODULE_HOST}. Defina MODULE_IP=..."
+    [[ -n "${MODULE_IP}" ]] || die "could not resolve MODULE_IP for ${MODULE_HOST}. Set MODULE_IP=..."
   fi
 
   # The route to the module decides which of this machine's addresses the module
@@ -133,15 +133,15 @@ resolve_addresses() {
   # is reachable from nothing.
   if [[ -z "${HOST_IP:-}" ]]; then
     HOST_IP="$(ip route get "${MODULE_IP}" 2>/dev/null | grep -oP 'src \K[0-9.]+' | head -1 || true)"
-    [[ -n "${HOST_IP}" ]] || die "nao determinei HOST_IP pela rota ate ${MODULE_IP}. Defina HOST_IP=..."
+    [[ -n "${HOST_IP}" ]] || die "could not determine HOST_IP from the route to ${MODULE_IP}. Set HOST_IP=..."
   fi
-  say "modulo ${MODULE_IP} | host ${HOST_IP} | dominio ${ROS_DOMAIN_ID} | tag ${TAG}"
+  say "module ${MODULE_IP} | host ${HOST_IP} | domain ${ROS_DOMAIN_ID} | tag ${TAG}"
 }
 
 # --- host-side CycloneDDS config -------------------------------------------
 # The module half of the link is not enough, and this was proved the hard way.
 #
-# With the module correctly configured (multicast off, peers 127.0.0.1 and the
+# With the module correctly configured (multicast off, peers 192.0.2.8 and the
 # host) and a heartbeat publisher demonstrably running on it, the host saw
 # NOTHING. Neither direction discovered the other, for two different reasons at
 # once:
@@ -163,43 +163,43 @@ resolve_addresses() {
 render_host_config() {
   local iface
   iface="$(ip -o -4 addr show | awk -v ip="${HOST_IP}" '$4 ~ "^"ip"/" {print $2}' | head -1)"
-  [[ -n "${iface}" ]] || die "nao identifiquei a interface do host que carrega ${HOST_IP}"
+  [[ -n "${iface}" ]] || die "could not identify the host interface carrying ${HOST_IP}"
 
   host_cfg="${repo_dir}/docker/cyclonedds/host.rendered.xml"
 
-  say "renderizando cyclonedds/host.rendered.xml (iface ${iface}, peer do modulo ${MODULE_IP})"
+  say "rendering cyclonedds/host.rendered.xml (iface ${iface}, module peer ${MODULE_IP})"
   awk -v ip="${MODULE_IP}" -v iface="${iface}" '
     /^[[:space:]]*<NetworkInterface name="lo"[^>]*\/>[[:space:]]*$/ {
       # In LEARN, loopback is intentionally the preferred interface.  In HIL
       # that preference makes Cyclone bind external unicast writes to lo and
       # host -> Aquila fails with ddsi_udp_conn_write retcode -3.  Keep lo for
       # sibling containers, but prefer the routed interface below.
-      printf "        <NetworkInterface name=\"lo\" priority=\"default\" multicast=\"true\"/>  <!-- HIL: secundaria -->\n"
+      printf "        <NetworkInterface name=\"lo\" priority=\"default\" multicast=\"true\"/>  <!-- HIL: secondary -->\n"
       next
     }
     /^[[:space:]]*<NetworkInterface autodetermine="true"[^>]*\/>[[:space:]]*$/ {
-      printf "        <NetworkInterface name=\"%s\" priority=\"10\"/>  <!-- HIL: preferida, fixada por scripts/module.sh -->\n", iface
+      printf "        <NetworkInterface name=\"%s\" priority=\"10\"/>  <!-- HIL: preferred, pinned by scripts/module.sh -->\n", iface
       next
     }
     /^[[:space:]]*<\/Peers>[[:space:]]*$/ && !done {
-      printf "        <Peer address=\"%s\"/>  <!-- modulo Aquila, injetado por scripts/module.sh -->\n", ip
+      printf "        <Peer address=\"%s\"/>  <!-- Aquila module, injected by scripts/module.sh -->\n", ip
       done = 1
     }
     { print }
   ' "${repo_dir}/docker/cyclonedds/host.xml" > "${host_cfg}"
 
   grep -q "<Peer address=\"${MODULE_IP}\"/>" "${host_cfg}" \
-    || die "renderizacao do host.xml nao inseriu o peer do modulo"
-  grep -q '<Peer address="127.0.0.1"/>' "${host_cfg}" \
-    || die "renderizacao do host.xml perdeu o peer localhost, que e load-bearing"
+    || die "host.xml rendering did not insert the module peer"
+  grep -q '<Peer address="192.0.2.8"/>' "${host_cfg}" \
+    || die "host.xml rendering lost the localhost peer, which is load-bearing"
   grep -q '<NetworkInterface name="lo" priority="default" multicast="true"/>' "${host_cfg}" \
-    || die "host.rendered.xml nao rebaixou loopback no modo HIL"
+    || die "host.rendered.xml did not downgrade loopback in HIL mode"
   grep -q "<NetworkInterface name=\"${iface}\" priority=\"10\"/>" "${host_cfg}" \
-    || die "host.rendered.xml nao priorizou a interface roteada no modo HIL"
+    || die "host.rendered.xml did not prioritize the routed interface in HIL mode"
   ! grep -q '<NetworkInterface autodetermine' "${host_cfg}" \
-    || die "host.rendered.xml ainda usa autodetermine no elemento NetworkInterface"
+    || die "host.rendered.xml still uses autodetermine on the NetworkInterface element"
   python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('${host_cfg}')" \
-    || die "host.rendered.xml nao e XML valido"
+    || die "host.rendered.xml is not valid XML"
 }
 
 cmd_inventory() {
@@ -207,11 +207,11 @@ cmd_inventory() {
 echo "--- OS ---";        grep PRETTY_NAME /etc/os-release
 echo "--- ostree ---";    ostree admin status | head -3
 echo "--- CPU/MEM ---";   printf 'nproc=%s\n' "$(nproc)"; free -h | sed -n 2p
-echo "--- disco ---";     df -h /var/lib/docker 2>/dev/null || df -h /var
+echo "--- disk ---";      df -h /var/lib/docker 2>/dev/null || df -h /var
 echo "--- links UP ---";  ip -br addr | grep -v ' DOWN'
 echo "--- docker ---";    docker version --format '{{.Server.Version}} {{.Server.Arch}}'; docker compose version --short
-echo "--- imagens ---";   docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep demo-aquila || echo "(nenhuma imagem demo-aquila)"
-echo "--- servicos ---";  docker ps --format '{{.Names}} {{.Status}}'
+echo "--- images ---";    docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep demo-aquila || echo "(no demo-aquila image)"
+echo "--- services ---";  docker ps --format '{{.Names}} {{.Status}}'
 EOS
 }
 
@@ -225,12 +225,12 @@ cmd_sync() {
 
   remote "mkdir -p ${remote_dir}/ros2_ws ${remote_dir}/docker ${remote_dir}/cyclonedds"
 
-  say "enviando ros2_ws/src"
+  say "sending ros2_ws/src"
   rsync -az --delete -e "ssh ${SSH_OPTS[*]}" \
     --exclude '__pycache__' --exclude '*.pyc' \
     ros2_ws/src "${ssh_target}:${remote_dir}/ros2_ws/"
 
-  say "enviando Dockerfiles e entrypoint"
+  say "sending Dockerfiles and entrypoint"
   # No sim/ and no viz/: those are OGRE 2 and never leave the x86 host
   # (CLAUDE.md rule 1). Their absence on the module is the guard.
   rsync -az -e "ssh ${SSH_OPTS[*]}" --delete \
@@ -242,7 +242,7 @@ cmd_sync() {
     --exclude '*' \
     docker/ "${ssh_target}:${remote_dir}/docker/"
 
-  say "enviando compose.module.yml"
+  say "sending compose.module.yml"
   rsync -az -e "ssh ${SSH_OPTS[*]}" \
     docker/compose.module.yml "${ssh_target}:${remote_dir}/compose.module.yml"
 
@@ -251,7 +251,7 @@ cmd_sync() {
   # here rather than committed, so no address lives in git. See the long comment
   # in docker/cyclonedds/module.xml.
   # The interface is pinned, not autodetermined. Measured on this module,
-  # `ip -br addr` reports ethernet0 AND a docker bridge (br-*, 192.0.2.0/24)
+  # `ip -br addr` reports ethernet0 AND a docker bridge (br-*)
   # UP at the same time, because Torizon's own easy-pairing stack runs in
   # compose. autodetermine ranks interfaces and can pick the bridge, at which
   # point CycloneDDS transmits on an address the host cannot route to and
@@ -261,9 +261,9 @@ cmd_sync() {
   # board or a move to wlan0 does not silently keep an ethernet0 that is gone.
   local iface
   iface="$(remote "ip -o -4 addr show | awk '\$4 ~ /^${MODULE_IP}\// {print \$2}'" | head -1)"
-  [[ -n "${iface}" ]] || die "nao identifiquei a interface do modulo que carrega ${MODULE_IP}"
+  [[ -n "${iface}" ]] || die "could not identify the module interface carrying ${MODULE_IP}"
 
-  say "renderizando cyclonedds/module.xml (iface ${iface}, peer do host ${HOST_IP})"
+  say "rendering cyclonedds/module.xml (iface ${iface}, host peer ${HOST_IP})"
   local rendered
   rendered="$(mktemp)"
   # shellcheck disable=SC2064
@@ -275,28 +275,28 @@ cmd_sync() {
   # what caught it, which is why it is not optional.
   awk -v ip="${HOST_IP}" -v iface="${iface}" '
     /^[[:space:]]*<NetworkInterface autodetermine="true"[^>]*\/>[[:space:]]*$/ {
-      printf "        <NetworkInterface name=\"%s\" priority=\"default\"/>  <!-- fixado por scripts/module.sh -->\n", iface
+      printf "        <NetworkInterface name=\"%s\" priority=\"default\"/>  <!-- pinned by scripts/module.sh -->\n", iface
       next
     }
     /^[[:space:]]*<\/Peers>[[:space:]]*$/ && !done {
-      printf "        <Peer address=\"%s\"/>  <!-- host x86, injetado por scripts/module.sh -->\n", ip
+      printf "        <Peer address=\"%s\"/>  <!-- x86 host, injected by scripts/module.sh -->\n", ip
       done = 1
     }
     { print }
   ' docker/cyclonedds/module.xml > "${rendered}"
 
   grep -q "<Peer address=\"${HOST_IP}\"/>" "${rendered}" \
-    || die "renderizacao do module.xml nao inseriu o peer do host"
-  grep -q '<Peer address="127.0.0.1"/>' "${rendered}" \
-    || die "renderizacao do module.xml perdeu o peer localhost, que e load-bearing"
+    || die "module.xml rendering did not insert the host peer"
+  grep -q '<Peer address="192.0.2.8"/>' "${rendered}" \
+    || die "module.xml rendering lost the localhost peer, which is load-bearing"
   grep -q "<NetworkInterface name=\"${iface}\"" "${rendered}" \
-    || die "renderizacao do module.xml nao fixou a interface ${iface}"
+    || die "module.xml rendering did not pin the interface ${iface}"
   # Matches the ELEMENT, not the word: module.xml's comment block discusses
   # autodetermine at length, so a bare `grep autodetermine` always trips.
   ! grep -q '<NetworkInterface autodetermine' "${rendered}" \
-    || die "module.xml renderizado ainda usa autodetermine no elemento NetworkInterface"
+    || die "rendered module.xml still uses autodetermine on the NetworkInterface element"
   python3 -c "import xml.dom.minidom,sys; xml.dom.minidom.parse('${rendered}')" \
-    || die "module.xml renderizado nao e XML valido"
+    || die "rendered module.xml is not valid XML"
 
   rsync -az -e "ssh ${SSH_OPTS[*]}" "${rendered}" "${ssh_target}:${remote_dir}/cyclonedds/module.xml"
 
@@ -305,9 +305,9 @@ cmd_sync() {
   # --- .env on the module ------------------------------------------------
   # Written here, not rsync'd, because docker/.env is workstation-local and the
   # module needs its own values. compose.module.yml reads all four.
-  say "escrevendo ${remote_dir}/.env"
+  say "writing ${remote_dir}/.env"
   remote "cat > ${remote_dir}/.env" <<EOF
-# Gerado por scripts/module.sh sync. Nao editar a mao: o proximo sync sobrescreve.
+# Generated by scripts/module.sh sync. Do not edit by hand: the next sync overwrites it.
 ROS_DOMAIN_ID=${ROS_DOMAIN_ID}
 HOST_IP=${HOST_IP}
 MODULE_IP=${MODULE_IP}
@@ -316,7 +316,7 @@ TAG=${TAG}
 ROBOT_TYPE=${ROBOT_TYPE}
 EOF
 
-  say "sync concluido em ${ssh_target}:${remote_dir}"
+  say "sync complete at ${ssh_target}:${remote_dir}"
 }
 
 # --- build -----------------------------------------------------------------
@@ -326,14 +326,14 @@ EOF
 cmd_build() {
   resolve_addresses
   remote "test -f ${remote_dir}/docker/base/Dockerfile" \
-    || die "fontes ausentes no modulo. Rode: scripts/module.sh sync"
+    || die "sources missing on the module. Run: scripts/module.sh sync"
 
   # Passed to every build. See docker/base/Dockerfile for why both are required
   # and why neither alone is enough.
   local skip_keys="gz_sim_vendor gz_plugin_vendor"
   local ignore_pkgs="gz_quadruped_hardware"
 
-  say "build arm64 NATIVO no modulo (base -> nav, perception, tools)"
+  say "NATIVE arm64 build on the module (base -> nav, perception, tools)"
   remote "bash -s" <<EOS
 set -euo pipefail
 cd ${remote_dir}
@@ -353,7 +353,7 @@ for role in nav perception tools; do
     -t ${REGISTRY}/demo-aquila-\${role}:${TAG} .
 done
 
-echo "=== resultado ==="
+echo "=== result ==="
 docker images --format '{{.Repository}}:{{.Tag}}\t{{.Size}}' | grep demo-aquila
 EOS
 
@@ -389,7 +389,7 @@ EOS
   # This runs because rule 1 cannot be checked by reading the Dockerfile: the
   # build succeeds either way and the violation only surfaces at runtime on the
   # module, as a library that wants an OpenGL the AM69 does not have.
-  say "verificando regra 1: nenhuma stack de renderizacao nas imagens do modulo"
+  say "checking rule 1: no rendering stack in the module images"
   remote "bash -s" <<EOS
 set -uo pipefail
 fail=0
@@ -398,17 +398,17 @@ for role in base nav perception tools; do
     'ls /opt/ros/jazzy/lib /usr/lib/aarch64-linux-gnu 2>/dev/null \
       | grep -E "libOgre|ogre-next|gz-rendering|gz-sim[0-9]|gz-gui[0-9]|rviz" | head -5' || true)
   if [ -n "\$found" ]; then
-    echo "REGRA 1 VIOLADA: demo-aquila-\${role} contem:"
+    echo "RULE 1 VIOLATED: demo-aquila-\${role} contains:"
     echo "\$found" | sed 's/^/    /'
     fail=1
   else
-    echo "ok: demo-aquila-\${role} sem stack de renderizacao"
+    echo "ok: demo-aquila-\${role} has no rendering stack"
   fi
-  # Informativo, nao e falha: matematica e build tooling do Gazebo entram via
-  # sdformat e sao CPU puro.
+  # Informational, not a failure: Gazebo math and build tooling come in via
+  # sdformat and are pure CPU.
   docker run --rm --entrypoint sh ${REGISTRY}/demo-aquila-\${role}:${TAG} -c \
     'ls /opt/ros/jazzy/lib 2>/dev/null | grep -ioE "gz-(cmake|math|tools|utils)" | sort -u | tr "\n" " "' 2>/dev/null \
-    | sed 's/^/    (gz vendor sem GPU: /; s/ *\$/)/' || true
+    | sed 's/^/    (gz vendor without GPU: /; s/ *\$/)/' || true
   echo
 done
 exit \$fail
@@ -431,13 +431,13 @@ EOS
 cmd_up() {
   resolve_addresses
 
-  # Dois guards independentes, dois bypasses independentes. Cada um so
-  # significa "este risco especifico nao se aplica agora" -- nunca "vou
-  # corrigir depois". Em particular --force-spawn NUNCA deve ser lido como
-  # "vou resetar o sim em seguida": resetar DEPOIS de recriar 'nav' e
-  # exatamente a sequencia que ancora o slam_toolbox na pose errada (ver
-  # check_robot_near_spawn_before_nav_restart abaixo). Um --force generico que
-  # desativasse os dois guards de uma vez esconderia essa distincao.
+  # Two independent guards, two independent bypasses. Each one only means
+  # "this specific risk does not apply right now" -- never "I'll fix it
+  # later". In particular --force-spawn must NEVER be read as "I'll reset
+  # the sim afterward": resetting AFTER recreating 'nav' is exactly the
+  # sequence that anchors slam_toolbox at the wrong pose (see
+  # check_robot_near_spawn_before_nav_restart below). A generic --force that
+  # disabled both guards at once would hide that distinction.
   local has_force=0
   local has_force_spawn=0
   local arg
@@ -448,21 +448,23 @@ cmd_up() {
     esac
   done
 
-  # A GUARDA CERTA E "quem PUBLICA /demo/cmd_vel neste host", nao "a simulacao
-  # esta rodando".
+  # The RIGHT guard is "who PUBLISHES /demo/cmd_vel on this host", not "is
+  # the simulation running".
   #
-  # A versao anterior recusava quando havia container de simulacao no host, e
-  # isso torna o modo hil impossivel de subir sem --force: em hil o simulador
-  # TEM de estar no host. O simulador nao e publicador de /demo/cmd_vel -- ele
-  # ASSINA. Quem publica no lado do host e:
+  # The previous version refused whenever a simulation container was running
+  # on the host, which makes hil mode impossible to bring up without --force:
+  # in hil the simulator MUST be on the host. The simulator is not a
+  # publisher of /demo/cmd_vel -- it SUBSCRIBES. What publishes on the host
+  # side is:
   #
-  #   cmd_vel_si_to_stick  do nav_quadruped.launch.py NATIVO (o conflito real,
-  #                        porque e o mesmo no que sobe no modulo)
-  #   demo_routine         a coreografia de malha aberta
+  #   cmd_vel_si_to_stick  from the NATIVE nav_quadruped.launch.py (the real
+  #                        conflict, because it's the same node that runs on
+  #                        the module)
+  #   demo_routine         the open-loop choreography
   #
-  # `pgrep -x` casa o NOME do processo, entao nao casa com a linha de comando
-  # deste script. Os nomes vem truncados em 15 caracteres, limite de `comm` no
-  # Linux -- dai `cmd_vel_si_to_s`.
+  # `pgrep -x` matches the process NAME, so it does not match this script's
+  # command line. Names come truncated to 15 characters, the `comm` limit on
+  # Linux -- hence `cmd_vel_si_to_s`.
   local host_pubs=''
   local proc
   for proc in cmd_vel_si_to_s demo_routine; do
@@ -472,39 +474,41 @@ cmd_up() {
   done
 
   if [[ -n "${host_pubs}" && "${has_force}" -eq 0 ]]; then
-    printf '\n[module.sh] RECUSADO: publicador de /demo/cmd_vel ativo neste host:\n%s' "${host_pubs}" >&2
+    printf '\n[module.sh] REFUSED: publisher of /demo/cmd_vel active on this host:\n%s' "${host_pubs}" >&2
     cat >&2 <<EOF
-Subir 'nav' no modulo agora coloca um SEGUNDO publisher em /demo/cmd_vel no
-dominio ${ROS_DOMAIN_ID}. Dois publicadores no mesmo topico nao geram erro: o
-twist_to_inputs obedece a ultima mensagem que chegou e o robo anda em espasmos,
-alternando entre as duas origens a 20 Hz. Nenhum log identifica a causa.
+Bringing up 'nav' on the module now would add a SECOND publisher on
+/demo/cmd_vel on domain ${ROS_DOMAIN_ID}. Two publishers on the same topic
+produce no error: twist_to_inputs obeys whichever message arrived last and
+the robot jerks around, alternating between the two sources at 20 Hz. No log
+identifies the cause.
 
-Escolha uma saida:
-  1. Derrube o Nav2 nativo do host e repita. Matar o 'ros2 launch' nao basta --
-     ele orfana os filhos (guia-operacao.md secao 9.12):
+Pick one way out:
+  1. Bring down the native Nav2 on the host and retry. Killing 'ros2 launch'
+     is not enough -- it orphans its children (guia-operacao.md section
+     9.12):
        pkill -9 -x cmd_vel_si_to_s; pkill -9 -x odom_tf
        for n in controller_serv bt_navigator planner_server behavior_server \\
                 route_server smoother_server waypoint_follow opennav_docking \\
                 collision_monit velocity_smooth lifecycle_manag; do
          pkill -9 -x "\$n"; done
-  2. Suba somente perception, que nao publica cmd_vel:
+  2. Bring up only perception, which does not publish cmd_vel:
        ssh ${ssh_target} 'cd ${remote_dir} && docker compose -f compose.module.yml up -d perception'
-  3. Use um dominio separado para o modulo:
+  3. Use a separate domain for the module:
        ROS_DOMAIN_ID=70 scripts/module.sh sync && ROS_DOMAIN_ID=70 scripts/module.sh up
-     (perde a ligacao com o host, serve para bring-up isolado)
-  4. Force, sabendo do conflito:
+     (loses the link with the host; fine for isolated bring-up)
+  4. Force it, knowing about the conflict:
        scripts/module.sh up --force
 EOF
     exit 1
   fi
 
-  # Em hil a simulacao no host e ESPERADA, e sem ela o Nav2 do modulo nao tem
-  # /clock nem sensores: sobe, fica em espera, e parece travado. Avisar e util;
-  # recusar seria errado.
+  # In hil the simulation on the host is EXPECTED, and without it the
+  # module's Nav2 has neither /clock nor sensors: it comes up, waits, and
+  # looks stuck. A warning is useful here; refusing would be wrong.
   if ! docker ps --format '{{.Names}} {{.Image}}' 2>/dev/null \
       | grep -qiE 'aquila-go2|demo-aquila-sim|demo-sim'; then
-    say "AVISO: nenhuma simulacao neste host. Em hil o modulo depende do /clock"
-    say "e dos sensores que o Gazebo publica; sem isso o Nav2 fica esperando."
+    say "WARNING: no simulation on this host. In hil the module depends on /clock"
+    say "and the sensors Gazebo publishes; without them Nav2 just waits."
   fi
 
   check_robot_near_spawn_before_nav_restart "${has_force_spawn}"
@@ -613,27 +617,28 @@ check_robot_near_spawn_before_nav_restart() {
   read -r far_or_near distance <<<"${verdict}"
 
   if [[ "${far_or_near}" == "far" ]] && [[ "${force_spawn}" -eq 0 ]]; then
-    printf '\n[module.sh] RECUSADO: robo a %s m do spawn (x=%s y=%s).\n' \
+    printf '\n[module.sh] REFUSED: robot is %s m from spawn (x=%s y=%s).\n' \
       "${distance}" "${pos_x}" "${pos_y}" >&2
     cat >&2 <<EOF
-Recriar 'nav' agora ancora o slam_toolbox nessa pose, nao no spawn. Se um
-/demo/sim/reset rodar so DEPOIS deste restart, o mapa nasce com um pedaco
-orfao longe de (0,0) e a proxima exploracao morre em menos de um minuto
-com ComputePathToPose recusando tudo (error_code=208). Reproduzido em
-ML3.5 F5 R10 e R12 -- docs/results/ml35-f5-exploration-r12.md.
+Recreating 'nav' now anchors slam_toolbox at that pose, not at spawn. If
+/demo/sim/reset only runs AFTER this restart, the map is born with a patch
+orphaned far from (0,0) and the next exploration round dies in well under a
+minute, with ComputePathToPose refusing everything (error_code=208).
+Reproduced in ML3.5 F5 R10 and R12 -- docs/results/ml35-f5-exploration-r12.md.
 
---force-spawn NAO significa "vou resetar o sim depois" -- resetar DEPOIS
-deste restart e exatamente o bug acima (o slam_toolbox ja ancorou na
-primeira varredura antes do teleporte acontecer). So use --force-spawn
-quando a ancora do SLAM for irrelevante para esta operacao, tipicamente
-porque este 'up' nao antecede uma rodada de exploracao.
+--force-spawn does NOT mean "I'll reset the sim afterward" -- resetting
+AFTER this restart is exactly the bug above (slam_toolbox has already
+anchored on its first scan before the teleport happens). Only use
+--force-spawn when the SLAM anchor doesn't matter for this operation,
+typically because this 'up' is not going to be followed by an exploration
+round.
 
-Escolha uma saida:
-  1. (recomendado para exploracao) Resete o sim primeiro, confirme o robo
-     perto do spawn, so entao suba:
+Pick one way out:
+  1. (recommended for exploration) Reset the sim first, confirm the robot is
+     near spawn, only then bring it up:
        ros2 service call /demo/sim/reset std_srvs/srv/Trigger '{}'
        scripts/module.sh up
-  2. Force, sabendo que a ancora do SLAM nao importa agora:
+  2. Force it, knowing the SLAM anchor doesn't matter right now:
        scripts/module.sh up --force-spawn
 EOF
     exit 1
@@ -678,7 +683,7 @@ for idx in range(10):
     cand = base + 2 * idx
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.bind(("0.0.0.0", cand))
+        s.bind(("192.0.2.1", cand))
     except OSError:
         s.close()
         continue
@@ -691,42 +696,42 @@ PYPORT
 )" || true
 
   if [[ -z "${port}" ]]; then
-    printf '    nenhuma porta livre em %s..%s: alcance UDP nao verificado.\n' \
+    printf '    no free port in %s..%s: UDP reachability not verified.\n' \
       "${base_port}" "$((base_port + 18))"
     verify_failed=1
   else
-    [[ "${port}" == "${base_port}" ]] || busy=" (${base_port} ocupada: DDS vivo neste host)"
-    say "1/4 alcance UDP no dominio ${ROS_DOMAIN_ID}, porta ${port}${busy}"
+    [[ "${port}" == "${base_port}" ]] || busy=" (${base_port} busy: DDS alive on this host)"
+    say "1/4 UDP reachability on domain ${ROS_DOMAIN_ID}, port ${port}${busy}"
 
     python3 - "${port}" <<'PYLISTEN' &
 import socket, sys, time
 p = int(sys.argv[1])
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 try:
-    s.bind(("0.0.0.0", p))
+    s.bind(("192.0.2.1", p))
 except OSError as exc:
-    print(f"    modulo -> host: nao consegui escutar em {p}: {exc}")
+    print(f"    module -> host: could not listen on {p}: {exc}")
     raise SystemExit(1)
 # The payload IS checked. These are live RTPS discovery ports: with a simulation
 # running on the same domain, the first datagram to arrive is often real SPDP
 # traffic from another participant, and accepting it would report "OK" for a
-# port the module never reached. Measured once as "de <HOST_IP>" — the
+# port the module never reached. Measured once as "from <HOST_IP>" — the
 # host's own address — on a probe that was supposed to prove the module could
 # reach us.
 deadline = time.monotonic() + 15
 while True:
     remaining = deadline - time.monotonic()
     if remaining <= 0:
-        print("    modulo -> host: so chegou trafego RTPS de terceiros, probe nao confirmado.")
+        print("    module -> host: only third-party RTPS traffic arrived, probe not confirmed.")
         raise SystemExit(1)
     s.settimeout(remaining)
     try:
         data, addr = s.recvfrom(2048)
     except socket.timeout:
-        print("    modulo -> host: TIMEOUT. Verifique firewall do host nesta porta UDP.")
+        print("    module -> host: TIMEOUT. Check the host firewall on this UDP port.")
         raise SystemExit(1)
     if data == b"dds-probe":
-        print(f"    modulo -> host: OK (de {addr[0]})")
+        print(f"    module -> host: OK (from {addr[0]})")
         raise SystemExit(0)
 PYLISTEN
     local listener=$!
@@ -737,7 +742,7 @@ PYLISTEN
     fi
   fi
 
-  say "2/4 contrato de topicos visto de dentro do modulo"
+  say "2/4 topic contract seen from inside the module"
   [[ -f "${host_cfg:-}" ]] || render_host_config
   remote "cd ${remote_dir} && docker compose -f compose.module.yml --profile tools up -d tools" >/dev/null
   # Discovery over unicast peers is not instant; a list taken immediately after
@@ -749,7 +754,7 @@ PYLISTEN
   # PATH — measured: `which ros2` returns nothing, PATH is the bare system one.
   #
   # This failed silently and convincingly. `ros2 topic list 2>/dev/null | grep
-  # /demo/ || echo "(nenhum topico visivel)"` prints the same "no topics" line
+  # /demo/ || echo "(no topics visible)"` prints the same "no topics" line
   # whether DDS found nothing or the ros2 binary was never found, because 2>/dev/null
   # swallowed "command not found". Two verification steps reported a discovery
   # failure that did not exist.
@@ -786,12 +791,12 @@ PYLISTEN
     local required_topic
     for required_topic in /clock /demo/odom /demo/scan /demo/camera/image_raw; do
       if ! grep -qx "${required_topic}" <<<"${seen}"; then
-        printf '    AUSENTE: %s\n' "${required_topic}"
+        printf '    MISSING: %s\n' "${required_topic}"
         verify_failed=1
       fi
     done
   else
-    printf '    o modulo nao ve nada publicado no dominio %s.\n' "${ROS_DOMAIN_ID}"
+    printf '    the module sees nothing published on domain %s.\n' "${ROS_DOMAIN_ID}"
     verify_failed=1
     # An empty list here is EXPECTED while the host side runs without the
     # rendered config, and saying only "no topics" sends the reader hunting the
@@ -800,19 +805,20 @@ PYLISTEN
     host_sim="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'aquila-go2|demo-sim' || true)"
     if [[ -n "${host_sim}" ]]; then
       cat <<EOF
-    Ha simulacao rodando neste host (${host_sim}), e ela NAO usa o config
-    renderizado: sem CYCLONEDDS_URI o CycloneDDS default anuncia por multicast,
-    que o modulo ignora (AllowMulticast=false). O modulo nao tem como descobri-la.
+    A simulation is running on this host (${host_sim}), and it does NOT use the
+    rendered config: without CYCLONEDDS_URI the default CycloneDDS announces via
+    multicast, which the module ignores (AllowMulticast=false). The module has
+    no way to discover it.
 
-    Para o modulo ver a simulacao, o produtor do host precisa subir com:
+    For the module to see the simulation, the host producer must start with:
       -e CYCLONEDDS_URI=file:///cfg/cyclonedds.xml
       -v ${host_cfg:-docker/cyclonedds/host.rendered.xml}:/cfg/cyclonedds.xml:ro
-    ou, nativo no host, exportando CYCLONEDDS_URI para o mesmo arquivo.
+    or, native on the host, by exporting CYCLONEDDS_URI pointing at the same file.
 
-    A etapa 3 abaixo mede a outra direcao e nao depende disso.
+    Step 3 below measures the other direction and does not depend on this.
 EOF
     else
-      printf '    Nenhuma simulacao ativa neste host: nao ha o que descobrir.\n'
+      printf '    No active simulation on this host: nothing to discover.\n'
     fi
   fi
 
@@ -821,14 +827,14 @@ EOF
   # clock sample reached the module; wait_for_clock then held the entire Nav2
   # launch before SLAM and lifecycle_manager_navigation.  Require one payload
   # in the same direction as the simulated sensors.
-  say "2b/4 host publica, modulo recebe uma amostra real de /clock"
+  say "2b/4 host publishes, module receives a real /clock sample"
   if remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
     /usr/local/bin/entrypoint.sh timeout 12 ros2 topic echo --once /clock rosgraph_msgs/msg/Clock" \
       2>&1 | grep -q '^clock:'; then
-    printf '    /clock: OK (mensagem recebida no modulo)\n'
+    printf '    /clock: OK (message received on the module)\n'
   else
-    printf '    /clock: SEM MENSAGEM. A lista de topicos pode estar stale; verifique\n'
-    printf '    prioridade da interface no host.rendered.xml e erros retcode -3.\n'
+    printf '    /clock: NO MESSAGE. The topic list may be stale; check the\n'
+    printf '    interface priority in host.rendered.xml and retcode -3 errors.\n'
     verify_failed=1
   fi
 
@@ -855,10 +861,10 @@ EOF
   # image-wide (it would double-prefix the absolute /demo/* names everywhere
   # else). Without the remap the topic is /system/heartbeat and a subscriber on
   # /demo/system/heartbeat waits forever on a name nobody publishes.
-  say "3/4 modulo publica, host recebe (/demo/system/heartbeat)"
+  say "3/4 module publishes, host receives (/demo/system/heartbeat)"
 
   if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
-    printf '    ROS nativo ausente no host, etapa 3 nao executada\n'
+    printf '    Native ROS absent on the host, step 3 not run\n'
     return 1
   fi
 
@@ -887,7 +893,7 @@ EOF
   if ! remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -d tools \
       /usr/local/bin/entrypoint.sh timeout 70 ros2 run demo_tutorials heartbeat_publisher \
       --ros-args -r __ns:=/demo" >/dev/null; then
-    printf '    falha ao iniciar o publisher no modulo.\n'
+    printf '    failed to start the publisher on the module.\n'
     kill "${subscriber_pid}" >/dev/null 2>&1 || true
     wait "${subscriber_pid}" >/dev/null 2>&1 || true
     rm -f "${heartbeat_output}"
@@ -907,14 +913,14 @@ EOF
     sleep 1
   done
   if [[ ${publisher_ready} -eq 0 ]]; then
-    printf '    o publisher NAO subiu no modulo. Nada a concluir sobre o link DDS.\n'
+    printf '    the publisher did NOT come up on the module. Nothing to conclude about the DDS link.\n'
     verify_failed=1
     kill "${subscriber_pid}" >/dev/null 2>&1 || true
     wait "${subscriber_pid}" >/dev/null 2>&1 || true
     rm -f "${heartbeat_output}"
     return 1
   fi
-  printf '    publisher ativo no modulo\n'
+  printf '    publisher active on the module\n'
 
   set +e
   wait "${subscriber_pid}"
@@ -928,29 +934,29 @@ EOF
   remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools pkill -f heartbeat_publisher" >/dev/null 2>&1 || true
 
   if [[ ${subscriber_status} -eq 0 ]] && printf '%s' "${received}" | grep -q 'count='; then
-    printf '    host recebeu do modulo: %s\n' "$(printf '%s' "${received}" | grep -m1 'count=')"
+    printf '    host received from the module: %s\n' "$(printf '%s' "${received}" | grep -m1 'count=')"
   else
-    printf '    host NAO recebeu. Saida do echo:\n%s\n' "${received}"
+    printf '    host did NOT receive. Echo output:\n%s\n' "${received}"
     verify_failed=1
   fi
 
-  # --- 4/4: o Nav2 esta ATIVO, e nao apenas de pe --------------------------
+  # --- 4/4: Nav2 is ACTIVE, not merely up ---------------------------------
   #
-  # AS TRES ETAPAS ACIMA PASSAM COM O NAV2 MORTO. Medido em 26/08/2026: depois
-  # de um `up`, a aresta odom -> base demorou mais de 60 s para atravessar a
-  # fronteira, o local_costmap nao ativou, e o gerenciador de ciclo de vida
-  # ABORTOU o bringup em definitivo -- sem nova tentativa. O container ficou de
-  # pe, todos os topicos apareceram, `verify` retornou 0, e toda meta era
-  # recusada com "Action server is inactive. Rejecting the goal."
+  # THE THREE STEPS ABOVE PASS WITH NAV2 DEAD. Measured on 26/08/2026: after an
+  # `up`, the odom -> base edge took more than 60 s to cross the boundary, the
+  # local_costmap did not activate, and the lifecycle manager ABORTED the
+  # bringup for good -- with no retry. The container stayed up, all the topics
+  # appeared, `verify` returned 0, and every goal was refused with "Action
+  # server is inactive. Rejecting the goal."
   #
-  # Topico existir nao e servico funcionar. Esta etapa pergunta o estado de
-  # ciclo de vida, que e a unica coisa que separa os dois casos.
+  # A topic existing is not a service working. This step asks for the lifecycle
+  # state, which is the only thing that separates the two cases.
   #
-  # `ros2 lifecycle get` e nao `service call`: a forma com service call precisa
-  # de "{}" como argumento, e este bloco esta dentro de remote "...", uma string
-  # entre aspas duplas que o shell de fora expande antes de o ssh ver. Chaves e
-  # aspas ali dentro ja quebraram este arquivo uma vez.
-  say "4/4 Nav2 ativo no modulo (bt_navigator)"
+  # `ros2 lifecycle get` and not `service call`: the service-call form needs
+  # "{}" as an argument, and this block is inside remote "...", a double-quoted
+  # string that the outer shell expands before ssh sees it. Braces and quotes in
+  # there have broken this file once already.
+  say "4/4 Nav2 active on the module (bt_navigator)"
   local nav_state
   nav_state="$(remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
     /usr/local/bin/entrypoint.sh bash -c 'ros2 lifecycle get /bt_navigator'" 2>/dev/null \
@@ -959,12 +965,12 @@ EOF
   if printf '%s' "${nav_state}" | grep -Eq '^active([[:space:]]|$)'; then
     printf '    bt_navigator: %s\n' "${nav_state}"
   else
-    printf '    bt_navigator NAO esta ativo: %s\n' "${nav_state:-<sem resposta>}"
-    printf '    Toda meta sera recusada. Procure no log do nav:\n'
-    printf '      "Failed to bring up all requested nodes"  -> a subida abortou\n'
-    printf '      "did not become available before timeout" -> foi a TF odom -> base\n'
-    printf '    Destrave com STARTUP no gerenciador; conserte com o portao\n'
-    printf '    wait_for_tf em nav_quadruped.launch.py.\n'
+    printf '    bt_navigator is NOT active: %s\n' "${nav_state:-<no response>}"
+    printf '    Every goal will be refused. Look in the nav log for:\n'
+    printf '      "Failed to bring up all requested nodes"  -> the bringup aborted\n'
+    printf '      "did not become available before timeout" -> it was the odom -> base TF\n'
+    printf '    Unblock with STARTUP on the manager; fix with the\n'
+    printf '    wait_for_tf gate in nav_quadruped.launch.py.\n'
     verify_failed=1
   fi
 
@@ -980,25 +986,26 @@ cmd_shell() {
 }
 
 cmd_render_local() {
-  # Renderiza a config de DDS para o modo LEARN, sem modulo nenhum.
+  # Renders the DDS config for LEARN mode, with no module at all.
   #
-  # `sync` exige HOST_IP e MODULE_IP porque injeta o peer do Aquila e fixa a
-  # interface. Em learn nao existe modulo, e ainda assim o compose monta
-  # `host.rendered.xml` -- se o arquivo nao existir o Compose cria um DIRETORIO
-  # com esse nome e o CycloneDDS falha ao ler a config.
+  # `sync` requires HOST_IP and MODULE_IP because it injects the Aquila's peer
+  # and pins the interface. In learn there is no module, and yet compose mounts
+  # `host.rendered.xml` -- if the file does not exist Compose creates a
+  # DIRECTORY with that name and CycloneDDS fails to read the config.
   #
-  # Antes disto o unico caminho documentado era "rode module.sh sync antes do
-  # primeiro up", que em learn nao roda. O resultado era copiar o template a mao,
-  # e uma copia manual e a que fica velha: a correcao de loopback de 25/08/2026
-  # ficou commitada no template enquanto os containers rodavam a copia antiga.
+  # Before this, the only documented path was "run module.sh sync before the
+  # first up", which does not work in learn. The result was copying the template
+  # by hand, and a manual copy is the one that goes stale: the 25/08/2026
+  # loopback fix stayed committed in the template while the containers ran the
+  # old copy.
   local src dst
   src="${repo_dir}/docker/cyclonedds/host.xml"
   dst="${repo_dir}/docker/cyclonedds/host.rendered.xml"
   cp "${src}" "${dst}"
   python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('${dst}')" \
-    || die "host.rendered.xml nao e XML valido"
-  say "host.rendered.xml renderizado para LEARN (sem peer de modulo)."
-  say "Recrie os containers para que a config nova seja lida:"
+    || die "host.rendered.xml is not valid XML"
+  say "host.rendered.xml rendered for LEARN (no module peer)."
+  say "Recreate the containers so the new config is read:"
   say "  docker compose -f docker/compose.host.yml up -d --force-recreate"
 }
 

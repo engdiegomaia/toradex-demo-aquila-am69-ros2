@@ -62,24 +62,25 @@ unitree_guide_controller:
     # yawSat 12%), but pushes net forward speed to 137% of commanded, outside
     # the envelope nav2_params.yaml is sized against.
     #
-    # EM ENSAIO SOB F2 (21/08/2026), condicao V1. NAO e resultado fechado.
+    # UNDER TEST AS OF F2 (21/08/2026), condition V1. NOT a closed result.
     #
-    # A revisita prometida acima e esta. O motivo de subir agora nao e o pico:
-    # medido no maze11 com k_yaw 0.25 (n=3, 180 s, nav_trial.py), o `cmd_vx`
-    # pico ficou em 0.070-0.108 contra um vx_max de 0.15 que NUNCA foi
-    # alcancado, e a media do comando saiu ~0 (-0.008 a +0.017) com 11-54% das
-    # amostras NEGATIVAS. Subir vx_max nao mexe numa media que e zero: o robo
-    # gasta o tempo corrigindo rumo, com yawSat de pico 90-94%.
+    # This is the promised revisit mentioned above. The reason to raise it now
+    # is not the peak: measured on maze11 with k_yaw 0.25 (n=3, 180 s,
+    # nav_trial.py), the `cmd_vx` peak came out at 0.070-0.108 against a
+    # vx_max of 0.15 that was NEVER reached, and the mean command came out
+    # ~0 (-0.008 to +0.017) with 11-54% of samples NEGATIVE. Raising vx_max
+    # does not move a mean that is zero: the robot spends its time correcting
+    # heading, with peak yawSat at 90-94%.
     #
-    # O que se espera de 0.35 aqui e menos oscilacao, nao mais pico -- e a
-    # media, que e o numero que decide, sobe por isso. O risco conhecido e o
-    # descasamento de modelo: o MPPI planeja como se `cmd_vx` fosse executado
-    # 1:1, e a 137% ele subestima o robo em 37% ao longo de 9.6 s de horizonte.
-    # Se esse efeito dominar, aparece como mais oscilacao, nao menos, e a
-    # condicao e revertida.
+    # What is expected of 0.35 here is less oscillation, not more peak -- and
+    # the mean, which is the number that decides, rises because of that. The
+    # known risk is model mismatch: the MPPI plans as if `cmd_vx` were
+    # executed 1:1, and at 137% it underestimates the robot by 37% over a
+    # 9.6 s horizon. If that effect dominates, it shows up as more
+    # oscillation, not less, and the condition gets reverted.
     #
-    # Linha de base a bater (V0, maze11, media de n=3): 0.0399 m/s, com folga
-    # de carcaca minima de +0.065 m -- esta folga e o portao, nao a velocidade.
+    # Baseline to beat (V0, maze11, mean of n=3): 0.0399 m/s, with a minimum
+    # body clearance of +0.065 m -- this clearance is the gate, not the speed.
     foot_placement:
       k_x: 0.005
       k_y: 0.005

@@ -1,0 +1,47 @@
+Aquila AM69 ROS 2 Navigation Demo
+Copyright 2026 Toradex AG
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+It includes third-party software that keeps its own license.
+
+Vendored packages (ros2_ws/src/)
+--------------------------------
+
+unitree_guide_controller, controller_common, control_input_msgs
+  Source:    https://github.com/legubiao/quadruped_ros2_control
+             (commit 5434c5810d1a7fe223bcfd04550e9d3bfdd4b458)
+  Derived from Unitree Robotics' unitree_guide.
+  License:   BSD 3-Clause
+  Copyright (c) 2016-2022 HangZhou YuShu TECHNOLOGY CO.,LTD. ("Unitree Robotics")
+  Local modifications are listed in unitree_guide_controller/PROVENANCE.md.
+
+gz_quadruped_hardware
+  Source:    https://github.com/legubiao/quadruped_ros2_control
+             (fork of Open Source Robotics Foundation gz_ros2_control)
+  License:   Apache License 2.0
+  Copyright Open Source Robotics Foundation
+
+go2_description
+  Meshes:    https://github.com/unitreerobotics/unitree_ros (verified by git blob hash)
+  Xacro:     https://github.com/legubiao/quadruped_ros2_control
+  License:   BSD 3-Clause
+  Copyright (c) 2016-2022 HangZhou YuShu TECHNOLOGY CO.,LTD. ("Unitree Robotics")
+
+demo_navigation/launch/nav2_vendored/
+  Launch files copied from nav2_bringup (https://github.com/ros-navigation/navigation2).
+  License:   Apache License 2.0
+
+External assets (not included)
+------------------------------
+
+The maze mesh used by the official scenario comes from
+https://github.com/cafemesa/ros_maze_worlds. It is not redistributed here
+because that repository does not declare a license; users fetch it separately.
+
+Trademarks
+----------
+
+Toradex, Aquila and Torizon are trademarks of Toradex AG. The Toradex logo in
+assets/ and hmi/img/ is used to identify the demo's origin. ROS and the ROS
+logo are trademarks of Open Robotics. Unitree and Go2 are trademarks of
+Unitree Robotics. Use of these marks does not imply endorsement.

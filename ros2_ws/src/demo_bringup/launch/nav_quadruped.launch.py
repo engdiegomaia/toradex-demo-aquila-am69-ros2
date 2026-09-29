@@ -1,49 +1,51 @@
 """
-Nav2 para o quadrupede com mapa vivo persistido por slam_toolbox.
+Nav2 for the quadruped with a live map persisted by slam_toolbox.
 
-Roda na estacao x86 (amd64) em learn e no Aquila AM69 (arm64) em HIL. O Nav2 nao
-tem dependencia grafica; Gazebo e RViz continuam exclusivamente no host. A
-execucao arm64 composta no modulo foi medida em 21/08/2026; ver
-docs/results/ml35-hil-aquila.md.
+Runs on the x86 workstation (amd64) in learn mode and on the Aquila AM69
+(arm64) in HIL. Nav2 has no graphical dependency; Gazebo and RViz stay
+exclusively on the host. The composed arm64 run on the module was measured on
+21/08/2026; see docs/results/ml35-hil-aquila.md.
 
     ros2 launch demo_bringup nav_quadruped.launch.py
 
-## Por que este arquivo existe em vez de um argumento em nav.launch.py
+## Why this file exists instead of an argument to nav.launch.py
 
-`nav.launch.py` navega sobre MAPA ESTATICO: ele inclui `bringup_launch.py`, que
-carrega map_server e AMCL, e passa `nav2_params.yaml`, que e do TurtleBot 4.
-Este arquivo navega sem mapa nenhum. As duas coisas divergem em quatro pontos
-que nao sao um parametro:
+`nav.launch.py` navigates over a STATIC MAP: it includes `bringup_launch.py`,
+which loads map_server and AMCL, and passes `nav2_params.yaml`, which is the
+TurtleBot 4 file. This file navigates with no map at all. The two diverge in
+four points that are not a single parameter:
 
-- a pilha incluida e `navigation_launch.py`, sem localizacao nem map_server;
-- quem publica `map -> odom` e o `odom_tf`, com identidade, e nao o AMCL;
-- o costmap global e ROLANTE e sem `static_layer`;
-- o arquivo de parametros e `nav2_params_go2.yaml`.
+- the included stack is `navigation_launch.py`, with no localization or
+  map_server;
+- `map -> odom` is published by `odom_tf`, as an identity, not by AMCL;
+- the global costmap is ROLLING and has no `static_layer`;
+- the parameter file is `nav2_params_go2.yaml`.
 
-Um so launch com condicionais para cobrir os dois casos e exatamente o que
-CLAUDE.md proibe ("No single launch file full of conditionals"), e aqui a
-proibicao tem conteudo: metade dos erros deste caminho e subir a combinacao
-errada dos quatro pontos acima, e um `if` esconde qual combinacao esta ativa.
+A single launch file with conditionals to cover both cases is exactly what
+CLAUDE.md forbids ("No single launch file full of conditionals"), and here the
+prohibition has substance: half the errors on this path come from bringing up
+the wrong combination of the four points above, and an `if` hides which
+combination is active.
 
-## O QUE NAO PODE RODAR JUNTO
+## WHAT MUST NOT RUN TOGETHER
 
-`demo_routine`. Os dois publicam `/demo/cmd_vel` -- o Nav2 pelo
-`collision_monitor`, a rotina direto. Dois publicadores no mesmo topico nao dao
-erro: o `twist_to_inputs` recebe as duas mensagens e obedece a ultima que
-chegou, alternando entre o desvio e a coreografia a 20 Hz. O robo anda em
-espasmos e nada no log diz por que. Escolha um.
+`demo_routine`. Both publish `/demo/cmd_vel` -- Nav2 through the
+`collision_monitor`, the routine directly. Two publishers on the same topic do
+not raise an error: `twist_to_inputs` receives both messages and obeys the last
+one to arrive, alternating between the avoidance and the choreography at 20 Hz.
+The robot moves in spasms and nothing in the log says why. Pick one.
 
-Para mover o robo sob Nav2 use `patrol_commander`, que manda METAS e nao
-velocidades.
+To move the robot under Nav2 use `patrol_commander`, which sends GOALS, not
+velocities.
 
-## A armadilha do mapa vazio
+## The empty-map trap
 
-Sem `static_layer` e com `track_unknown_space: true`, tudo fora do alcance do
-lidar e desconhecido, e o `NavfnPlanner` planeja atraves do desconhecido porque
-`allow_unknown: true`. Isso e proposital -- e o que permite pedir uma meta a
-5 m sem mapa. A consequencia e que o Nav2 ACEITA meta fora da janela rolante de
-20 m e depois falha ao chegar perto da borda. Mantenha as metas dentro de ~8 m
-da origem; `patrol_commander` ja faz isso.
+Without `static_layer` and with `track_unknown_space: true`, everything outside
+lidar range is unknown, and `NavfnPlanner` plans through the unknown because
+`allow_unknown: true`. This is intentional -- it is what allows requesting a
+goal 5 m away with no map. The consequence is that Nav2 ACCEPTS a goal outside
+the 20 m rolling window and then fails when it gets near the edge. Keep goals
+within ~8 m of the origin; `patrol_commander` already does this.
 """
 
 from launch import LaunchDescription
@@ -71,34 +73,34 @@ def generate_launch_description() -> LaunchDescription:
             'nav2_params_go2.yaml',
         ]),
         description=(
-            'Arquivo de parametros. O default e o do Go2; nav2_params.yaml e do '
-            'TurtleBot 4 e NAO serve aqui -- ver a lista de deltas no cabecalho '
-            'dele.'
+            'Parameter file. The default is the Go2 one; nav2_params.yaml is the '
+            'TurtleBot 4 file and does NOT work here -- see the list of deltas in '
+            'its header.'
         ),
     )
 
     use_sim_time_arg = DeclareLaunchArgument(
         'use_sim_time',
         default_value='true',
-        description='Seguir /clock. Verdadeiro sempre que o Gazebo comanda.',
+        description='Follow /clock. True whenever Gazebo drives the run.',
     )
 
     clock_timeout_arg = DeclareLaunchArgument(
         'clock_timeout_s',
         default_value='120.0',
-        description='Quanto esperar por /clock antes de desistir.',
+        description='How long to wait for /clock before giving up.',
     )
 
-    # Verdadeiro no caminho reativo, que e o que este launch faz. Falso se voce
-    # subir AMCL ou SLAM: os dois publicam `map -> odom`, e dois publicadores na
-    # mesma aresta da TF nao dao erro -- o consumidor alterna entre as duas
-    # crencas. Ver o cabecalho de odom_tf.py.
+    # True on the reactive path, which is what this launch does. False if you
+    # bring up AMCL or SLAM: both publish `map -> odom`, and two publishers on
+    # the same TF edge do not raise an error -- the consumer alternates between
+    # the two beliefs. See the header of odom_tf.py.
     map_identity_arg = DeclareLaunchArgument(
         'publish_map_identity',
         default_value='false',
         description=(
-            'Publicar map -> odom como identidade. Ponha false se subir AMCL '
-            'ou SLAM, ou havera dois publicadores nessa aresta.'
+            'Publish map -> odom as an identity. Set false if you bring up AMCL '
+            'or SLAM, or there will be two publishers on that edge.'
         ),
     )
 
@@ -109,14 +111,14 @@ def generate_launch_description() -> LaunchDescription:
         output='screen',
         parameters=[{
             'timeout_s': LaunchConfiguration('clock_timeout_s'),
-            # Deliberadamente NAO use_sim_time: a funcao deste no e rodar antes
-            # de existir tempo de simulacao.
+            # Deliberately NOT use_sim_time: this node's job is to run before
+            # simulation time exists.
             'use_sim_time': False,
         }],
     )
 
-    # Fecha `odom -> base` e, opcionalmente, `map -> odom`. Sem isso o Nav2 nao
-    # coloca o scan em costmap nenhum e falha sem citar TF.
+    # Closes `odom -> base` and, optionally, `map -> odom`. Without it Nav2
+    # does not place the scan in any costmap and fails without mentioning TF.
     odom_tf = Node(
         package='demo_bringup',
         executable='odom_tf',
@@ -127,64 +129,67 @@ def generate_launch_description() -> LaunchDescription:
             'odom_frame': 'odom',
             'map_frame': 'map',
             'publish_map_identity': LaunchConfiguration('publish_map_identity'),
-            # NAO segue LaunchConfiguration('use_sim_time'), e isso e deliberado.
-            # Ver o bloco PISO OCIOSO DE CPU abaixo do cmd_vel_adapter.
+            # Does NOT follow LaunchConfiguration('use_sim_time'), and that is
+            # deliberate. See the IDLE CPU FLOOR block below cmd_vel_adapter.
             #
-            # O caminho quente deste no (`_on_odom`) COPIA o stamp da mensagem de
-            # odometria -- o cabecalho de odom_tf.py explica por que, e continua
-            # valendo. A unica chamada a get_clock() esta em `_identity()`, que
-            # carimba a aresta map -> odom publicada em /tf_static UMA vez. O
-            # buffer estatico do tf2 devolve transformada estatica para qualquer
-            # instante consultado: o stamp dela nao entra em lookup nenhum.
+            # This node's hot path (`_on_odom`) COPIES the stamp of the odometry
+            # message -- the header of odom_tf.py explains why, and it still
+            # holds. The only call to get_clock() is in `_identity()`, which
+            # stamps the map -> odom edge published on /tf_static ONCE. tf2's
+            # static buffer returns the static transform for any queried
+            # instant: its stamp enters no lookup.
             #
-            # Ou seja: nada que este no publica muda de valor por causa desta
-            # linha. O que muda e ele parar de receber ~870 mensagens de /clock
-            # por segundo para nao usar nenhuma.
+            # So nothing this node publishes changes value because of this
+            # line. What changes is that it stops receiving ~870 /clock
+            # messages per second only to use none of them.
             'use_sim_time': False,
         }],
     )
 
-    # Fronteira de unidades. O Nav2 publica SI em /demo/cmd_vel_si e este no
-    # converte para o manche de /demo/cmd_vel. Sem ele o robo anda a 40% do
-    # pedido e nada acusa -- ver o cabecalho de cmd_vel_si_to_stick.py.
+    # Unit boundary. Nav2 publishes SI on /demo/cmd_vel_si and this node
+    # converts it to the stick scale of /demo/cmd_vel. Without it the robot
+    # moves at 40% of the request and nothing complains -- see the header of
+    # cmd_vel_si_to_stick.py.
     cmd_vel_adapter = Node(
         package='demo_bringup',
         executable='cmd_vel_si_to_stick',
         name='cmd_vel_si_to_stick',
         output='screen',
-        # ================= PISO OCIOSO DE CPU DO MODULO =================
+        # ================= IDLE CPU FLOOR OF THE MODULE =================
         #
-        # Este no converte Twist em Twist. Nao tem header, nao tem timer, nao
-        # chama get_clock() em lugar nenhum -- verificavel por grep, e ha teste
-        # que trava isso. Com use_sim_time: true ele assinava /clock assim mesmo,
-        # porque quem cria a assinatura e o rclpy, nao o codigo do no.
+        # This node converts Twist to Twist. It has no header, no timer, and
+        # calls get_clock() nowhere -- verifiable by grep, and a test locks it.
+        # With use_sim_time: true it subscribed to /clock anyway, because the
+        # subscription is created by rclpy, not by the node's code.
         #
-        # MEDIDO NO AQUILA AM69 EM 25/08/2026, pilha de pe e SEM META ATIVA,
-        # amostrando /proc/<tid>/stat por thread dentro do container `nav`:
+        # MEASURED ON THE AQUILA AM69 ON 25/08/2026, stack up and NO ACTIVE
+        # GOAL, sampling /proc/<tid>/stat per thread inside the `nav`
+        # container:
         #
-        #   piso ocioso total          367% de 800%
+        #   total idle floor           367% of 800%
         #   component_container (Nav2) 215%
-        #   odom_tf                     40%   <- republicador trivial
-        #   recvUC (recepcao Cyclone)   38%
-        #   cmd_vel_si_to_stick         36%   <- este no
-        #   nav_control_rel             35%   <- relay, tambem sem relogio
+        #   odom_tf                     40%   <- trivial republisher
+        #   recvUC (Cyclone receive)    38%
+        #   cmd_vel_si_to_stick         36%   <- this node
+        #   nav_control_rel             35%   <- relay, also clockless
         #
-        # Tres republicadores em Python gastando 111% de 800% -- 14% da maquina
-        # -- com o robo PARADO. O trabalho util deles cabe em ~1%; o resto e
-        # entrega de /clock a ~870 Hz, que o Gazebo publica nessa taxa porque o
-        # passo de fisica da marcha e 1 ms.
+        # Three Python republishers burning 111% of 800% -- 14% of the machine
+        # -- with the robot STANDING STILL. Their useful work fits in ~1%; the
+        # rest is delivery of /clock at ~870 Hz, which Gazebo publishes at that
+        # rate because the gait physics step is 1 ms.
         #
-        # Isto NAO e o estrangulamento de /clock que foi ensaiado e REPROVADO em
-        # 21/08 (ver demo_simulation/clock_throttle.py): la a taxa caia para
-        # TODO mundo, inclusive para o MPPI, e a navegacao morreu. Aqui a taxa
-        # nao muda para ninguem. Muda quem assina -- e sao tres nos que nao
-        # tinham o que fazer com a mensagem.
+        # This is NOT the /clock throttling that was tried and FAILED on 21/08
+        # (see demo_simulation/clock_throttle.py): there the rate dropped for
+        # EVERYONE, including MPPI, and navigation died. Here the rate does not
+        # change for anyone. What changes is who subscribes -- three nodes that
+        # had nothing to do with the message.
         parameters=[{'use_sim_time': False}],
     )
 
-    # Canal operacional para o cockpit. Fica no target junto do Nav2: em HIL os
-    # recursos e a temperatura exibidos são do Aquila, e os logs de eixos vêm da
-    # fronteira real Nav2(SI) -> manche, não do /rosout bruto misturado ao host.
+    # Operational channel for the cockpit. It stays on the target next to Nav2:
+    # in HIL the displayed resources and temperature belong to the Aquila, and
+    # the axis logs come from the real Nav2(SI) -> stick boundary, not from the
+    # raw /rosout mixed with the host.
     target_monitor = Node(
         package='demo_bringup',
         executable='target_monitor',
@@ -193,10 +198,10 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{'use_sim_time': False}],
     )
 
-    # O lidar do Go2 tem 16 aneis. O LaserScan de um anel publicado pelo bridge
-    # nao ve os obstaculos do maze; o SLAM precisa da nuvem completa achatada.
-    # Transformar para `base` tambem torna os cortes de altura relativos ao
-    # robo, descartando o piso sem depender da pose no mundo.
+    # The Go2 lidar has 16 rings. The single-ring LaserScan published by the
+    # bridge does not see the maze obstacles; SLAM needs the full flattened
+    # cloud. Transforming to `base` also makes the height cuts relative to the
+    # robot, discarding the floor without depending on the pose in the world.
     cloud_to_scan = Node(
         package='pointcloud_to_laserscan',
         executable='pointcloud_to_laserscan_node',
@@ -223,12 +228,12 @@ def generate_launch_description() -> LaunchDescription:
         }],
     )
 
-    # Nao deixe este include herdar `params_file` do launch pai. Neste arquivo,
-    # esse argumento e o YAML do Nav2 (`nav2_params_go2.yaml`), enquanto o
-    # slam_toolbox exige seu proprio namespace e seus frames em
-    # `slam_params.yaml`. LaunchConfiguration tem escopo compartilhado entre
-    # includes; sem a passagem explicita abaixo o SLAM recebe silenciosamente o
-    # arquivo do Nav2 e volta ao default `base_footprint`.
+    # Do not let this include inherit `params_file` from the parent launch. In
+    # this file that argument is the Nav2 YAML (`nav2_params_go2.yaml`), while
+    # slam_toolbox requires its own namespace and frames in `slam_params.yaml`.
+    # LaunchConfiguration has scope shared across includes; without the
+    # explicit pass-through below SLAM silently receives the Nav2 file and
+    # falls back to the default `base_footprint`.
     slam_params = PathJoinSubstitution([
         FindPackageShare('demo_navigation'), 'config', 'slam_params.yaml',
     ])
@@ -246,14 +251,14 @@ def generate_launch_description() -> LaunchDescription:
         )],
     )
 
-    # O caminho da arvore de comportamento tem de ser ABSOLUTO, e nao pode ficar
-    # cravado no YAML: quem sabe o prefixo de instalacao e o FindPackageShare.
+    # The behavior tree path must be ABSOLUTE, and cannot be hard-coded in the
+    # YAML: it is FindPackageShare that knows the install prefix.
     #
-    # A reescrita e feita AQUI, e nao em `navigation_launch.py`, porque aquele
-    # arquivo e copia vendorizada do Nav2 e a proveniencia depende de ele seguir
-    # identico ao upstream (ver launch/nav2_vendored/README.md). Reescrevemos
-    # antes e passamos o resultado como params_file; o navigation_launch faz a
-    # propria reescrita de `autostart` sobre este arquivo, o que compoe bem.
+    # The rewrite is done HERE, not in `navigation_launch.py`, because that
+    # file is a vendored copy of Nav2 and its provenance depends on it staying
+    # identical to upstream (see launch/nav2_vendored/README.md). We rewrite
+    # beforehand and pass the result as params_file; navigation_launch does its
+    # own `autostart` rewrite on top of this file, which composes fine.
     smoothed_bt = PathJoinSubstitution([
         FindPackageShare('demo_navigation'),
         'behavior_trees', 'nav_to_pose_smoothed.xml',
@@ -272,10 +277,10 @@ def generate_launch_description() -> LaunchDescription:
             'exploration_bt_xml': exploration_bt,
         }],
     )
-    # RewrittenYaml JA e uma substituicao que resolve para o caminho do arquivo
-    # reescrito, entao vai direto em launch_arguments. Envolver em ParameterFile
-    # aqui nao funciona: launch_arguments aceita string ou substituicao, e
-    # ParameterFile nao e nem um nem outro.
+    # RewrittenYaml IS ALREADY a substitution that resolves to the path of the
+    # rewritten file, so it goes straight into launch_arguments. Wrapping it in
+    # ParameterFile does not work here: launch_arguments accepts a string or a
+    # substitution, and ParameterFile is neither.
     params_with_bt = RewrittenYaml(
         source_file=LaunchConfiguration('params_file'),
         root_key='',
@@ -283,18 +288,19 @@ def generate_launch_description() -> LaunchDescription:
         convert_types=True,
     )
 
-    # `navigation_launch.py` e nao `bringup_launch.py`: o segundo arrasta
-    # map_server e AMCL, que e o caminho do mapa estatico.
+    # `navigation_launch.py`, not `bringup_launch.py`: the latter drags in
+    # map_server and AMCL, which is the static-map path.
     #
-    # O container que `navigation_launch.py` espera e nao cria. O nome
-    # `nav2_container` casa com o default do argumento `container_name` de la; se
-    # um dos dois mudar, os nos sao carregados em lugar nenhum, sem erro.
+    # The container that `navigation_launch.py` expects but does not create.
+    # The name `nav2_container` matches the default of its `container_name`
+    # argument; if either one changes, the nodes are loaded nowhere, with no
+    # error.
     #
-    # `component_container_isolated` e nao `component_container`: cada no ganha
-    # seu proprio executor de thread unica dentro do processo. Um executor
-    # compartilhado deixaria um callback longo do MPPI atrasar o heartbeat do
-    # `lifecycle_manager`, e o sintoma seria o gerenciador declarando os nos
-    # mortos no meio da navegacao.
+    # `component_container_isolated`, not `component_container`: each node gets
+    # its own single-threaded executor inside the process. A shared executor
+    # would let a long MPPI callback delay the `lifecycle_manager` heartbeat,
+    # and the symptom would be the manager declaring the nodes dead in the
+    # middle of navigation.
     nav2_container = Node(
         name='nav2_container',
         package='rclcpp_components',
@@ -306,39 +312,43 @@ def generate_launch_description() -> LaunchDescription:
         output='screen',
     )
 
-    # COMPOSICAO LIGADA, e o container e criado LOGO ACIMA (`nav2_container`).
+    # COMPOSITION ON, and the container is created RIGHT ABOVE
+    # (`nav2_container`).
     #
-    # `navigation_launch.py` com composicao usa LoadComposableNodes para carregar
-    # os servidores dentro de `/nav2_container`, mas NAO cria esse container --
-    # quem o cria upstream e `bringup_launch.py`, que e justamente o arquivo que
-    # nao estamos incluindo. Ligar `use_composition` sem criar o container e uma
-    # falha SILENCIOSA: os nos sao carregados num container que ninguem criou,
-    # NADA sobe e NADA imprime erro. Medido em 20/08/2026 -- o log do launch
-    # termina com `wait_for_clock` e `odom_tf` e mais nada, e `ros2 action list`
-    # nunca mostra navigate_to_pose. O sintoma visivel e "o Nav2 nao ativou", que
-    # nao aponta para este parametro. Se voce mexer no bloco `nav2_container`,
-    # este e o modo como isso quebra.
+    # `navigation_launch.py` with composition uses LoadComposableNodes to load
+    # the servers inside `/nav2_container`, but does NOT create that container
+    # -- upstream it is created by `bringup_launch.py`, which is precisely the
+    # file we are not including. Turning `use_composition` on without creating
+    # the container is a SILENT failure: the nodes are loaded into a container
+    # nobody created, NOTHING comes up and NOTHING prints an error. Measured on
+    # 20/08/2026 -- the launch log ends with `wait_for_clock` and `odom_tf` and
+    # nothing else, and `ros2 action list` never shows navigate_to_pose. The
+    # visible symptom is "Nav2 did not activate", which does not point at this
+    # parameter. If you touch the `nav2_container` block, this is how it
+    # breaks.
     #
-    # POR QUE COMPOR, medido no Aquila AM69 em 21/08/2026, modo hil:
+    # WHY COMPOSE, measured on the Aquila AM69 on 21/08/2026, hil mode:
     #
-    #   13 processos separados     container demo-nav a 470% de CPU (de 800%)
-    #                              odom_tf e cmd_vel_si_to_stick, republicadores
-    #                              triviais em Python, a ~87% de um nucleo cada
+    #   13 separate processes      demo-nav container at 470% CPU (of 800%)
+    #                              odom_tf and cmd_vel_si_to_stick, trivial
+    #                              Python republishers, at ~87% of a core each
     #
-    # O custo nao esta no algoritmo, esta na multiplicacao: `use_sim_time` faz
-    # CADA no assinar `/clock`, que o Gazebo publica a ~880 Hz porque o passo de
-    # fisica da marcha e 1 ms. Treze assinantes x 880 Hz = ~11 mil entregas por
-    # segundo entre processos, num Cortex-A72.
+    # The cost is not in the algorithm, it is in the multiplication:
+    # `use_sim_time` makes EVERY node subscribe to `/clock`, which Gazebo
+    # publishes at ~880 Hz because the gait physics step is 1 ms. Thirteen
+    # subscribers x 880 Hz = ~11 thousand cross-process deliveries per second,
+    # on a Cortex-A72.
     #
-    # Composto, os servidores dividem UM processo: uma assinatura de `/clock` em
-    # vez de treze, e comunicacao intraprocesso em vez de DDS para os topicos
-    # internos. Ataca o mesmo custo sem tocar no relogio que os algoritmos veem.
+    # Composed, the servers share ONE process: one `/clock` subscription
+    # instead of thirteen, and intra-process communication instead of DDS for
+    # the internal topics. It attacks the same cost without touching the clock
+    # the algorithms see.
     #
-    # A ALTERNATIVA QUE FOI TENTADA E REJEITADA: estrangular o `/clock` a 100 Hz
-    # (demo_simulation/clock_throttle.py). Baixou a CPU do container de 470% para
-    # 324%, e a navegacao PAROU -- 0.0039 m/s contra 0.0251 m/s, com `cmd_vx` de
-    # pico caindo de 0.138 para 0.003. Economia de CPU que nao compra nada nao e
-    # otimizacao. Veja docs/results/ml35-hil-aquila.md para o A/B.
+    # THE ALTERNATIVE THAT WAS TRIED AND REJECTED: throttling `/clock` to 100 Hz
+    # (demo_simulation/clock_throttle.py). It lowered the container CPU from 470%
+    # to 324%, and navigation STOPPED -- 0.0039 m/s versus 0.0251 m/s, with peak
+    # `cmd_vx` falling from 0.138 to 0.003. A CPU saving that buys nothing is
+    # not an optimization. See docs/results/ml35-hil-aquila.md for the A/B.
     navigation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_navigation'),
@@ -353,30 +363,31 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
-    # Fachada std_srvs do "resetar meta" do cockpit: cancela a meta, limpa os
-    # costmaps e recicla por PAUSE/RESUME o `lifecycle_manager_navigation` que o
-    # include acima sobe. RESET + STARTUP seria o obvio e mata o container --
-    # o cabecalho de nav_control_relay.py tem a medicao. Fragmento
-    # compartilhado com o caminho de mapa estatico, por isso e um include —
-    # o cabecalho de nav_control.launch.py diz por que duplicar o Node seria
-    # pior. Depois do `navigation` na lista de proposito: o relay tolera o
-    # gerenciador ainda nao existir (`wait_for_service`), mas a ordem de leitura
-    # deve dizer quem depende de quem.
+    # std_srvs facade for the cockpit's "reset goal": cancels the goal, clears
+    # the costmaps and cycles the `lifecycle_manager_navigation` brought up by
+    # the include above via PAUSE/RESUME. RESET + STARTUP would be the obvious
+    # choice and kills the container -- the header of nav_control_relay.py has
+    # the measurement. It is a fragment shared with the static-map path, hence
+    # an include -- the header of nav_control.launch.py says why duplicating
+    # the Node would be worse. Deliberately after `navigation` in the list: the
+    # relay tolerates the manager not existing yet (`wait_for_service`), but the
+    # reading order should say who depends on whom.
     nav_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_navigation'),
             'launch', 'nav_control.launch.py',
         ])),
-        # Sem launch_arguments: o relay nao declara mais use_sim_time, porque
-        # nao chama o relogio. Passar aqui agora e erro de launch, e essa e a
-        # intencao -- ver nav_control.launch.py.
+        # No launch_arguments: the relay no longer declares use_sim_time,
+        # because it does not call the clock. Passing it here would now be a
+        # launch error, and that is the intent -- see nav_control.launch.py.
     )
 
-    # Ultimo elo antes do Nav2, e o que faltava: a aresta odom -> base so
-    # existe quando a PRIMEIRA /demo/odom atravessa a fronteira de container.
-    # Sem este portao o Nav2 aposta na velocidade de descoberta do DDS -- e em
-    # 26/08 a aposta perdeu, o local_costmap nao ativou em 60 s e o gerenciador
-    # ABORTOU o bringup em definitivo. Ver o cabecalho de wait_for_tf.py.
+    # Last link before Nav2, and the one that was missing: the odom -> base
+    # edge only exists once the FIRST /demo/odom crosses the container
+    # boundary. Without this gate Nav2 bets on DDS discovery speed -- and on
+    # 26/08 the bet lost, the local_costmap did not activate within 60 s and
+    # the manager ABORTED the bringup for good. See the header of
+    # wait_for_tf.py.
     wait_for_tf = Node(
         package='demo_bringup',
         executable='wait_for_tf',
@@ -386,36 +397,36 @@ def generate_launch_description() -> LaunchDescription:
             'parent_frame': 'odom',
             'child_frame': 'base',
             'timeout_s': LaunchConfiguration('clock_timeout_s'),
-            # Consulta com Time() (instante comum mais recente), que nao usa o
-            # relogio do no -- entao ele nao precisa assinar /clock.
+            # Queries with Time() (latest common instant), which does not use
+            # the node's clock -- so it does not need to subscribe to /clock.
             'use_sim_time': False,
         }],
     )
 
-    # Falha ALTO. Emitir o Nav2 mesmo assim reproduz exatamente o defeito que
-    # este portao existe para impedir, e o sintoma seria de novo "meta recusada"
-    # sem ninguem citar TF nem relogio.
+    # Fail LOUD. Launching Nav2 anyway reproduces exactly the defect this gate
+    # exists to prevent, and the symptom would again be "goal rejected" with
+    # nobody mentioning TF or the clock.
     def _gate(following, what):
         def _on_exit(event, context):
             if event.returncode == 0:
                 return following
             return [
-                LogInfo(msg=f'[nav_quadruped] {what} falhou (codigo '
-                            f'{event.returncode}). Nav2 NAO sera iniciado.'),
-                Shutdown(reason=f'{what} nao satisfeito'),
+                LogInfo(msg=f'[nav_quadruped] {what} failed (code '
+                            f'{event.returncode}). Nav2 will NOT be started.'),
+                Shutdown(reason=f'{what} not satisfied'),
             ]
         return _on_exit
 
-    # Cadeia de subida, cada elo condicionado ao anterior TERMINAR e nao a tempo
-    # decorrido -- mesma disciplina de quadruped.launch.py, que este arquivo nao
-    # seguia. Antes de 26/08/2026 os cinco nos abaixo eram emitidos JUNTOS, e
-    # `wait_for_clock` nao condicionava coisa alguma apesar do que o docstring
-    # dele promete. Era corrida, e ela foi perdida no AM69.
+    # Startup chain, each link conditioned on the previous one FINISHING and
+    # not on elapsed time -- same discipline as quadruped.launch.py, which this
+    # file did not follow. Before 26/08/2026 the five nodes below were emitted
+    # TOGETHER, and `wait_for_clock` conditioned nothing despite what its
+    # docstring promises. It was a race, and it was lost on the AM69.
     #
     #   wait_for_clock  ->  wait_for_tf  ->  Nav2
     #
-    # `odom_tf` e `cmd_vel_adapter` sobem de imediato, de proposito: e o odom_tf
-    # que PRODUZ a aresta que o wait_for_tf espera.
+    # `odom_tf` and `cmd_vel_adapter` come up immediately, on purpose: it is
+    # odom_tf that PRODUCES the edge wait_for_tf waits for.
     return LaunchDescription([
         params_arg,
         use_sim_time_arg,

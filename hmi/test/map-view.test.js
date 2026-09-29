@@ -26,14 +26,14 @@ const EXTENT = { originX: -5, originY: -5, widthM: 10, heightM: 10 };
 const near = (actual, expected, message) =>
   assert.ok(
     Math.abs(actual - expected) < 1e-9,
-    `${message}: esperado ${expected}, veio ${actual}`,
+    `${message}: expected ${expected}, received ${actual}`,
   );
 
 test('map north is at the top of the canvas', () => {
   const view = createView(EXTENT, 216, 216, { padding: 8 });
   const top = view.toScreen(0, 5);
   const bottom = view.toScreen(0, -5);
-  assert.ok(top.y < bottom.y, 'y maior no mundo deve dar y menor na tela');
+  assert.ok(top.y < bottom.y, 'larger world y must give smaller screen y');
 });
 
 test('toWorld undoes toScreen exactly', () => {
@@ -52,8 +52,8 @@ test('both axes share one scale', () => {
   const view = createView(EXTENT, 400, 200);
   const oneMetreX = view.toScreen(1, 0).x - view.toScreen(0, 0).x;
   const oneMetreY = view.toScreen(0, 0).y - view.toScreen(0, 1).y;
-  near(oneMetreX, oneMetreY, 'metro em x vs em y');
-  near(oneMetreX, view.scale, 'escala publicada');
+  near(oneMetreX, oneMetreY, 'one metre in x vs in y');
+  near(oneMetreX, view.scale, 'published scale');
 });
 
 test('the drawn map is centred in the leftover space', () => {
@@ -61,7 +61,7 @@ test('the drawn map is centred in the leftover space', () => {
   // the 200 px of slack are split evenly, not dumped on one side.
   const view = createView(EXTENT, 400, 200, { padding: 8 });
   const rect = view.rasterRect();
-  near(rect.width, rect.height, 'raster quadrado para extensão quadrada');
+  near(rect.width, rect.height, 'square raster for a square extent');
   near(rect.x, (400 - rect.width) / 2, 'sobra horizontal dividida');
   near(rect.y, (200 - rect.height) / 2, 'sobra vertical dividida');
 });
@@ -70,7 +70,7 @@ test('the navigation default zoom draws the map at half the fitted scale', () =>
   const fitted = createView(EXTENT, 300, 200);
   const overview = createView(EXTENT, 300, 200, { zoom: DEFAULT_MAP_ZOOM });
   near(overview.scale, fitted.scale * 0.5, 'zoom inicial');
-  near(overview.rasterRect().width, fitted.rasterRect().width * 0.5, 'largura');
+  near(overview.rasterRect().width, fitted.rasterRect().width * 0.5, 'width');
 });
 
 test('a custom focus remains at the exact canvas centre at every zoom', () => {
@@ -81,8 +81,8 @@ test('a custom focus remains at the exact canvas centre at every zoom', () => {
     near(screen.x, 160, `centro x em ${zoom}`);
     near(screen.y, 90, `centro y em ${zoom}`);
     const back = view.toWorld(screen.x, screen.y);
-    near(back.x, robot.x, `round-trip x em ${zoom}`);
-    near(back.y, robot.y, `round-trip y em ${zoom}`);
+    near(back.x, robot.x, `round-trip x at ${zoom}`);
+    near(back.y, robot.y, `round-trip y at ${zoom}`);
   }
 });
 
@@ -98,8 +98,8 @@ test('the raster rect and toScreen agree on the corners', () => {
   const view = createView(EXTENT, 320, 240);
   const rect = view.rasterRect();
   const topLeft = view.toScreen(EXTENT.originX, EXTENT.originY + EXTENT.heightM);
-  near(topLeft.x, rect.x, 'canto x');
-  near(topLeft.y, rect.y, 'canto y');
+  near(topLeft.x, rect.x, 'top-left x');
+  near(topLeft.y, rect.y, 'top-left y');
 });
 
 test('a degenerate extent does not produce NaN', () => {
@@ -137,7 +137,7 @@ test('the cost LUT separates unknown from free', () => {
   // space: allow_unknown is true, so the planner routes through it and the
   // operator has to be able to see where it did that.
   assert.notDeepEqual(rgba(255), rgba(0), 'desconhecido vs livre');
-  assert.equal(rgba(255)[3], 255, 'desconhecido é opaco');
+  assert.equal(rgba(255)[3], 255, 'unknown is opaque');
 });
 
 test('the cost LUT is fully opaque across the valid range', () => {

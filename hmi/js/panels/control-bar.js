@@ -9,7 +9,7 @@
  * topic: the last message wins, at whatever rate each side happens to run, and
  * neither the operator nor Nav2 can tell that it lost. The previous cockpit
  * checkpoint recorded exactly this debt. It is closed in F4 with twist_mux
- * (plano-cockpit-web.md Decisão 7), not with a hand-rolled mux here.
+ * (plano-cockpit-web.md Decision 7), not with a hand-rolled mux here.
  *
  * So the buttons exist, are laid out, are keyboard reachable, and say why they
  * are inert. That is honest; a bar that moves the robot unpredictably is not.
@@ -18,13 +18,13 @@
 import { ConnectionState } from '../ros/rosbridge-client.js';
 
 const STATE_LABELS = Object.freeze({
-  [ConnectionState.CONNECTED]: 'conectado',
-  [ConnectionState.CONNECTING]: 'conectando',
-  [ConnectionState.DISCONNECTED]: 'desconectado',
+  [ConnectionState.CONNECTED]: 'connected',
+  [ConnectionState.CONNECTING]: 'connecting',
+  [ConnectionState.DISCONNECTED]: 'disconnected',
 });
 
 export const PENDING_CONTROL_HINT =
-  'Controle manual chega no F4, com twist_mux arbitrando contra o Nav2.';
+  'Manual control arrives in F4, with twist_mux arbitrating against Nav2.';
 
 export function createControlBar({ root, client, endpoints, build, shell }) {
   const badge = root.querySelector('[data-role="badge"]');

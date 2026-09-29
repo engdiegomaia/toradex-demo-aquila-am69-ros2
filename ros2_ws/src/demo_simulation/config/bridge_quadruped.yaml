@@ -1,18 +1,20 @@
 # ROS <-> Gazebo boundary for the Go2 plant (ML3.5 F4).
 # Runs on the x86 host only, in the sim container.
 
-# O bridge publica /clock DIRETO, sem intermediario. Ja foi tentado o contrario
-# -- mandar o clock cru para /demo/clock_raw e republicar por um no Python
-# (`clock_throttle`) para reduzir a carga do Aquila -- e foi revertido em
-# 21/08/2026: estrangular o clock derruba a navegacao (o A/B esta no cabecalho de
-# demo_simulation/clock_throttle.py). Com o hop em passagem direta o custo dele
-# ficou DENTRO do ruido de corrida (0.0202 com hop, 0.0232 sem, na mesma
-# configuracao); foi removido por ser intermediario sem funcao, nao por medida de
-# custo. O no continua no pacote, fora do caminho default.
+# The bridge publishes /clock DIRECTLY, with no intermediary. The opposite was
+# already tried -- sending the raw clock to /demo/clock_raw and republishing it
+# through a Python node (`clock_throttle`) to reduce load on the Aquila -- and
+# was reverted on 21/08/2026: throttling the clock breaks navigation (the A/B
+# is in the header of demo_simulation/clock_throttle.py). With the hop passed
+# straight through, its cost fell WITHIN run-to-run noise (0.0202 with the hop,
+# 0.0232 without, same configuration); it was removed for being a pass-through
+# with no function, not for a measured cost. The node stays in the package,
+# outside the default path.
 #
-# Se voce voltar a apontar isto para /demo/clock_raw sem tambem subir o
-# clock_throttle, nada publica /clock: a simulacao sobe, o robo fica de pe e
-# nenhum no com use_sim_time sai do tempo zero. Nada em log nomeia o relogio.
+# If you point this back at /demo/clock_raw without also bringing up
+# clock_throttle, nothing publishes /clock: the simulation comes up, the robot
+# stands, and no node with use_sim_time advances past time zero. Nothing in the
+# log names the clock as the cause.
 - ros_topic_name: "/clock"
   gz_topic_name: "/clock"
   ros_type_name: "rosgraph_msgs/msg/Clock"
@@ -34,29 +36,32 @@
   gz_type_name: "gz.msgs.LaserScan"
   direction: GZ_TO_ROS
 
-# O mesmo sensor, como nuvem de pontos, e este e o que serve para desviar de
-# obstaculo.
+# The same sensor, as a point cloud, and this is the one that is actually
+# usable for obstacle avoidance.
 #
-# O L1_lidar do Go2 (go2_description/xacro/gazebo.xacro) e um gpu_lidar 3D: 640
-# amostras horizontais em 200 graus por 16 aneis verticais em +-15 graus.
-# sensor_msgs/LaserScan e 2D e nao tem onde guardar os aneis, entao a travessia
-# acima entrega UM anel dos 16 -- os outros quinze sao descartados sem aviso.
+# The Go2's L1 lidar (go2_description/xacro/gazebo.xacro) is a 3D gpu_lidar:
+# 640 horizontal samples over 200 degrees by 16 vertical rings at +-15 degrees.
+# sensor_msgs/LaserScan is 2D and has nowhere to store the rings, so the
+# conversion above delivers ONE of the 16 rings -- the other fifteen are
+# silently dropped.
 #
-# Medido em 20/08/2026: no mundo quadruped_objects.sdf, com quatro objetos de
-# 0,30 a 0,80 m de altura plantados a 1,5-4,5 m a frente, o /demo/scan devolve
-# 46 de 640 feixes validos com minimo de 4,82 m -- numericamente IDENTICO ao
-# mundo vazio.  O anel exposto ve parede rente ao corpo e chao a 5-10 m, e nao ve
-# objeto isolado a frente.  Um costmap alimentado por ele nao veria justamente o
-# que o robo precisa desviar.
+# Measured on 20/08/2026: in the quadruped_objects.sdf world, with four
+# objects 0.30 to 0.80 m tall placed 1.5-4.5 m ahead, /demo/scan returns 46 of
+# 640 valid beams with a minimum of 4.82 m -- numerically IDENTICAL to the
+# empty world. The exposed ring sees the wall hugging the body and the floor
+# at 5-10 m, and does not see an isolated object ahead. A costmap fed by it
+# would miss exactly what the robot needs to avoid.
 #
-# O gpu_lidar publica os 16 aneis em <topic>/points como gz.msgs.PointCloudPacked,
-# e a ros_gz_bridge tem conversao direta disso para sensor_msgs/PointCloud2.  Nao
-# ha conversao de gz.msgs.LaserScan para PointCloud2, e por isso a fonte aqui e
-# /scan/points e nao /scan.
+# The gpu_lidar publishes all 16 rings on <topic>/points as
+# gz.msgs.PointCloudPacked, and ros_gz_bridge has a direct conversion from
+# that to sensor_msgs/PointCloud2. There is no conversion from
+# gz.msgs.LaserScan to PointCloud2, which is why the source here is
+# /scan/points and not /scan.
 #
-# go2_description NAO pode ser editado para reapontar o sensor: o pacote e
-# vendorizado com garantia byte-a-byte que sustenta o argumento de licenca (ver o
-# README dele).  A bridge e o ponto de injecao que o projeto possui.
+# go2_description CANNOT be edited to repoint the sensor: the package is
+# vendored with a byte-for-byte guarantee that underpins its licensing
+# argument (see its own README). The bridge is the injection point this
+# project has.
 - ros_topic_name: "/demo/scan_cloud"
   gz_topic_name: "/scan/points"
   ros_type_name: "sensor_msgs/msg/PointCloud2"
@@ -94,23 +99,25 @@
   gz_type_name: "gz.msgs.IMU"
   direction: GZ_TO_ROS
 
-# --- Cameras de cena do cockpit (painel azul, ML3.5 F3b) ---------------------
+# --- Cockpit scene cameras (blue panel, ML3.5 F3b) ---------------------------
 #
-# Duas vistas externas do mundo, spawnadas por launch/scene_cameras.launch.py.
-# Nao pertencem ao robo: sao a camera do OPERADOR, e existem para responder "o
-# robo se mexeu?" sem depender de nenhum no do stack.
+# Two external views of the world, spawned by
+# launch/scene_cameras.launch.py. They do not belong to the robot: they are
+# the OPERATOR's camera, and exist to answer "did the robot move?" without
+# depending on any node in the stack.
 #
-# O camera_info de cada uma e bridged por um motivo que NAO e geometria: e o
-# batimento cardiaco do painel. Um <img> ligado a um multipart/x-mixed-replace
-# nunca dispara `load` e reporta complete=false enquanto o stream esta saudavel
-# (medido no Firefox em 24/08/2026), entao o painel nao consegue saber pelo
-# proprio elemento se ha video. Ele decide pela frescura do camera_info, que
-# chega no mesmo ritmo da imagem e custa alguns bytes. Sem estes dois topicos o
-# painel azul mostra "sem sinal" por cima de video que esta correndo.
+# Each one's camera_info is bridged for a reason that is NOT geometry: it is
+# the panel's heartbeat. An <img> wired to a multipart/x-mixed-replace stream
+# never fires `load` and reports complete=false while the stream is healthy
+# (measured in Firefox on 24/08/2026), so the panel cannot tell from the
+# element itself whether there is video. It decides based on the freshness of
+# camera_info, which arrives at the same rate as the image and costs a few
+# bytes. Without these two topics the blue panel shows "no signal" on top of
+# video that is actually running.
 #
-# Sem qos_profile: SENSOR_DATA de proposito. Mesmo raciocinio da imagem da
-# camera do robo — no enlace Ethernet do HIL os fragmentos de 800x600 RGB se
-# perdiam por completo como best-effort. Confiavel e o padrao da bridge.
+# Deliberately without qos_profile: SENSOR_DATA. Same reasoning as the robot's
+# camera image -- on the HIL Ethernet link, 800x600 RGB fragments were
+# completely lost as best-effort. Reliable is the bridge's default.
 - ros_topic_name: "/demo/cockpit/scene_iso/image_raw"
   gz_topic_name: "/cockpit/scene_iso/image"
   ros_type_name: "sensor_msgs/msg/Image"

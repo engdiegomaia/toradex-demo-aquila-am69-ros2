@@ -1,42 +1,43 @@
 /*
- * Design tokens do cockpit.
+ * Cockpit design tokens.
  *
- * Fonte única de paleta, escala tipográfica e movimento. Nenhum painel escreve
- * cor no próprio arquivo: o mesmo bundle é o cockpit da workstation hoje e o
- * kiosk DisplayPort do Aquila no M3, e reajustar contraste para outro painel
- * tem de ser um arquivo, não cinco.
+ * Single source for palette, type scale, and motion. No panel writes color
+ * in its own file: the same bundle is today's workstation cockpit and the
+ * Aquila's DisplayPort kiosk in M3, and readjusting contrast for one panel
+ * has to touch one file, not five.
  *
- * IDENTIDADE TORADEX
- * Os três valores da marca vieram do time e são exatos:
+ * TORADEX IDENTITY
+ * The three brand values came from the team and are exact:
  *
- *     azul     #00508c    cor primária, barras e ações
- *     verde    #96c837    estado bom, vivo, ok
- *     laranja  #ff5a00    atenção
+ *     blue     #00508c    primary color, bars and actions
+ *     green    #96c837    good, alive, ok state
+ *     orange   #ff5a00    attention
  *
- * O fundo é branco, também por definição da marca. Isso INVERTE o cockpit em
- * relação à primeira versão, que era um instrumento escuro, e a inversão não é
- * cosmética: num fundo claro o mapa de custo, o laser e o plano precisam de
- * outra paleta para continuarem legíveis — ver buildCostLut em
- * js/panels/map-view.js, que foi refeito junto.
+ * The background is white, also by brand definition. This INVERTS the
+ * cockpit relative to the first version, which was a dark instrument, and
+ * the inversion is not cosmetic: on a light background the costmap, laser,
+ * and plan need a different palette to stay legible — see buildCostLut in
+ * js/panels/map-view.js, which was reworked alongside it.
  *
- * O VERMELHO NÃO É DA MARCA, E É DE PROPÓSITO
- * "Parado há tempo demais" e "morto" precisam parecer coisas diferentes através
- * da sala. O laranja da marca é o primeiro estado; o segundo usa um vermelho
- * fora da paleta, reservado para falha de verdade e para o E-STOP. Usar laranja
- * nos dois faria o pior caso desaparecer dentro do caso comum.
+ * RED IS NOT A BRAND COLOR, AND THAT IS ON PURPOSE
+ * "Stalled too long" and "dead" need to look like different things across
+ * the room. The brand orange is the first state; the second uses a red
+ * outside the palette, reserved for a real failure and for E-STOP. Using
+ * orange for both would make the worst case disappear inside the common
+ * one.
  */
 
 :root {
   color-scheme: light;
 
-  /* Marca, cruas. Nada além destes três deve aparecer como literal em CSS. */
+  /* Raw brand colors. Nothing but these three should appear as a literal in CSS. */
   --brand-blue: #00508c;
   --brand-green: #96c837;
   --brand-orange: #ff5a00;
 
-  /* Superfícies. O fundo da página é branco; os painéis são brancos também e
-     se separam por borda e sombra, não por tom — empilhar cinzas sobre branco
-     é o que faz uma UI clara parecer suja. */
+  /* Surfaces. The page background is white; panels are white too and are
+     separated by border and shadow, not by tone — stacking grays on white
+     is what makes a light UI look dirty. */
   --bg-root: #ffffff;
   --bg-panel: #ffffff;
   --bg-panel-head: #f4f7fa;
@@ -51,30 +52,30 @@
   --text-faint: #7b8b99;
 
   --accent: var(--brand-blue);
-  /* Fundo de realce: o azul da marca a 10%, calculado e não escolhido, para
-     acompanhar qualquer ajuste futuro do azul. */
+  /* Highlight background: the brand blue at 10%, computed rather than
+     chosen, to follow any future adjustment of the blue. */
   --accent-dim: color-mix(in srgb, var(--brand-blue) 10%, white);
 
-  /* Estado semântico. Só para pontos de frescor, badge e alertas — nunca para
-     decoração, para que um pixel colorido nesta tela sempre queira dizer algo
-     sobre o robô. */
+  /* Semantic state. Only for freshness dots, badge, and alerts — never for
+     decoration, so a colored pixel on this screen always means something
+     about the robot. */
   --ok: var(--brand-green);
   --warn: var(--brand-orange);
   --bad: #c0261b;
   --idle: #b6c1cb;
 
-  /* Identidade de painel. Espelha docs/ml35/cockpit-division-view.png: o
-     esboço aprovado tinha quatro blocos de cor, e a faixa lateral de cada
-     painel é o que sobrou deles depois de passar pela paleta da marca. */
+  /* Panel identity. Mirrors docs/ml35/cockpit-division-view.png: the
+     approved sketch had four color blocks, and each panel's side stripe is
+     what remained of them after passing through the brand palette. */
   --hue-scene: var(--brand-blue);
   --hue-nav: var(--brand-green);
   --hue-camera: var(--brand-orange);
   --hue-log: #6b7f91;
 
-  /* Traços do mapa 2D. Vivem aqui, e não no canvas, porque são as MESMAS
-     decisões de contraste do resto da tela: o plano usa o azul da marca, o
-     robô o verde, e a meta um violeta que não é da marca justamente para não
-     poder ser confundida com um estado. */
+  /* 2D map strokes. They live here, not in the canvas, because they are the
+     SAME contrast decisions as the rest of the screen: the plan uses the
+     brand blue, the robot the green, and the goal a violet that is not a
+     brand color precisely so it cannot be confused with a state. */
   --map-plan: var(--brand-blue);
   --map-robot: var(--brand-green);
   --map-scan: #b34000;
@@ -95,14 +96,15 @@
   --gap: 8px;
   --pad: 10px;
 
-  /* Marcas da barra, e a altura minima que elas impoem a faixa.
-     Vivem aqui e nao em panels.css porque layout.css tambem precisa do numero:
-     a linha da grade que reserva a barra e dimensionada por --bar-min-height, e
-     as duas coisas divergirem faz a marca ser cortada em silencio.
-     68/44 e o dobro dos 34/22 originais — ver o bloco .brand__logo. */
+  /* Bar logos, and the minimum height they impose on the strip.
+     They live here and not in panels.css because layout.css also needs the
+     number: the grid row that reserves the bar is sized by
+     --bar-min-height, and the two diverging makes the logo get silently
+     clipped.
+     68/44 is double the original 34/22 — see the .brand__logo block. */
   --logo-toradex: 68px;
   --logo-ros: 44px;
-  /* --logo-toradex + o padding vertical de .brand (5+5) + as duas bordas. */
+  /* --logo-toradex + .brand's vertical padding (5+5) + both borders. */
   --bar-min-height: 80px;
 
   --shadow-panel: 0 1px 2px rgba(22, 35, 46, 0.06),

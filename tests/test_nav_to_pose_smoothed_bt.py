@@ -1,18 +1,17 @@
 """
-Trava a colisão de blackboard que produz `[follow_path] Aborting handle` a
-~1 Hz durante toda a navegação (ver docs/ml35/proximos-passos-navegacao.md).
+Lock the blackboard collision that produces `[follow_path] Aborting handle` at
+~1 Hz throughout navigation (see docs/ml35/proximos-passos-navegacao.md).
 
-`SmoothPath` e `FollowPath` vivem como irmãos dentro do mesmo
-`PipelineSequence`. Enquanto `FollowPath` retorna RUNNING, o próprio
-`PipelineSequence` re-tica os irmãos anteriores -- inclusive o
-`RateController` que recomputa e suaviza o caminho. Se `SmoothPath` escreve o
-resultado na MESMA chave que `FollowPath` lê (`{path}`), toda re-tick parece
-uma meta nova para o `FollowPath`, que aborta o handle em andamento e
-recomeça. Confirmado por um mantenedor do Nav2 em
-ros-navigation/navigation2#5817: "we expect users to remap the smoothed path
-to a different blackboard variable".
+`SmoothPath` and `FollowPath` live as siblings inside the same
+`PipelineSequence`. While `FollowPath` returns RUNNING, the `PipelineSequence`
+itself re-ticks the preceding siblings -- including the `RateController` that
+recomputes and smooths the path. If `SmoothPath` writes its result to the SAME
+key that `FollowPath` reads (`{path}`), every re-tick looks like a new goal to
+`FollowPath`, which aborts the handle in progress and starts over. Confirmed by
+a Nav2 maintainer in ros-navigation/navigation2#5817: "we expect users to remap
+the smoothed path to a different blackboard variable".
 
-Este teste não precisa de ROS nem de simulador: é uma checagem estrutural do
+This test needs neither ROS nor a simulator: it is a structural check of the
 XML.
 """
 
@@ -30,29 +29,28 @@ BT_FILE = (
 
 def _find_one(root: ET.Element, tag: str) -> ET.Element:
     matches = root.findall(f'.//{tag}')
-    assert len(matches) == 1, f'esperava exatamente um <{tag}>, achei {len(matches)}'
+    assert len(matches) == 1, f'expected exactly one <{tag}>, found {len(matches)}'
     return matches[0]
 
 
-def test_smooth_path_nao_sobrescreve_a_propria_entrada():
+def test_smooth_path_does_not_overwrite_its_own_input():
     """
-    `unsmoothed_path` e `smoothed_path` no MESMO nó precisam ser chaves
-    diferentes. Reusar a mesma chave é exatamente o padrão reproduzido em
+    `unsmoothed_path` and `smoothed_path` on the SAME node must be different
+    keys. Reusing the same key is exactly the pattern reproduced in
     navigation2#5817.
     """
     root = ET.parse(BT_FILE).getroot()
     smooth = _find_one(root, 'SmoothPath')
     assert smooth.get('unsmoothed_path') != smooth.get('smoothed_path'), (
-        "SmoothPath reusa a mesma chave de entrada e saida -- isso e o "
-        "padrao que causa 'Aborting handle' a ~1 Hz (navigation2#5817)")
+        "SmoothPath reuses the same key for input and output -- that is the "
+        "pattern that causes 'Aborting handle' at ~1 Hz (navigation2#5817)")
 
 
-def test_follow_path_consome_o_caminho_suavizado():
+def test_follow_path_consumes_the_smoothed_path():
     """
-    O ponto do `SmoothPath` é alimentar o `FollowPath` com o caminho já
-    suavizado. Se as chaves não combinarem, `FollowPath` volta a seguir o
-    caminho em escada do NavFn, o defeito que `nav_to_pose_smoothed.xml`
-    existe para evitar.
+    The point of `SmoothPath` is to feed `FollowPath` the already smoothed path.
+    If the keys do not match, `FollowPath` goes back to following NavFn's
+    staircase path, the defect `nav_to_pose_smoothed.xml` exists to avoid.
     """
     root = ET.parse(BT_FILE).getroot()
     smooth = _find_one(root, 'SmoothPath')

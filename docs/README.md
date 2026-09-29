@@ -1,47 +1,21 @@
 # Documentation
 
-This index defines the project's canonical sources. Reports in `results/` are
-historical evidence: they may describe rejected configurations and must not be
-used as operational instructions without checking the current status.
+| Document | Read it to |
+| --- | --- |
+| [Getting started](getting-started.md) | Set up the host and run everything on one workstation |
+| [HIL deployment](hil-deployment.md) | Deploy navigation and perception to the Aquila AM69 |
+| [Running the demo](running-the-demo.md) | Operate the maze exploration demo, step by step |
+| [Web cockpit](cockpit.md) | Understand and operate the operator console |
+| [Architecture](architecture.md) | See what runs where, the topic contract and the TF tree |
+| [Configuration](configuration.md) | Look up environment variables, DDS and parameter files |
+| [Simulation scenarios](scenarios.md) | Choose worlds and test scenarios |
+| [Evaluation](evaluation.md) | Measure navigation and exploration performance |
+| [Troubleshooting](troubleshooting.md) | Fix common silent failures |
+| [Development](development.md) | Build natively, run tests, follow conventions |
+| [Validation status](validation.md) | See what was validated on hardware and what is pending |
+| [Decision records](decisions/README.md) | Understand why the system is built this way |
+| [Engineering log](engineering-log.md) | Find the archived measurement reports |
 
-## Start here
-
-- [`guia-completo.md`](guia-completo.md): installation, operation, and cockpit.
-- [`run-guide.md`](run-guide.md): concise checklist for running the demo.
-- [`guia-hil-go2-labirinto.md`](guia-hil-go2-labirinto.md): running the Go2 in
-  the maze under HIL.
-- [`ml35/estado-fases.md`](ml35/estado-fases.md): current ML3.5 status,
-  decisions, and blockers.
-- [`ml35/guia-implementacao-fechamento-f5.md`](ml35/guia-implementacao-fechamento-f5.md):
-  remaining gates for the autonomous exit demo.
-
-## Implementation references
-
-- [`development.md`](development.md): host development.
-- [`ml35/guia-ml35-docker.md`](ml35/guia-ml35-docker.md): containerized
-  architecture and operation.
-- [`analise-sensores-navegacao.md`](analise-sensores-navegacao.md): sensor and
-  navigation chain.
-- [`guides/cenarios/README.md`](guides/cenarios/README.md): simulation
-  scenarios.
-- [`guides/go2-testes.md`](guides/go2-testes.md): Go2 test commands.
-
-## Current plans
-
-- [`ml35/plano-movimentacao.md`](ml35/plano-movimentacao.md): Go2 gait.
-- [`ml35/plano-cockpit-web.md`](ml35/plano-cockpit-web.md): web cockpit.
-- [`ml35/proximos-passos-navegacao.md`](ml35/proximos-passos-navegacao.md):
-  F5 navigation investigation and decisions.
-
-## Evidence
-
-[`results/`](results/) holds the reports and raw data behind the decisions. Every
-report must record commit, configuration, environment, and limitations. An old
-result does not override the criteria currently in force in
-`ml35/estado-fases.md`.
-
-## Local content
-
-The `.ai/` directory is local, ignored by Git, and not part of the published
-documentation. Anything required to operate or contribute must live in this
-`docs/` directory, in the root `README.md`, or in the root `CLAUDE.md`.
+Package-level documentation lives next to each package in
+[`ros2_ws/src/`](../ros2_ws/src/). The cockpit bundle is described in
+[`hmi/README.md`](../hmi/README.md).

@@ -100,7 +100,7 @@ export function shouldAppendRosout(message) {
   const name = String(message.name ?? '').replace(/^\//, '');
   if (!ROSOUT_IMPORTANT_NODES.has(name)) return false;
   const text = String(message.msg ?? '').toLowerCase();
-  return /(goal|meta|reset|reinici|clear|costmap|saturad|active|inactive|fail|abort)/.test(text);
+  return /(goal|reset|restart|clear|costmap|saturat|active|inactive|fail|abort)/.test(text);
 }
 
 export function createLogPanel({ root, client, tracker }) {

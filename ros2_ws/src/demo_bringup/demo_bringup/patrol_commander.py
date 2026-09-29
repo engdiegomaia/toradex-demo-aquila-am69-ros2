@@ -1,45 +1,47 @@
 """
-Patrulha continua sob Nav2: manda METAS em ciclo, indefinidamente.
+Continuous patrol under Nav2: sends GOALS in a cycle, indefinitely.
 
-Roda na estacao x86 junto com o Nav2 (`nav_quadruped.launch.py`).
+Runs on the x86 workstation alongside Nav2 (`nav_quadruped.launch.py`).
 
     ros2 run demo_bringup patrol_commander
 
-## Como isto difere de demo_routine, e por que os dois nao podem coexistir
+## How this differs from demo_routine, and why the two cannot coexist
 
-`demo_routine` publica `/demo/cmd_vel` direto: ela sabe a velocidade e nao sabe
-onde o robo esta. Este no nao publica velocidade nenhuma -- ele manda meta pela
-acao `navigate_to_pose` e deixa o Nav2 decidir a velocidade, o que e o que
-permite desviar de obstaculo.
+`demo_routine` publishes `/demo/cmd_vel` directly: it knows the velocity and
+does not know where the robot is. This node does not publish any velocity --
+it sends a goal through the `navigate_to_pose` action and lets Nav2 decide the
+velocity, which is what allows obstacle avoidance.
 
-Rodar os dois ao mesmo tempo poe dois publicadores em `/demo/cmd_vel` (aqui via
-`collision_monitor`, la direto). Isso NAO da erro: `twist_to_inputs` obedece a
-ultima mensagem que chegou, alternando entre desvio e coreografia a 20 Hz. O robo
-anda em espasmos e nenhum log explica. Escolha um dos dois.
+Running both at once puts two publishers on `/demo/cmd_vel` (here via
+`collision_monitor`, there directly). This does NOT raise an error:
+`twist_to_inputs` obeys whichever message arrived last, alternating between
+avoidance and choreography at 20 Hz. The robot moves in spasms and no log
+explains it. Pick one of the two.
 
-## Por que as metas sao um ciclo e nao uma lista de waypoints do Nav2
+## Why the goals are a cycle and not a Nav2 waypoint list
 
-O `waypoint_follower` do Nav2 tambem faria isto, e foi rejeitado: quando uma meta
-da lista falha ele encerra a lista inteira, e numa exposicao um obstaculo mal
-posicionado termina a demonstracao. Aqui uma meta que falha e ABANDONADA e o
-ciclo segue para a proxima, que e o comportamento que uma exposicao precisa.
-A contrapartida e que este no nao sabe dizer se o percurso completo foi cumprido
--- para isso use `nav2_simple_commander` num teste, nao este no.
+Nav2's `waypoint_follower` would also do this, and was rejected: when a goal in
+the list fails it ends the whole list, and in an exhibition a badly placed
+obstacle would end the demo. Here a goal that fails is ABANDONED and the cycle
+moves to the next one, which is the behavior an exhibition needs. The
+trade-off is that this node cannot tell whether the full route was completed
+-- for that use `nav2_simple_commander` in a test, not this node.
 
-## Os limites das metas nao sao arbitrarios
+## The goal limits are not arbitrary
 
-O costmap global e uma janela ROLANTE de 20 m sem mapa (ver
-`nav2_params_go2.yaml`). Meta fora dela e ACEITA e depois falha perto da borda,
-porque `allow_unknown: true` deixa o planejador tracar caminho pelo desconhecido.
-`MAX_GOAL_RADIUS_M` rejeita essas metas na entrada, onde o erro ainda tem nome.
+The global costmap is a ROLLING 20 m window with no map (see
+`nav2_params_go2.yaml`). A goal outside it is ACCEPTED and then fails near the
+edge, because `allow_unknown: true` lets the planner trace a path through the
+unknown. `MAX_GOAL_RADIUS_M` rejects those goals at the door, where the error
+still has a name.
 
-## Tempo limite por meta
+## Timeout per goal
 
-Ao envelope medido do Go2 -- 0,15 m/s a frente, 0,12 rad/s de guinada -- 4 m
-levam ~27 s no melhor caso, e um desvio dobra isso. `DEFAULT_GOAL_TIMEOUT_S` e
-generoso de proposito: um limite curto cancela metas que estavam progredindo, o
-que se parece com falha de navegacao e e falha de configuracao. Se voce apertar
-este numero, meça primeiro.
+At the Go2's measured envelope -- 0.15 m/s forward, 0.12 rad/s yaw -- 4 m
+takes ~27 s in the best case, and an avoidance detour doubles that.
+`DEFAULT_GOAL_TIMEOUT_S` is generous on purpose: a short limit cancels goals
+that were making progress, which looks like a navigation failure and is a
+configuration failure. If you tighten this number, measure first.
 """
 
 from dataclasses import dataclass
@@ -52,80 +54,89 @@ import rclpy
 from rclpy.action import ActionClient
 from rclpy.node import Node
 
-# Raio maximo aceito para uma meta. A janela rolante do costmap global tem 20 m
-# de lado, ou seja 10 m do centro; 8 m deixa 2 m de folga para o robo se afastar
-# da origem durante o ciclo sem que a meta caia fora da janela.
+# Maximum accepted radius for a goal. The global costmap's rolling window is
+# 20 m on a side, i.e. 10 m from the center; 8 m leaves 2 m of margin for the
+# robot to drift from the origin during the cycle without the goal falling
+# outside the window.
 MAX_GOAL_RADIUS_M = 8.0
 
-# Tempo limite por meta, derivado da velocidade MEDIDA e nao escolhido a esmo.
+# Timeout per goal, derived from the MEASURED speed rather than picked
+# arbitrarily.
 #
-# Medido em 20/08/2026 sob Nav2: velocidade media real de 0,021 m/s (pico 0,119).
-# A perna mais longa do percurso default tem 4,27 m, o que da 203 s em linha reta;
-# com o fator 1,3 de desvio, 264 s. 300 s cobre isso com folga.
+# Measured on 20/08/2026 under Nav2: real average speed of 0.021 m/s (peak
+# 0.119). The longest leg of the default route is 4.27 m, which is 203 s in a
+# straight line; with the 1.3 detour factor, 264 s. 300 s covers this with
+# margin.
 #
-# A media e muito menor que o pico porque o MPPI passa boa parte do tempo
-# corrigindo rumo -- e a 0,12 rad/s de teto de guinada, corrigir rumo custa tempo
-# em que quase nao se avanca. Nao encurte este prazo sem medir de novo: cancelar
-# meta que estava progredindo parece falha de navegacao e e de configuracao.
+# The average is much lower than the peak because MPPI spends a good part of
+# the time correcting heading -- and at a 0.12 rad/s yaw ceiling, correcting
+# heading costs time in which the robot barely advances. Do not shorten this
+# deadline without measuring again: canceling a goal that was making progress
+# looks like a navigation failure and is a configuration one.
 DEFAULT_GOAL_TIMEOUT_S = 300.0
 
-# Pausa entre metas. Existe pelo mesmo motivo do settle de `demo_routine`: o
-# controlador de marcha precisa de um intervalo sem comando para assentar a
-# postura, e mandar a proxima meta no instante em que a anterior termina nao da
-# esse intervalo.
+# Pause between goals. Exists for the same reason as `demo_routine`'s settle:
+# the gait controller needs a command-free interval to settle its posture,
+# and sending the next goal the instant the previous one ends does not give
+# it that interval.
 DEFAULT_SETTLE_S = 2.0
 
 
 @dataclass(frozen=True)
 class Goal:
-    """Uma meta do ciclo, em metros e radianos, no frame do planejador."""
+    """One goal of the cycle, in meters and radians, in the planner's frame."""
 
     x: float
     y: float
     yaw: float
 
 
-# Percurso default: triangulo de tres metas, dimensionado contra os obstaculos de
-# `quadruped_objects.sdf`. Cada meta e ALCANCAVEL e cada TRECHO exige desvio --
-# as duas coisas medidas, nao estimadas.
+# Default route: a triangle of three goals, sized against the obstacles in
+# `quadruped_objects.sdf`. Every goal is REACHABLE and every LEG requires
+# avoidance -- both measured, not estimated.
 #
-# Os obstaculos daquele mundo: caixa (1.5, 0.0) meia-diagonal 0.21; cilindro
-# (3.0, 0.45) r 0.18; caixa (3.0, -0.55) meia-diagonal 0.28; cilindro
-# (4.5, 0.0) r 0.12. O raio circunscrito do Go2 e 0.383.
+# That world's obstacles: box (1.5, 0.0) half-diagonal 0.21; cylinder
+# (3.0, 0.45) r 0.18; box (3.0, -0.55) half-diagonal 0.28; cylinder
+# (4.5, 0.0) r 0.12. The Go2's circumscribed radius is 0.383.
 #
-# Folga da RETA ao obstaculo mais proximo, por distancia ponto-segmento (nao
-# pela distancia vertical num x escolhido, que superestima a folga):
+# Clearance from the STRAIGHT LINE to the nearest obstacle, by point-to-segment
+# distance (not by vertical distance at a chosen x, which overestimates the
+# clearance):
 #
-#   (0,0)     -> (4, 1.5)   -0.068 m da caixa vermelha    BLOQUEADA
-#   (4, 1.5)  -> (4, -1.5)  -0.003 m do cilindro amarelo  BLOQUEADA
-#   (4, -1.5) -> (0,0)      -0.127 m da caixa azul        BLOQUEADA
+#   (0,0)     -> (4, 1.5)   -0.068 m from the red box       BLOCKED
+#   (4, 1.5)  -> (4, -1.5)  -0.003 m from the yellow cylinder BLOCKED
+#   (4, -1.5) -> (0,0)      -0.127 m from the blue box      BLOCKED
 #
-# As tres retas estao bloqueadas, entao o desvio e obrigatorio -- que e o ponto
-# do cenario. Se o robo andar em linha reta, ou o costmap esta vazio ou ele
-# atravessou o obstaculo; as duas coisas sao falha.
+# All three straight lines are blocked, so avoidance is mandatory -- which is
+# the point of the scenario. If the robot walks in a straight line, either the
+# costmap is empty or it drove through the obstacle; both are failures.
 #
-# E as tres METAS sao folgadas: +0.887, +0.713 e +0.905 m. Meta apertada faz o
-# Nav2 falhar por chegada impossivel, que se confunde com falha de desvio.
+# And all three GOALS have margin: +0.887, +0.713, and +0.905 m. A tight goal
+# makes Nav2 fail on an impossible arrival, which is easily mistaken for an
+# avoidance failure.
 #
-# O QUADRADO DE 3 m QUE PARECE OBVIO NAO SERVE, e vale registrar por que: a meta
-# (3.0, 0.0) cai no vao entre o cilindro verde e a caixa azul. Esse vao tem
-# 0.45-0.18 = 0.27 de um lado e -0.55+0.28 = -0.27 do outro, ou seja 0.54 m de
-# largura livre, e o robo precisa de 2 x 0.383 = 0.77 m. A meta e inalcancavel, e
-# o Nav2 a ACEITA e so falha depois de esgotar as recuperacoes -- o que se le como
-# "o desvio nao funciona" e e uma meta impossivel.
+# THE OBVIOUS-LOOKING 3 m SQUARE DOES NOT WORK, and it is worth recording why:
+# the goal (3.0, 0.0) falls in the gap between the green cylinder and the blue
+# box. That gap is 0.45-0.18 = 0.27 on one side and -0.55+0.28 = -0.27 on the
+# other, i.e. 0.54 m of free width, and the robot needs 2 x 0.383 = 0.77 m.
+# The goal is unreachable, and Nav2 ACCEPTS it and only fails after exhausting
+# its recoveries -- which reads as "avoidance is not working" and is really an
+# impossible goal.
 #
-# O yaw de cada meta e o rumo de CHEGADA -- a direcao em que o robo ja vem
-# andando ao alcancar aquela meta -- e nao o rumo de saida para a meta seguinte.
+# Each goal's yaw is the ARRIVAL bearing -- the direction the robot is already
+# walking in when it reaches that goal -- not the departure bearing toward the
+# next goal.
 #
-# A diferenca custou uma corrida inteira. Com o yaw de saida, cada meta exigia
-# giro PARADO de 110 a 139 graus na chegada: 16 a 20 s ao teto de 0,12 rad/s. E o
-# giro nao fica parado -- medido em 20/08/2026, o robo chegou a 3,8 cm da meta
-# (3.976, 1.470 contra 4.0, 1.5) e depois derivou 0,78 m em y girando para
-# satisfazer a orientacao, saindo da tolerancia de posicao. A meta nunca fechou.
+# The difference cost an entire run. With the departure bearing, every goal
+# required a STATIONARY turn of 110 to 139 degrees on arrival: 16 to 20 s at
+# the 0.12 rad/s ceiling. And the turn does not stay in place -- measured on
+# 20/08/2026, the robot got to within 3.8 cm of the goal (3.976, 1.470 versus
+# 4.0, 1.5) and then drifted 0.78 m in y while turning to satisfy the
+# orientation, drifting out of the position tolerance. The goal never closed.
 #
-# Com o rumo de chegada, a orientacao ja esta satisfeita quando a posicao esta, e
-# o giro para a meta seguinte acontece como parte do caminho seguinte -- andando,
-# que e onde o Go2 gira melhor.
+# With the arrival bearing, the orientation is already satisfied once the
+# position is, and the turn toward the next goal happens as part of the next
+# leg -- while walking, which is where the Go2 turns best.
 DEFAULT_WAYPOINTS = (
     Goal(4.0, 1.5, math.atan2(1.5, 4.0)),
     Goal(4.0, -1.5, -math.pi / 2.0),
@@ -135,19 +146,20 @@ DEFAULT_WAYPOINTS = (
 
 def parse_waypoints(flat: list) -> tuple:
     """
-    Monta as metas validadas a partir da lista plana de parametro.
+    Build the validated goals from the flat parameter list.
 
-    O parametro chega plano -- [x, y, yaw, x, y, yaw, ...] -- porque o ROS 2 nao
-    tem tipo de parametro para lista de listas. Isso torna facil errar o
-    comprimento, e um comprimento errado silenciosamente desloca todas as metas
-    seguintes, entao aqui isso e erro e nao aviso.
+    The parameter arrives flat -- [x, y, yaw, x, y, yaw, ...] -- because
+    ROS 2 has no parameter type for a list of lists. This makes it easy to
+    get the length wrong, and a wrong length silently shifts every following
+    goal, so here that is an error, not a warning.
     """
     if len(flat) % 3 != 0:
         raise ValueError(
-            'waypoints tem %d valores, que nao e multiplo de 3. O formato e '
-            '[x, y, yaw, x, y, yaw, ...] em metros e radianos.' % len(flat))
+            'waypoints has %d values, which is not a multiple of 3. The '
+            'format is [x, y, yaw, x, y, yaw, ...] in meters and radians.'
+            % len(flat))
     if not flat:
-        raise ValueError('waypoints esta vazio; o ciclo nao teria meta nenhuma.')
+        raise ValueError('waypoints is empty; the cycle would have no goal at all.')
 
     goals = []
     for index in range(0, len(flat), 3):
@@ -155,16 +167,16 @@ def parse_waypoints(flat: list) -> tuple:
         distance = math.hypot(x, y)
         if distance > MAX_GOAL_RADIUS_M:
             raise ValueError(
-                'meta %d esta a %.2f m da origem, acima do limite de %.1f m. A '
-                'janela rolante do costmap global aceitaria essa meta e '
-                'falharia perto da borda.'
+                'goal %d is %.2f m from the origin, above the limit of %.1f '
+                'm. The global costmap rolling window would accept this '
+                'goal and fail near its edge.'
                 % (index // 3, distance, MAX_GOAL_RADIUS_M))
         goals.append(Goal(x, y, yaw))
     return tuple(goals)
 
 
 def flatten(goals) -> list:
-    """Devolve as metas no formato plano de parametro."""
+    """Return the goals in the flat parameter format."""
     flat = []
     for goal in goals:
         flat.extend([goal.x, goal.y, goal.yaw])
@@ -172,24 +184,25 @@ def flatten(goals) -> list:
 
 
 def to_pose(goal: Goal, frame_id: str, stamp) -> PoseStamped:
-    """Monta o PoseStamped de uma meta, com o yaw como quaternion em z."""
+    """Build a goal's PoseStamped, with yaw as a quaternion about z."""
     pose = PoseStamped()
     pose.header.frame_id = frame_id
     pose.header.stamp = stamp
     pose.pose.position.x = goal.x
     pose.pose.position.y = goal.y
-    # Rotacao apenas em torno de z: o robo anda no plano. Escrever o quaternion
-    # a mao evita depender de tf_transformations, que nao esta na imagem.
+    # Rotation about z only: the robot moves in the plane. Writing the
+    # quaternion by hand avoids depending on tf_transformations, which is not
+    # in the image.
     pose.pose.orientation.z = math.sin(goal.yaw / 2.0)
     pose.pose.orientation.w = math.cos(goal.yaw / 2.0)
     return pose
 
 
 class PatrolCommander(Node):
-    """Manda metas do ciclo uma a uma, sem parar, ignorando as que falham."""
+    """Send the cycle's goals one at a time, without stopping, ignoring failures."""
 
     def __init__(self) -> None:
-        """Le os parametros, valida o percurso e abre o cliente da acao."""
+        """Read the parameters, validate the route, and open the action client."""
         super().__init__('patrol_commander')
 
         self.declare_parameter('waypoints', flatten(DEFAULT_WAYPOINTS))
@@ -198,9 +211,10 @@ class PatrolCommander(Node):
         self.declare_parameter('settle_s', DEFAULT_SETTLE_S)
         self.declare_parameter('loop', True)
 
-        # Erro de parametro aborta a subida. Um percurso mal formado que virasse
-        # aviso deixaria o no rodando sem mover o robo, que e o sintoma mais
-        # caro de diagnosticar nesta pilha.
+        # A parameter error aborts startup. A malformed route that turned
+        # into a warning would leave the node running without moving the
+        # robot, which is the most expensive symptom to diagnose in this
+        # stack.
         self._goals = parse_waypoints(
             list(self.get_parameter('waypoints').value))
         self._frame = self.get_parameter('frame_id').value
@@ -214,43 +228,45 @@ class PatrolCommander(Node):
         self._failed = 0
         self._goal_handle = None
         self._deadline = None
-        # Entre send_goal_async e a resposta de aceitacao o handle ainda e None.
-        # Sem esta bandeira o tick de 1 s reentra em _tick e manda OUTRA meta,
-        # inundando o Nav2 com metas concorrentes -- e o Nav2 aceita, cancelando
-        # implicitamente a anterior, entao o sintoma e o robo parado recebendo
-        # meta nova toda vez que ia comecar a andar.
+        # Between send_goal_async and the acceptance response the handle is
+        # still None. Without this flag the 1 s tick would re-enter _tick and
+        # send ANOTHER goal, flooding Nav2 with concurrent goals -- and Nav2
+        # accepts them, implicitly canceling the previous one, so the symptom
+        # is a stopped robot getting a new goal every time it was about to
+        # start walking.
         self._pending = False
 
         self._client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
 
-        # 1 Hz e suficiente: este no supervisiona metas que levam dezenas de
-        # segundos. Uma taxa alta so multiplicaria log.
+        # 1 Hz is enough: this node supervises goals that take tens of
+        # seconds. A higher rate would only multiply the log.
         self._timer = self.create_timer(1.0, self._tick)
 
         self.get_logger().info(
-            'patrulha com %d metas, timeout %.0f s, settle %.1f s, loop %s. '
-            'NAO rode demo_routine junto: os dois viram publicadores de '
-            '/demo/cmd_vel e o robo anda em espasmos.'
+            'patrol with %d goals, timeout %.0f s, settle %.1f s, loop %s. '
+            'Do NOT run demo_routine at the same time: both become '
+            'publishers of /demo/cmd_vel and the robot moves in spasms.'
             % (len(self._goals), self._timeout, self._settle, self._loop))
 
     def _tick(self) -> None:
-        """Manda a proxima meta, ou vigia o prazo da meta em curso."""
+        """Send the next goal, or watch the deadline of the one in progress."""
         if self._pending or self._goal_handle is not None:
             self._check_deadline()
             return
 
         if not self._client.server_is_ready():
-            # Nao e erro: o Nav2 ainda esta ativando os nos de ciclo de vida.
-            # Se persistir, o suspeito e autostart ou o /clock, nao este no.
+            # Not an error: Nav2 is still activating its lifecycle nodes. If
+            # this persists, the suspect is autostart or /clock, not this
+            # node.
             self.get_logger().info(
-                'esperando a acao navigate_to_pose ficar pronta '
-                '(Nav2 ativando)', throttle_duration_sec=10.0)
+                'waiting for the navigate_to_pose action to become ready '
+                '(Nav2 activating)', throttle_duration_sec=10.0)
             return
 
         if self._index >= len(self._goals):
             if not self._loop:
                 self.get_logger().info(
-                    'percurso terminado: %d de %d metas cumpridas'
+                    'route finished: %d of %d goals completed'
                     % (self._succeeded, self._sent))
                 self._timer.cancel()
                 return
@@ -260,13 +276,13 @@ class PatrolCommander(Node):
         self._index += 1
 
     def _send(self, goal: Goal) -> None:
-        """Envia uma meta e arma o prazo dela."""
+        """Send a goal and arm its deadline."""
         message = NavigateToPose.Goal()
         message.pose = to_pose(goal, self._frame, self.get_clock().now().to_msg())
 
         self._sent += 1
         self.get_logger().info(
-            'meta %d: x=%.2f y=%.2f yaw=%.0f deg em "%s"'
+            'goal %d: x=%.2f y=%.2f yaw=%.0f deg in "%s"'
             % (self._sent, goal.x, goal.y, math.degrees(goal.yaw), self._frame))
 
         self._pending = True
@@ -275,14 +291,15 @@ class PatrolCommander(Node):
         future.add_done_callback(self._on_accepted)
 
     def _on_accepted(self, future) -> None:
-        """Guarda o handle da meta aceita, ou desiste dela se foi recusada."""
+        """Keep the handle of an accepted goal, or give up on it if it was rejected."""
         self._pending = False
         handle = future.result()
         if not handle.accepted:
-            # O Nav2 recusa meta cujo caminho ele nem tenta: fora da janela
-            # rolante, ou dentro de obstaculo. Abandonar e seguir e proposital.
+            # Nav2 rejects a goal whose path it does not even attempt:
+            # outside the rolling window, or inside an obstacle. Abandoning
+            # it and moving on is deliberate.
             self.get_logger().warning(
-                'meta %d recusada pelo Nav2; seguindo para a proxima'
+                'goal %d rejected by Nav2; moving on to the next one'
                 % self._sent)
             self._failed += 1
             self._release()
@@ -291,66 +308,69 @@ class PatrolCommander(Node):
         handle.get_result_async().add_done_callback(self._on_result)
 
     def _on_result(self, future) -> None:
-        """Registra o desfecho da meta e libera o ciclo."""
+        """Record the goal's outcome and release the cycle."""
         status = future.result().status
         if status == GoalStatus.STATUS_SUCCEEDED:
             self._succeeded += 1
             self.get_logger().info(
-                'meta %d cumprida (%d de %d)'
+                'goal %d completed (%d of %d)'
                 % (self._sent, self._succeeded, self._sent))
         else:
             self._failed += 1
-            # Status 5 = ABORTED, 6 = CANCELED. ABORTED aqui costuma ser
-            # "recuperacoes esgotadas", que no Go2 quase sempre e obstaculo
-            # dentro do raio inflado e nao falha do planejador.
+            # Status 5 = ABORTED, 6 = CANCELED. ABORTED here is usually
+            # "recoveries exhausted", which on the Go2 is almost always an
+            # obstacle inside the inflated radius, not a planner failure.
             self.get_logger().warning(
-                'meta %d terminou com status %d; abandonada, seguindo o ciclo '
-                '(%d falhas)' % (self._sent, status, self._failed))
+                'goal %d ended with status %d; abandoned, continuing the '
+                'cycle (%d failures)' % (self._sent, status, self._failed))
         self._release()
 
     def _check_deadline(self) -> None:
-        """Cancela a meta em curso se ela passou do prazo."""
+        """Cancel the goal in progress if it is past its deadline."""
         if self._deadline is None or self._elapsed() < self._deadline:
             return
         if self._goal_handle is None:
-            # Passou do prazo e a aceitacao nunca chegou. Nao ha o que cancelar;
-            # solta o ciclo, senao ele trava aqui para sempre.
+            # Past the deadline and acceptance never arrived. There is
+            # nothing to cancel; release the cycle, or it would get stuck
+            # here forever.
             self.get_logger().warning(
-                'meta %d nunca foi aceita em %.0f s; soltando o ciclo'
-                % (self._sent, self._timeout))
+                'goal %d was never accepted within %.0f s; releasing the '
+                'cycle' % (self._sent, self._timeout))
             self._failed += 1
             self._release()
             return
         self.get_logger().warning(
-            'meta %d passou de %.0f s; cancelando. Se isto repetir, meça antes '
-            'de encurtar o prazo: cancelar meta que progredia parece falha de '
-            'navegacao e e de configuracao.' % (self._sent, self._timeout))
+            'goal %d exceeded %.0f s; canceling. If this repeats, measure '
+            'before shortening the deadline: canceling a goal that was '
+            'progressing looks like a navigation failure and is a '
+            'configuration one.' % (self._sent, self._timeout))
         self._goal_handle.cancel_goal_async()
         self._deadline = None
 
     def _release(self) -> None:
-        """Libera o ciclo depois do settle, para a postura assentar."""
+        """Release the cycle after the settle, so posture can settle."""
         self._goal_handle = None
         self._pending = False
         self._deadline = None
-        # O settle e implementado como atraso do proximo envio, nao como pausa
-        # bloqueante: bloquear o executor pararia os callbacks da acao.
+        # The settle is implemented as a delay on the next send, not as a
+        # blocking pause: blocking the executor would stop the action's
+        # callbacks.
         if self._settle > 0.0:
             self._timer.cancel()
             self._timer = self.create_timer(self._settle, self._resume)
 
     def _resume(self) -> None:
-        """Volta a supervisao periodica depois do settle."""
+        """Return to periodic supervision after the settle."""
         self._timer.cancel()
         self._timer = self.create_timer(1.0, self._tick)
 
     def _elapsed(self) -> float:
-        """Segundos desde a epoca do relogio do no."""
+        """Seconds since the node clock's epoch."""
         return self.get_clock().now().nanoseconds * 1e-9
 
 
 def main(args=None) -> None:
-    """Roda a patrulha até ser interrompida."""
+    """Run the patrol until interrupted."""
     rclpy.init(args=args)
     node = PatrolCommander()
     try:

@@ -74,7 +74,7 @@ def test_pattern_finishes_when_not_looping():
 
 
 def test_zero_duration_segments_are_dropped_instead_of_stalling():
-    schedule = Schedule((Segment('nada', 0.1, 0.0, 0.0, 0.0),), settle_s=0.0)
+    schedule = Schedule((Segment('nothing', 0.1, 0.0, 0.0, 0.0),), settle_s=0.0)
 
     assert schedule.segment_count == 0
     assert schedule.at(0.0) == (None, True)
@@ -115,7 +115,7 @@ def test_default_choreography_keeps_yaw_below_the_qp_saturation_point():
 
 
 def _integrate(segments):
-    """Roda a cinemática de uniciclo com os ganhos de guinada medidos."""
+    """Run unicycle kinematics with the measured yaw gains."""
     x = y = theta = 0.0
     for segment in segments:
         steps = 500
@@ -130,19 +130,20 @@ def _integrate(segments):
 
 
 def test_default_choreography_returns_to_where_it_started():
-    # O padrão fecha por geometria, não por cancelamento de erro. Se este teste
-    # cair, o robô sai da área de exposição: a versão anterior, que pareava arcos
-    # invertendo o sinal de wz, andava 1,32 m em x e 0,89 m em y por passada.
+    # The pattern closes by geometry, not by error cancellation. If this test
+    # fails, the robot walks out of the display area: the previous version,
+    # which paired arcs by flipping the sign of wz, walked 1.32 m in x and
+    # 0.89 m in y per pass.
     x, y, heading = _integrate(default_choreography())
     assert math.hypot(x, y) < 0.01
     assert abs(heading % 360.0) < 1.0 or abs(heading % 360.0 - 360.0) < 1.0
 
 
 def test_calibrated_turns_sweep_the_angle_that_was_asked_for():
-    # A guinada é sub-rastreada em 1-3%; sem dividir pelos ganhos medidos um
-    # giro comandado por tempo fecha curto e a figura precessa rápido.
-    spot = [s for s in default_choreography() if s.name.startswith('giro 90')]
-    arcs = [s for s in default_choreography() if s.name.startswith('arco 90')]
+    # Yaw is under-tracked by 1-3%; without dividing by the measured gains a
+    # turn commanded by time falls short and the figure precesses fast.
+    spot = [s for s in default_choreography() if s.name.startswith('turn 90')]
+    arcs = [s for s in default_choreography() if s.name.startswith('arc 90')]
     assert len(spot) == 4 and len(arcs) == 4
     for segment in spot:
         swept = math.degrees(segment.wz * YAW_TRACKING_SPOT * segment.duration_s)

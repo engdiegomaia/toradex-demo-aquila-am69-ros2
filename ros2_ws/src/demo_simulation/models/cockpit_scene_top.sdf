@@ -1,19 +1,20 @@
 <?xml version="1.0"?>
 <!--
-  Camera de cena de topo do cockpit web (ML3.5 F3b).
+  Top-down scene camera for the web cockpit (ML3.5 F3b).
 
-  Segunda vista do painel azul, alternavel na UI. Serve para conferir a
-  trajetoria contra o painel de navegacao ao lado: as duas devem concordar.
+  Second view in the blue panel, selectable in the UI. It helps verify the
+  trajectory against the navigation panel beside it: the two should agree.
 
-  ORIENTACAO, e aqui esta a unica sutileza do arquivo. A convencao de camera do
-  Gazebo e +X para frente e +Z para cima na imagem. Apontar para baixo e
-  pitch=+1.5708. So com isso a imagem sai com o +X do mundo para cima, e as duas
-  vistas discordam do mapa. Somando yaw=1.5708 o NORTE DO MAPA (+Y do mundo)
-  fica para cima, a mesma orientacao do canvas do painel verde. A pose completa
-  esta em launch/scene_cameras.launch.py, com a conta da altura.
+  ORIENTATION is the only subtlety in this file. Gazebo's camera convention is
+  +X forward and +Z up in the image. Pointing down is
+  pitch=+1.5708. By itself, this puts world +X at the top of the image, so the
+  two views disagree with the map. Adding yaw=1.5708 puts MAP NORTH (world +Y)
+  at the top, matching the green panel canvas. The complete pose
+  is in launch/scene_cameras.launch.py, along with the height calculation.
 
-  As demais notas (por que spawnado, por que nao no robo, dependencia do
-  gz-sim-sensors-system) estao em cockpit_scene_iso.sdf e valem igual aqui.
+  The remaining notes (why it is spawned, why it is not attached to the robot,
+  and the gz-sim-sensors-system dependency) are in cockpit_scene_iso.sdf and
+  apply here as well.
 -->
 <sdf version="1.9">
   <model name="cockpit_scene_top">
@@ -26,9 +27,8 @@
             <width>1600</width>
             <height>1200</height>
           </image>
-          <!-- 8 amostras: as bordas das paredes do labirinto sao quase todas
-               diagonais, e serrilhado em diagonal e o artefato que mais aparece
-               num render parado. -->
+          <!-- 8 samples: maze wall edges are mostly diagonal, and diagonal
+               aliasing is the most visible artifact in a static render. -->
           <anti_aliasing>8</anti_aliasing>
           <clip>
             <near>0.1</near>

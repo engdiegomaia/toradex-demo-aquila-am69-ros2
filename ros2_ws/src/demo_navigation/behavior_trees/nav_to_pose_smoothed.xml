@@ -1,57 +1,58 @@
 <!--
-  navigate_to_pose COM SUAVIZACAO DO CAMINHO GLOBAL.
+  navigate_to_pose WITH GLOBAL PATH SMOOTHING.
 
-  POR QUE ESTE ARQUIVO EXISTE
-  ===========================
+  WHY THIS FILE EXISTS
+  ====================
 
-  NENHUM behavior tree que acompanha o Nav2 Jazzy chama `SmoothPath`.
-  Verificado em 21/08/2026 com `grep -l SmoothPath` em
-  /opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/*.xml: zero arquivos.
+  NO behavior tree shipped with Nav2 Jazzy calls `SmoothPath`.
+  Verified on 21/08/2026 with `grep -l SmoothPath` over
+  /opt/ros/jazzy/share/nav2_bt_navigator/behavior_trees/*.xml: zero files.
 
-  Consequencia: o `smoother_server` deste projeto esta configurado
-  (`simple_smoother`, em nav2_params_go2.yaml) e NUNCA e invocado. Nao ha erro,
-  nao ha aviso: o servidor sobe, fica ativo, e nada nunca lhe manda trabalho.
-  Mesma classe de defeito do `perception_layer` sem produtor.
+  Consequence: this project's `smoother_server` is configured
+  (`simple_smoother`, in nav2_params_go2.yaml) and NEVER invoked. There is no
+  error, no warning: the server comes up, becomes active, and nothing ever sends
+  it work. Same class of defect as a `perception_layer` with no producer.
 
-  Por que isso importa para ESTE robo. O NavFn e Dijkstra sobre uma grade de
-  0.05 m 8-conexa, entao o caminho global sai em ESCADA. O `PathAlignCritic` do
-  MPPI tem peso 14, o maior de todos, e a funcao dele e justamente colar o robo
-  nesse caminho. O robo passa a perseguir cada degrau da escada, o que aparece
-  como giro continuo sem motivo visivel no mundo, num corredor reto de 1.20 m.
+  Why this matters for THIS robot. NavFn is Dijkstra over an 8-connected
+  0.05 m grid, so the global path comes out as a STAIRCASE. MPPI's
+  `PathAlignCritic` has weight 14, the largest of all, and its job is precisely
+  to glue the robot to that path. The robot ends up chasing every step of the
+  staircase, which shows up as continuous turning for no reason visible in the
+  world, in a straight 1.20 m corridor.
 
-  Com o caminho suavizado, trecho reto fica reto e curva fica curva, que e o
-  comportamento pedido: andar para frente onde da, girar so onde precisa.
+  With the path smoothed, a straight stretch stays straight and a curve stays a
+  curve, which is the requested behavior: walk forward where possible, turn
+  only where needed.
 
-  O QUE MUDA EM RELACAO AO DEFAULT
-  ================================
+  WHAT CHANGES RELATIVE TO THE DEFAULT
+  ====================================
 
-  Copia de navigate_to_pose_w_replanning_and_recovery.xml do Nav2 Jazzy, com uma
-  unica diferenca: o `ComputePathToPose` virou uma `Sequence` que encadeia
-  `SmoothPath` depois dele, dentro do mesmo `RateController` de 1 Hz.
+  Copy of navigate_to_pose_w_replanning_and_recovery.xml from Nav2 Jazzy, with a
+  single difference: `ComputePathToPose` became a `Sequence` that chains
+  `SmoothPath` after it, inside the same 1 Hz `RateController`.
 
-  `SmoothPath` escreve em `{smooth_path}`, e e essa chave que o `FollowPath`
-  le - NAO reusar `{path}` para as duas pontas do `SmoothPath`. Se a
-  suavizacao falhar, a Sequence falha e o `RecoveryNode` limpa o costmap
-  global e replaneja, que e o tratamento que o default da a uma falha de
-  planejamento.
+  `SmoothPath` writes to `{smooth_path}`, and that is the key `FollowPath`
+  reads - do NOT reuse `{path}` for both ends of `SmoothPath`. If smoothing
+  fails, the Sequence fails and the `RecoveryNode` clears the global costmap
+  and replans, which is the treatment the default gives to a planning failure.
 
-  `max_its` e `tolerance` do suavizador ficam no YAML, nao aqui.
+  The smoother's `max_its` and `tolerance` live in the YAML, not here.
 
-  BUG MEDIDO EM 26/08/2026, CORRIGIDO NA MESMA SESSAO: `SmoothPath` tinha
-  `smoothed_path="{path}"`, a MESMA chave da entrada e a mesma que o
-  `FollowPath` le. `RateController` e `FollowPath` sao irmaos dentro do mesmo
-  `PipelineSequence`; enquanto `FollowPath` retorna RUNNING (o caso normal,
-  ele e uma acao longa), o proprio `PipelineSequence` re-tica os irmaos
-  anteriores - inclusive o `RateController`, que roda no maximo 1x/s mas
-  ainda assim recomputa e resuaviza a cada tick permitido. Cada recomputacao
-  reescrevia `{path}`, e o `FollowPath` via isso como uma meta nova e
-  abortava o handle em andamento - medido no smoke HIL como
-  `[follow_path] [ActionServer] Aborting handle` a ~1 Hz durante os 60 s
-  inteiros do ensaio, culminando no timeout de 40 s do progress_checker sem o
-  robo nunca ter avancado. Reproduzido e explicado por um mantenedor do Nav2
-  em ros-navigation/navigation2#5817: "we expect users to remap the smoothed
-  path to a different blackboard variable". `tests/test_nav_to_pose_smoothed_bt.py`
-  trava esse contrato.
+  BUG MEASURED ON 26/08/2026, FIXED IN THE SAME SESSION: `SmoothPath` had
+  `smoothed_path="{path}"`, the SAME key as the input and the same one
+  `FollowPath` reads. `RateController` and `FollowPath` are siblings inside the
+  same `PipelineSequence`; while `FollowPath` returns RUNNING (the normal case,
+  it is a long action), the `PipelineSequence` itself re-ticks the preceding
+  siblings - including the `RateController`, which runs at most 1x/s but still
+  recomputes and re-smooths on every permitted tick. Each recomputation
+  rewrote `{path}`, and `FollowPath` saw that as a new goal and aborted the
+  handle in progress - measured in the HIL smoke as
+  `[follow_path] [ActionServer] Aborting handle` at ~1 Hz during the entire
+  60 s of the trial, culminating in the progress_checker's 40 s timeout with
+  the robot never having advanced. Reproduced and explained by a Nav2
+  maintainer in ros-navigation/navigation2#5817: "we expect users to remap the
+  smoothed path to a different blackboard variable".
+  `tests/test_nav_to_pose_smoothed_bt.py` locks this contract.
 -->
 <root BTCPP_format="4" main_tree_to_execute="MainTree">
   <BehaviorTree ID="MainTree">

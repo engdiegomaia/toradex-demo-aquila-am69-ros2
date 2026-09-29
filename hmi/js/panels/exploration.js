@@ -1,68 +1,72 @@
 /**
- * A decisão de exploração do painel de navegação, sem DOM e sem canvas.
+ * The navigation panel's exploration decision, with no DOM and no canvas.
  *
- * Mora fora de `nav-panel.js` por um motivo de teste, não de organização: o
- * painel só existe depois de um `canvas.getContext('2d')`, e o bundle não tem
- * jsdom por decisão de projeto (plano-cockpit-web.md, Decisão 5). Montar o
- * painel inteiro para perguntar "este clique deveria virar meta?" exigiria
- * dublar um contexto 2D inteiro, e o teste passaria a medir o dublê.
+ * It lives outside `nav-panel.js` for a testing reason, not an organizational
+ * one: the panel only exists after a `canvas.getContext('2d')`, and the
+ * bundle has no jsdom by project decision (plano-cockpit-web.md, Decision 5).
+ * Mounting the whole panel to ask "should this click become a goal?" would
+ * require faking an entire 2D context, and the test would end up measuring
+ * the fake.
  *
- * O que está aqui são as três perguntas que o operador faz e que uma resposta
- * errada custa caro:
+ * What is here are the three questions the operator asks, where a wrong
+ * answer is expensive:
  *
- *   a busca está correndo?   -> se estiver, clique no mapa NÃO vira meta manual
- *   o que mostrar no HUD?    -> estado, tempo, fronteiras, marcador, falha
- *   a saída foi confirmada?  -> e isso vem do validador, nunca do explorador
+ *   is the search running?   -> if so, a map click does NOT become a manual goal
+ *   what should the HUD show? -> state, time, frontiers, marker, failure
+ *   was the exit confirmed?  -> and that comes from the validator, never the explorer
  *
- * O estado de busca chega por um tópico TRANSIENT_LOCAL: depois de uma queda do
- * rosbridge, a última mensagem é reentregue e a tela se reconstrói sozinha. Por
- * isso este store não tem "esquecer": ele é uma função do último status visto.
+ * The search state arrives on a TRANSIENT_LOCAL topic: after a rosbridge
+ * drop, the last message is redelivered and the screen rebuilds itself. That
+ * is why this store has no "forget": it is a function of the last status
+ * seen.
  */
 
 /**
- * Estados em que o explorador está no comando do robô.
+ * States in which the explorer is in command of the robot.
  *
- * `starting` é do COCKPIT, não do `maze_explorer`: cobre a janela entre o
- * clique em "iniciar busca" e o primeiro status vindo do Aquila. Sem ele essa
- * janela conta como "não há busca", e um clique no mapa vira meta manual por
- * cima de uma busca que o Aquila já aceitou. É a mesma família de defeito que
- * o resto deste arquivo persegue: o cockpit acreditando numa coisa enquanto o
- * módulo faz outra.
+ * `starting` belongs to the COCKPIT, not to `maze_explorer`: it covers the
+ * window between clicking "start search" and the first status coming from
+ * the Aquila. Without it that window counts as "no search running", and a
+ * map click becomes a manual goal on top of a search the Aquila has already
+ * accepted. It is the same family of defect the rest of this file guards
+ * against: the cockpit believing one thing while the module does another.
  */
 export const BUSY_STATES = Object.freeze([
   'starting', 'waiting_map', 'selecting', 'navigating', 'homing_exit',
 ]);
 
-/** Estados em que a busca terminou, e o HUD ainda deve dizer como. */
+/** States in which the search has ended, and the HUD still has to say how. */
 export const TERMINAL_STATES = Object.freeze([
   'completed', 'failed', 'cancelled',
 ]);
 
 /**
- * Lê o JSON publicado por `maze_explorer`.
+ * Reads the JSON published by `maze_explorer`.
  *
- * Um payload inválido NÃO pode virar `null` silencioso: o painel voltaria a
- * aceitar cliques manuais no meio de uma busca que continua correndo no Aquila.
+ * An invalid payload must NOT silently become `null`: the panel would go
+ * back to accepting manual clicks in the middle of a search that keeps
+ * running on the Aquila.
  *
- * O `invalid: true` existe porque `state: 'failed'` sozinho não basta. `failed`
- * é TERMINAL, e terminal LIBERA a meta manual -- que é exatamente o que não se
- * pode fazer quando a única coisa que se sabe é que o canal ficou ilegível. Um
- * JSON quebrado não é notícia sobre o robô; é notícia sobre o enlace. Quem
- * decide o que fazer com isso é o store, em `apply`.
+ * `invalid: true` exists because `state: 'failed'` alone is not enough.
+ * `failed` is TERMINAL, and terminal RELEASES the manual goal -- which is
+ * exactly what must not happen when the only thing known is that the
+ * channel became unreadable. Broken JSON is not news about the robot; it is
+ * news about the link. Deciding what to do with that is the store's job, in
+ * `apply`.
  */
 export function parseExplorationStatus(message) {
   const data = message?.data;
   if (typeof data !== 'string') {
-    return { state: 'failed', message: 'estado de busca ausente', invalid: true };
+    return { state: 'failed', message: 'search status missing', invalid: true };
   }
   try {
     const parsed = JSON.parse(data);
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-      return { state: 'failed', message: 'estado de busca inválido', invalid: true };
+      return { state: 'failed', message: 'search status invalid', invalid: true };
     }
     return parsed;
   } catch {
-    return { state: 'failed', message: 'estado de busca inválido', invalid: true };
+    return { state: 'failed', message: 'search status invalid', invalid: true };
   }
 }
 
@@ -71,12 +75,13 @@ export function isExplorationActive(exploration) {
 }
 
 /**
- * As partes do HUD que a busca acrescenta, na ordem de leitura.
+ * The HUD parts the search adds, in reading order.
  *
- * `SAÍDA CONFIRMADA` vem de `/demo/maze/escaped`, publicado pelo validador de
- * ground truth do lado da simulação — nunca de `state === 'completed'`, que só
- * diz que o explorador chegou perto do marcador. Confundir os dois faria o
- * cockpit declarar sucesso sem o robô ter atravessado a abertura.
+ * `EXIT CONFIRMED` comes from `/demo/maze/escaped`, published by the
+ * simulation-side ground-truth validator — never from `state === 'completed'`,
+ * which only says the explorer got close to the marker. Confusing the two
+ * would make the cockpit declare success without the robot having actually
+ * crossed the opening.
  */
 export function explorationHudParts(exploration, mazeEscaped, linkError) {
   const parts = [];
@@ -85,20 +90,20 @@ export function explorationHudParts(exploration, mazeEscaped, linkError) {
       parts.push(`${Math.round(exploration.elapsed_s)} s`);
     }
     if (Number.isFinite(exploration.frontier_count)) {
-      parts.push(`${exploration.frontier_count} fronteira(s)`);
+      parts.push(`${exploration.frontier_count} frontier(s)`);
     }
-    if (exploration.marker_visible) parts.push('saída detectada');
+    if (exploration.marker_visible) parts.push('exit detected');
     if (exploration.message) parts.push(exploration.message);
   }
-  // Erro de comunicação é uma linha PRÓPRIA, ao lado do último estado válido, e
-  // não um estado que substitui aquele. O operador precisa ver as duas coisas:
-  // o que o robô estava fazendo, e que o cockpit parou de saber.
+  // Communication error is its OWN line, alongside the last valid state, not
+  // a state that replaces it. The operator needs to see both things: what
+  // the robot was doing, and that the cockpit stopped knowing.
   if (linkError) parts.push(linkError);
-  if (mazeEscaped) parts.push('SAÍDA CONFIRMADA');
+  if (mazeEscaped) parts.push('EXIT CONFIRMED');
   return parts;
 }
 
-/** Guarda o último status visto e responde o que o painel precisa desenhar. */
+/** Keeps the last status seen and answers what the panel needs to draw. */
 export function createExplorationStore() {
   let exploration = null;
   let mazeEscaped = false;
@@ -107,16 +112,18 @@ export function createExplorationStore() {
 
   return {
     /**
-     * Aplica uma mensagem de `/demo/exploration/status`.
+     * Applies a message from `/demo/exploration/status`.
      *
-     * Payload ilegível NÃO derruba um estado ocupado. `navigating` seguido de
-     * JSON quebrado continua bloqueado; `selecting` seguido de desconexão
-     * também. O último estado válido é preservado e a falha de comunicação vira
-     * um campo separado -- porque converter para `failed` liberaria a meta
-     * manual em cima de uma busca que continua correndo no Aquila.
+     * An unreadable payload does NOT knock down a busy state. `navigating`
+     * followed by broken JSON stays blocked; `selecting` followed by a
+     * disconnect too. The last valid state is preserved and the
+     * communication failure becomes a separate field -- because converting
+     * to `failed` would release the manual goal on top of a search that
+     * keeps running on the Aquila.
      *
-     * A exceção é não haver estado válido nenhum ainda: aí o `failed` do parse
-     * é a melhor informação disponível, e é melhor que uma tela muda.
+     * The exception is when there is no valid state at all yet: then the
+     * parser's `failed` is the best information available, and it is better
+     * than a blank screen.
      */
     apply(message) {
       const parsed = parseExplorationStatus(message);
@@ -130,48 +137,49 @@ export function createExplorationStore() {
       exploration = parsed;
     },
     /**
-     * Marca um comando de busca em voo, antes de qualquer resposta.
+     * Marks a search command in flight, before any response.
      *
-     * `starting` cobre a janela entre o clique e o primeiro status do Aquila.
-     * `pending` cobre a promessa do serviço, e é o que impede o duplo clique de
-     * virar duas chamadas.
+     * `starting` covers the window between the click and the first status
+     * from the Aquila. `pending` covers the service promise, and is what
+     * stops a double click from turning into two calls.
      */
     beginStart() {
       pending = true;
       linkError = null;
-      exploration = { state: 'starting', message: 'iniciando busca' };
+      exploration = { state: 'starting', message: 'starting search' };
     },
-    /** Um cancelamento em voo: não muda o estado, só trava a porta. */
+    /** A cancel in flight: does not change the state, only locks the door. */
     beginCancel() {
       pending = true;
     },
     /**
-     * O serviço recusou o start, ou a chamada explodiu.
+     * The service refused the start, or the call blew up.
      *
-     * Desfaz o `starting` -- que é um estado que só o cockpit inventou -- para
-     * que o painel não fique travado num bloqueio sem busca do outro lado. Se
-     * um status real já tiver chegado nesse meio tempo, ele manda: a recusa
-     * vira só mensagem, e o bloqueio continua com quem tem autoridade.
+     * Undoes `starting` -- a state only the cockpit invented -- so the panel
+     * does not stay stuck in a lock with no search on the other side. If a
+     * real status has already arrived in the meantime, it wins: the refusal
+     * becomes just a message, and the lock stays with whoever has
+     * authority.
      */
     refuseStart(text) {
       pending = false;
-      const message = text ?? 'comando de busca recusado';
+      const message = text ?? 'search command refused';
       exploration = exploration?.state === 'starting'
         ? { state: 'failed', message }
         : { ...(exploration ?? {}), message };
     },
-    /** O serviço respondeu (bem ou mal); a promessa não trava mais nada. */
+    /** The service answered (well or badly); the promise no longer locks anything. */
     endCommand() {
       pending = false;
     },
-    /** Há comando em voo ou busca correndo? Se sim, nada de meta manual. */
+    /** Is there a command in flight or a search running? If so, no manual goal. */
     isBusy() {
       return pending || isExplorationActive(exploration);
     },
     linkError() {
       return linkError;
     },
-    /** Aplica um objeto já pronto, como a resposta recusada de um serviço. */
+    /** Applies an already-built object, like a service's refusal response. */
     merge(patch) {
       exploration = { ...(exploration ?? {}), ...patch };
     },
@@ -181,12 +189,12 @@ export function createExplorationStore() {
     isActive() {
       return isExplorationActive(exploration);
     },
-    /** A busca domina o HUD enquanto corre E depois que termina. */
+    /** The search owns the HUD while it runs AND after it ends. */
     ownsHud() {
       return this.isActive() || TERMINAL_STATES.includes(exploration?.state);
     },
     label() {
-      return `busca: ${exploration?.state ?? 'idle'}`;
+      return `search: ${exploration?.state ?? 'idle'}`;
     },
     hudParts() {
       return explorationHudParts(exploration, mazeEscaped, linkError);

@@ -18,7 +18,7 @@
  *     walking quadruped would only tilt the beams out of the plane.
  *   - LATEST sample only, no time interpolation and no stamp matching. A scan
  *     is drawn against the newest pose rather than the pose at its own stamp.
- *     At walking speed (~0,07 m/s measured) and 10 Hz that is under a
+ *     At walking speed (~0.07 m/s measured) and 10 Hz that is under a
  *     centimetre. Do not reuse this class for anything that closes a loop.
  *   - static and dynamic transforms share one table. /tf_static is ACCUMULATED,
  *     never replaced: robot_state_publisher and odom_tf are two different

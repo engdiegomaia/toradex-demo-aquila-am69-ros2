@@ -209,22 +209,22 @@ def generate_launch_description() -> LaunchDescription:
         )],
     )
 
-    # Vistas externas do cockpit web (painel azul): duas cameras estaticas
-    # spawnadas no mundo, isometrica e de topo. Fragmento COMPARTILHADO com a
-    # planta quadrupede, para que o painel nao apague ao trocar ROBOT_TYPE.
-    # Toda a conta de enquadramento e o motivo de serem spawnadas em vez de
-    # escritas nos worlds/*.sdf estao em scene_cameras.launch.py.
+    # External views of the web cockpit (blue panel): two static cameras
+    # spawned into the world, isometric and top-down. Fragment SHARED with the
+    # quadruped plant, so the panel does not go dark when ROBOT_TYPE changes.
+    # All the framing arithmetic and the reason they are spawned instead of
+    # written into worlds/*.sdf are in scene_cameras.launch.py.
     #
-    # O seed odom -> mundo E PASSADO EXPLICITAMENTE, e essa e a unica diferenca
-    # deste include em relacao ao da planta quadrupede. A odometria daqui vem do
-    # plugin DiffDrive, que integra encoders a partir de ZERO: a origem do odom e
-    # a pose de SPAWN, nao a do mundo. Sem este seed, um `x:=5` faz as duas
-    # vistas seguirem um ponto 5 m ao lado do robo — errado por um deslocamento
-    # constante, sem erro em lugar nenhum.
+    # The odom -> world seed IS PASSED EXPLICITLY, and that is the only
+    # difference of this include from the quadruped plant's. The odometry here
+    # comes from the DiffDrive plugin, which integrates encoders from ZERO: the
+    # odom origin is the SPAWN pose, not the world's. Without this seed, an
+    # `x:=5` makes both views follow a point 5 m beside the robot -- wrong by a
+    # constant offset, with no error anywhere.
     #
-    # A planta quadrupede NAO passa nada porque la /go2/odom e ground truth do
-    # Gazebo (ja e a pose no mundo) e um seed nao-nulo somaria a pose de spawn
-    # duas vezes.
+    # The quadruped plant passes nothing because there /go2/odom is Gazebo
+    # ground truth (already the pose in the world) and a non-zero seed would add
+    # the spawn pose twice.
     scene_cameras = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_simulation'), 'launch',
@@ -237,9 +237,9 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
-    # Ponte de serviços do Gazebo: play/pause/reset do cockpit, e o set_pose que
-    # o scene_view_controller usa para mover as câmeras. Fragmento
-    # compartilhado, pela mesma razão do anterior.
+    # Gazebo service bridge: the cockpit's play/pause/reset, and the set_pose
+    # that scene_view_controller uses to move the cameras. Shared fragment, for
+    # the same reason as the previous one.
     sim_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_simulation'), 'launch',

@@ -1,8 +1,0 @@
-goal_index,goal_x,goal_y,phase,sent_sim_s,elapsed_s,outcome,nav2_status,message
-0,-2.026,2.566,exploration,660.327,7.89,ok,4,fronteira alcancada; atualizando mapa
-1,-2.976,1.566,exploration,669.017,27.997,failed,,aproximando marcador da saida
-2,-2.44,1.485,homing,697.014,0.993,failed,,aproximando marcador da saida
-3,-2.486,1.47,homing,698.007,8.998,failed,,marcador perdido; retomando fronteiras
-4,-3.027,0.416,exploration,709.003,7.01,failed,,aproximando marcador da saida
-5,-2.954,1.111,homing,716.013,0.987,failed,,aproximando marcador da saida
-6,-2.981,1.091,homing,717.0,7.004,failed,,marcador perdido; retomando fronteiras

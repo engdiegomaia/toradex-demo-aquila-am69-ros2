@@ -1,158 +1,168 @@
-# Procedência — camada de controle vendorizada
+# Provenance — vendored control stack
 
-Vale para os quatro pacotes vendorizados juntos em F3:
+Covers the four control packages vendored together:
 
 - `control_input_msgs`
 - `controller_common`
 - `unitree_guide_controller`
 - `gz_quadruped_hardware`
 
-**Nenhum deles é nosso.** Mesmo padrão de `go2_description/README.md` e de
-`demo_navigation/launch/nav2_vendored/`: mudar o mínimo, provar a procedência,
-deixar o diff visível.
+**None of these are ours.** Same pattern as `go2_description/README.md` and
+`demo_navigation/launch/nav2_vendored/`: change the minimum, prove
+provenance, keep the diff visible.
 
 ---
 
-## Origem
+## Origin
 
-- **Repositório:** <https://github.com/legubiao/quadruped_ros2_control>
-- **Commit:** `5434c5810d1a7fe223bcfd04550e9d3bfdd4b458` ("x30 repaint", 24/06/2025)
-- **Caminhos:** `commands/control_input_msgs`, `libraries/controller_common`,
+- **Repository:** <https://github.com/legubiao/quadruped_ros2_control>
+- **Commit:** `5434c5810d1a7fe223bcfd04550e9d3bfdd4b458` ("x30 repaint", 2025-06-24)
+- **Paths:** `commands/control_input_msgs`, `libraries/controller_common`,
   `controllers/unitree_guide_controller`, `hardwares/gz_quadruped_hardware`
 
-Extraídos da imagem `demo-sim:spike-go2`, construída em F2 a partir de clone
-raso desse commit. Nomes upstream preservados: os `$(find <pacote>)` dos xacro e
-dos launch resolvem sem edição, e o diff contra o upstream fica nulo.
+Extracted from a shallow clone of that commit. Upstream names were preserved:
+the `$(find <package>)` references in the xacro and launch files resolve
+without edits, and the diff against upstream is nil.
 
 ---
 
-## Licença — o que a auditoria encontrou
+## License — what the audit found
 
-Os `package.xml` declaram `Apache-2.0` (ou `Apache 2`), mas a cobertura real é
-mista. Medido, não presumido:
+The `package.xml` files declare `Apache-2.0` (or `Apache 2`), but actual
+coverage is mixed. Measured, not assumed:
 
-| Pacote | `package.xml` declara | Cobertura real | Titular |
+| Package | `package.xml` declares | Actual coverage | Holder |
 |---|---|---|---|
-| `gz_quadruped_hardware` | `Apache 2` | `LICENSE` próprio, headers Apache em **5/5** fontes | Open Source Robotics Foundation |
-| `unitree_guide_controller` | `Apache-2.0` | `LICENSES/unitree_guide/LICENSE.txt` da raiz upstream — **BSD 3-Clause** | Unitree Robotics |
-| `controller_common` | `Apache-2.0` | idem (código extraído do `unitree_guide_controller`) | Unitree Robotics |
-| `control_input_msgs` | `Apache-2.0` | idem; só definições de mensagem, 20 KB, sem fonte C++ | Unitree Robotics |
+| `gz_quadruped_hardware` | `Apache 2` | own `LICENSE`, Apache headers in **5/5** sources | Open Source Robotics Foundation |
+| `unitree_guide_controller` | `Apache-2.0` | `LICENSES/unitree_guide/LICENSE.txt` at the upstream repo root — **BSD 3-Clause** | Unitree Robotics |
+| `controller_common` | `Apache-2.0` | same (code extracted from `unitree_guide_controller`) | Unitree Robotics |
+| `control_input_msgs` | `Apache-2.0` | same; message definitions only, 20 KB, no C++ source | Unitree Robotics |
 
-### O que isso significa
+### What this means
 
-`gz_quadruped_hardware` é um **fork do `gz_ros2_control` da OSRF**, e é o caso
-limpo: `LICENSE` próprio no pacote e header Apache completo em todos os cinco
-fontes. Nada a resolver.
+`gz_quadruped_hardware` is a **fork of OSRF's `gz_ros2_control`**, and it is
+the clean case: its own `LICENSE` in the package, and a full Apache header in
+all five sources. Nothing to resolve.
 
-Os outros três derivam do **`unitree_guide` da Unitree**, portado para ROS 2 pelo
-`legubiao`. Os fontes em sua maioria não têm header de copyright — carregam só
-`// Created by tlab-uav on 24-9-6.` — o que na auditoria crua parece licença
-ausente. Não é: o repositório upstream mantém `LICENSES/unitree_guide/LICENSE.txt`
-na raiz **exatamente** para cobrir esse código, e o texto é BSD 3-Clause,
-copyright (c) 2016-2022 HangZhou YuShu TECHNOLOGY CO.,LTD. ("Unitree Robotics").
+The other three derive from Unitree's **`unitree_guide`**, ported to ROS 2 by
+`legubiao`. Most of the sources carry no copyright header — only
+`// Created by tlab-uav on 24-9-6.` — which reads as a missing license on a
+naive audit. It is not: the upstream repository keeps
+`LICENSES/unitree_guide/LICENSE.txt` at its root **specifically** to cover
+this code, and the text is BSD 3-Clause, copyright (c) 2016-2022 HangZhou
+YuShu TECHNOLOGY CO.,LTD. ("Unitree Robotics").
 
-Confirmação independente: `include/unitree_guide_controller/common/mathTypes.h`
-é o único fonte com header, e o header diz
+Independent confirmation:
+`include/unitree_guide_controller/common/mathTypes.h` is the only source that
+carries a header, and it reads
 `Copyright (c) 2020-2023, Unitree Robotics.Co.Ltd. All rights reserved.` —
-mesmo titular.
+the same holder.
 
-É **o mesmo titular e a mesma licença** das malhas do `go2_description`, cuja
-identidade com `unitreerobotics/unitree_ros` está provada por hash. As duas
-camadas da demo (descrição e controle) convergem para a mesma origem e a mesma
-licença BSD-3.
+This is **the same holder and the same license** as the `go2_description`
+meshes, whose identity with `unitreerobotics/unitree_ros` is hash-proved. The
+demo's two layers (description and control) converge on the same origin and
+the same BSD-3 license.
 
-### Diferença em relação ao caso do a1_description
+### Contrast with the `a1_description` case
 
-Aqui existe texto de licença e titular identificado — o que faltava no
-`a1_description` (`<license>TODO</license>`, sem texto, sem copyright) e que fez
-o alvo do ML3.5 mudar de A1 para Go2 em F2. A cláusula 1 do BSD-3 (reter o aviso
-de copyright na redistribuição de fonte) é cumprível: o `LICENSE` está em cada
-pacote.
+Here, license text and an identified holder both exist — which is what
+`a1_description` lacked (`<license>TODO</license>`, no text, no copyright),
+and which is why the ML3.5 target moved from A1 to Go2. BSD-3 clause 1
+(retain the copyright notice on source redistribution) is satisfiable: the
+`LICENSE` is present in each package.
 
 ---
 
-## Edições feitas sobre o upstream
+## Edits made on top of upstream
 
-### 1. `LICENSE` adicionado a três pacotes
+### 1. `LICENSE` added to three packages
 
-`control_input_msgs`, `controller_common` e `unitree_guide_controller` receberam
-cópia de `LICENSES/unitree_guide/LICENSE.txt` do repo upstream, íntegra. Upstream
-mantém esse texto só na raiz; ao extrair os pacotes individualmente ele
-precisa viajar junto, ou a redistribuição não cumpre a cláusula 1.
+`control_input_msgs`, `controller_common` and `unitree_guide_controller`
+received a full copy of `LICENSES/unitree_guide/LICENSE.txt` from the
+upstream repository. Upstream keeps that text only at the root; when the
+packages are extracted individually it has to travel with them, or the
+redistribution fails clause 1.
 
-`gz_quadruped_hardware` já trazia o seu e não foi tocado.
+`gz_quadruped_hardware` already carried its own and was not touched.
 
-### 2. `package.xml` — licença precisada
+### 2. `package.xml` — license made precise
 
-Nos três pacotes derivados do `unitree_guide`, `<license>Apache-2.0</license>`
-foi corrigido para `<license>BSD-3-Clause</license>`, que é o que o texto que os
-cobre de fato diz. Declarar Apache sobre código BSD-3 estaria errado nas duas
-direções.
+In the three packages derived from `unitree_guide`,
+`<license>Apache-2.0</license>` was corrected to
+`<license>BSD-3-Clause</license>`, which is what the text actually covering
+them says. Declaring Apache over BSD-3 code would be wrong in both
+directions.
 
-`gz_quadruped_hardware` teve `Apache 2` normalizado para `Apache-2.0` (grafia
-SPDX). Titular e conteúdo intactos.
+`gz_quadruped_hardware` had `Apache 2` normalized to `Apache-2.0` (SPDX
+spelling). Holder and content unchanged.
 
-### 3. Código de `unitree_guide_controller` editado a partir de F4
+### 3. `unitree_guide_controller` source edited from F4 onward
 
-Isto **mudou** depois da vendorização, e a versão anterior deste arquivo dizia o
-contrário. A frase "nenhum arquivo de código foi editado" era verdade em
-17/08/2026 e deixou de ser no dia seguinte, quando F4 começou a mexer na marcha.
-Registrado aqui em vez de corrigido em silêncio.
+This **changed** after vendoring, and an earlier version of this file said
+the opposite. "No source file was edited" was true as of the initial
+vendoring and stopped being true the next day, when tuning work on the gait
+began. Recorded here instead of silently corrected.
 
-Editados em `unitree_guide_controller`, todos com o número medido e o motivo em
-comentário no ponto de uso:
+Edited in `unitree_guide_controller`, each with the measured number and
+reason documented as a comment at the point of use:
 
-| Arquivo | O que mudou |
+| File | What changed |
 |---|---|
-| `src/FSM/StateTrotting.cpp` + `.h` | reescrito: modos WALK/HOLD/RECOVER, supervisor de atitude, banda de referência dimensionada ao comando, diagnóstico e instrumentação do eixo de guinada |
-| `src/control/BalanceCtrl.cpp` + `.h` | inércia do Go2 no lugar da do A1; pesos do QP e cone de atrito vindos de parâmetro |
-| `src/gait/FeetEndCalc.cpp` | ganho de rumo `k_yaw` 0,005 → 0,15; os três ganhos de Raibert vindos de parâmetro |
-| `src/gait/GaitGenerator.cpp` + `.h` | alvo de apoio reancorado no toque e enquanto a marcha está parada |
-| `src/control/Estimator.cpp` + `.h` | acesso a estado usado pelo diagnóstico |
-| `src/UnitreeGuideController.cpp` + `.h` | declaração e validação dos parâmetros de marcha |
-| `include/.../control/GaitParams.h` | **arquivo novo, nosso**: a superfície de sintonia |
+| `src/FSM/StateTrotting.cpp` + `.h` | rewritten: WALK/HOLD/RECOVER modes, attitude supervisor, reference band sized to the command, yaw-axis diagnostics and instrumentation |
+| `src/control/BalanceCtrl.cpp` + `.h` | Go2 inertia in place of A1's; QP weights and friction cone taken from parameters |
+| `src/gait/FeetEndCalc.cpp` | heading gain `k_yaw` 0.005 → 0.15; the three Raibert gains taken from parameters |
+| `src/gait/GaitGenerator.cpp` + `.h` | support target re-anchored on touchdown and while the gait is stopped |
+| `src/control/Estimator.cpp` + `.h` | state access used by diagnostics |
+| `src/UnitreeGuideController.cpp` + `.h` | declaration and validation of the gait parameters |
+| `include/.../control/GaitParams.h` | **new file, ours**: the tuning surface |
 
-Histórico completo em `git log ae3d9a1..HEAD --
-ros2_ws/src/unitree_guide_controller/`; a evidência que motivou cada mudança
-está em `docs/results/ml35-f4-parcial.md`.
+Full history: `git log ae3d9a1..HEAD --
+ros2_ws/src/unitree_guide_controller/`; the evidence behind each change is
+preserved in the archived engineering log (see `docs/engineering-log.md`).
 
-**O que continua intacto, e por quê importa:** `src/quadProgpp/` (solver de
-terceiro), `CMakeLists.txt`, `package.xml` além da licença, e o plugin XML. E,
-fora deste pacote, `go2_description/` inteiro — nenhum arquivo em `meshes/`,
-`xacro/`, `urdf/` ou `config/` foi tocado. Foi por isso que a sintonia da marcha
-foi para `demo_simulation/config/gait_go2.yaml`, injetada pelo spawner, em vez de
-para `go2_description/config/gazebo.yaml`: o argumento de licença daquele pacote
-depende de ele continuar byte a byte igual ao upstream.
+**What remains untouched, and why it matters:** `src/quadProgpp/`
+(third-party solver), `CMakeLists.txt`, `package.xml` beyond the license, and
+the plugin XML. And, outside this package, all of `go2_description/` —
+nothing under `meshes/`, `xacro/`, `urdf/` or `config/` was touched. That is
+why the gait tuning went into `demo_simulation/config/gait_go2.yaml`,
+injected by the spawner, instead of into
+`go2_description/config/gazebo.yaml`: that package's license argument
+depends on it staying byte-identical to upstream.
 
-Nenhum arquivo CMake ou xacro foi editado em nenhum dos quatro pacotes.
-
----
-
-## Por que estes quatro, e não o repo inteiro
-
-O repo upstream traz 24 pacotes. Entram só os que a demo usa:
-
-- `unitree_guide_controller` — controlador de marcha PD clássico, sem política
-  de RL. É o que fez o portão de F2 bater.
-- `controller_common` — biblioteca de que o controlador depende.
-- `control_input_msgs` — o tipo `Inputs` que o controlador consome.
-- `gz_quadruped_hardware` — o plugin `ros2_control` que roda dentro do processo
-  do `gz sim`. **Achado de F2:** é o plugin *deste repo*, versão 2.0.6, não o
-  `gz_ros2_control` 1.2.19 do apt. O plano original supunha o do apt; instalar o
-  do apt e esperar que a base o use é suposição não verificada.
-
-Ficam de fora, deliberadamente: `ocs2_quadruped_controller` e
-`rl_quadruped_controller` (controladores que a demo não usa),
-`hardware_unitree_sdk2` (SDK do robô físico — e é onde mora a colisão
-CycloneDDS × `unitree_sdk2` registrada em `docs/ml35/estado-fases.md`),
-`unitree_joystick_input`, e todas as descrições de outros robôs.
+No CMake or xacro file was edited in any of the four packages.
 
 ---
 
-## Ao atualizar estes pacotes
+## Why these four, and not the whole repository
 
-1. Reconferir se `LICENSES/` da raiz upstream ainda cobre o que se traz.
-2. Se um fonte ganhar header de copyright upstream, ele passa a valer sobre esta
-   tabela — atualizar aqui.
-3. Não trazer `hardware_unitree_sdk2` sem antes resolver a colisão de RMW: a
-   regra 2 do projeto é `rmw_cyclonedds_cpp` sempre, e o SDK pede FastDDS.
+The upstream repository ships 24 packages. Only the ones the demo uses are
+included:
+
+- `unitree_guide_controller` — classic PD gait controller, no RL policy. This
+  is what made the F2 gate pass.
+- `controller_common` — library the controller depends on.
+- `control_input_msgs` — the `Inputs` type the controller consumes.
+- `gz_quadruped_hardware` — the `ros2_control` plugin that runs inside the
+  `gz sim` process. It is the plugin *from this repository*, version 2.0.6,
+  not the apt `gz_ros2_control` 1.2.19. The original plan assumed the apt
+  package; installing the apt package and expecting the base image to use it
+  was an unverified assumption.
+
+Deliberately left out: `ocs2_quadruped_controller` and
+`rl_quadruped_controller` (controllers the demo does not use),
+`hardware_unitree_sdk2` (the physical-robot SDK — and where the CycloneDDS ×
+`unitree_sdk2` collision lives; see `docker/hw/README.md` and
+`docs/engineering-log.md`), `unitree_joystick_input`, and every other robot's
+description.
+
+---
+
+## When updating these packages
+
+1. Re-check whether the upstream root `LICENSES/` still covers what is
+   brought in.
+2. If a source gains a copyright header upstream, it supersedes this table —
+   update it here.
+3. Do not bring in `hardware_unitree_sdk2` without first resolving the RMW
+   collision: project rule 2 is `rmw_cyclonedds_cpp` always, and the SDK
+   expects Fast DDS.

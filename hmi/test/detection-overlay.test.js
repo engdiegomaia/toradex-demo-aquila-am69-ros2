@@ -19,7 +19,7 @@ import {
 const near = (actual, expected, message) =>
   assert.ok(
     Math.abs(actual - expected) < 1e-9,
-    `${message}: esperado ${expected}, veio ${actual}`,
+    `${message}: expected ${expected}, received ${actual}`,
   );
 
 test('a wider element letterboxes with bars on the sides', () => {
@@ -27,14 +27,14 @@ test('a wider element letterboxes with bars on the sides', () => {
   const fit = containRect(800, 480, 640, 480);
   near(fit.scale, 1, 'escala');
   near(fit.x, 80, 'barra esquerda');
-  near(fit.y, 0, 'sem barra em cima');
-  near(fit.width, 640, 'largura desenhada');
+  near(fit.y, 0, 'no bar on top');
+  near(fit.width, 640, 'rendered width');
 });
 
 test('a taller element letterboxes with bars above and below', () => {
   const fit = containRect(640, 600, 640, 480);
   near(fit.scale, 1, 'escala');
-  near(fit.x, 0, 'sem barra lateral');
+  near(fit.x, 0, 'no side bar');
   near(fit.y, 60, 'barra superior');
 });
 
@@ -42,7 +42,7 @@ test('the scale is the smaller of the two ratios', () => {
   // contain never crops: the limiting axis wins.
   const fit = containRect(320, 480, 640, 480);
   near(fit.scale, 0.5, 'escala limitada por x');
-  near(fit.height, 240, 'altura desenhada');
+  near(fit.height, 240, 'rendered height');
 });
 
 test('an unknown image size falls back to the element without scaling', () => {
@@ -59,8 +59,8 @@ test('boxOf centres the rect on the detection centre', () => {
   });
   near(box.x, 107.2, 'x');
   near(box.y, 160, 'y');
-  near(box.width, 120, 'largura');
-  near(box.height, 160, 'altura');
+  near(box.width, 120, 'width');
+  near(box.height, 160, 'height');
 });
 
 test('boxOf accepts a centre without the position wrapper', () => {
