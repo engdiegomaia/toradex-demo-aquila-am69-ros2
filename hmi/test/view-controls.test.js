@@ -1,9 +1,10 @@
 /**
- * Os comandos de câmera que saem do cockpit.
+ * The camera commands that leave the cockpit.
  *
- * O nó do simulador satura e integra; daqui só sai um delta. O que pode dar
- * errado deste lado é a FORMA da mensagem — um campo faltando num TwistStamped
- * não é erro em lugar nenhum da cadeia, só uma câmera que não se mexe.
+ * The simulator node saturates and integrates; only a delta leaves from here.
+ * What can go wrong on this side is the SHAPE of the message — a missing field
+ * in a TwistStamped is not an error anywhere in the chain, just a camera that
+ * does not move.
  */
 
 import assert from 'node:assert/strict';
@@ -12,9 +13,9 @@ import { describe, it } from 'node:test';
 import { VIEW_STEPS, viewCommand } from '../js/panels/view-controls.js';
 
 describe('viewCommand', () => {
-  it('preenche os seis campos do twist, não só o que muda', () => {
-    // O rosbridge não completa campos aninhados ausentes: um linear sem `z`
-    // chega ao nó como uma mensagem incompleta, sem erro em lugar nenhum.
+  it('fills all six twist fields, not just the one that changes', () => {
+    // rosbridge does not complete missing nested fields: a linear without `z`
+    // reaches the node as an incomplete message, with no error anywhere.
     const message = viewCommand('orbit-left', 'scene_iso');
     assert.deepEqual(Object.keys(message.twist.linear).sort(), ['x', 'y', 'z']);
     assert.deepEqual(Object.keys(message.twist.angular).sort(), ['x', 'y', 'z']);
@@ -24,28 +25,29 @@ describe('viewCommand', () => {
     }
   });
 
-  it('o frame_id escolhe a câmera', () => {
+  it('frame_id picks the camera', () => {
     assert.equal(viewCommand('zoom-in', 'scene_top').header.frame_id, 'scene_top');
   });
 
-  it('carrega um stamp, porque o tipo é TwistStamped', () => {
+  it('carries a stamp, because the type is TwistStamped', () => {
     const { stamp } = viewCommand('zoom-in', 'scene_iso').header;
     assert.deepEqual(stamp, { sec: 0, nanosec: 0 });
   });
 
-  it('aproximar reduz a distância ao alvo', () => {
-    // linear.x é variação de distância: o sinal invertido aqui afastaria a
-    // câmera no botão "+", que é o tipo de erro que ninguém lê no código.
+  it('zooming in reduces the distance to the target', () => {
+    // linear.x is the change in distance: an inverted sign here would move the
+    // camera away on the "+" button, which is the kind of error nobody spots
+    // when reading the code.
     assert.ok(viewCommand('zoom-in', 'scene_iso').twist.linear.x < 0);
     assert.ok(viewCommand('zoom-out', 'scene_iso').twist.linear.x > 0);
   });
 
-  it('comando desconhecido devolve null em vez de uma mensagem vazia', () => {
-    // Uma mensagem de deltas zerados seria aceita pelo nó e não faria nada.
-    assert.equal(viewCommand('nao-existe', 'scene_iso'), null);
+  it('an unknown command returns null instead of an empty message', () => {
+    // A message of zeroed deltas would be accepted by the node and do nothing.
+    assert.equal(viewCommand('does-not-exist', 'scene_iso'), null);
   });
 
-  it('cada par de botões é simétrico', () => {
+  it('each button pair is symmetric', () => {
     const pairs = [
       ['orbit-left', 'orbit-right'],
       ['pitch-up', 'pitch-down'],
@@ -58,21 +60,21 @@ describe('viewCommand', () => {
       const mb = viewCommand(b, 'scene_iso').twist;
       for (const kind of ['linear', 'angular']) {
         for (const axis of ['x', 'y', 'z']) {
-          // `+ 0` normaliza -0: assert.equal distingue 0 de -0, e os eixos
-          // não usados de um par simétrico caem justamente nesse caso.
+          // `+ 0` normalises -0: assert.equal tells 0 from -0, and the unused
+          // axes of a symmetric pair fall exactly in that case.
           assert.equal(
             ma[kind][axis] + 0,
             -mb[kind][axis] + 0,
-            `${a}/${b} divergem em ${kind}.${axis}`,
+            `${a}/${b} diverge at ${kind}.${axis}`,
           );
         }
       }
     }
   });
 
-  it('todo botão do pad tem passo definido', () => {
-    // O pad é montado a partir do HTML; um data-command sem entrada aqui seria
-    // um botão que não faz nada e não reclama.
+  it('every pad button has a defined step', () => {
+    // The pad is built from the HTML; a data-command with no entry here would
+    // be a button that does nothing and does not complain.
     assert.equal(Object.keys(VIEW_STEPS).length, 10);
   });
 });

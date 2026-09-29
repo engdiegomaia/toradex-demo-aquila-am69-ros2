@@ -1,9 +1,10 @@
 /**
- * O rótulo de estado da simulação.
+ * The simulation state label.
  *
- * O que está sob teste é a única decisão real deste painel: distinguir
- * "pausado" de "sem simulador". Os dois parecem iguais de fora — nada acontece
- * na tela — e confundi-los faz o operador clicar em play num container morto.
+ * What is under test is the only real decision of this panel: telling
+ * "paused" apart from "no simulator". The two look the same from the outside —
+ * nothing happens on screen — and confusing them makes the operator click play
+ * on a dead container.
  */
 
 import assert from 'node:assert/strict';
@@ -18,64 +19,67 @@ import {
 } from '../js/panels/sim-controls.js';
 
 describe('clockSeconds', () => {
-  it('junta sec e nanosec em segundos', () => {
+  it('joins sec and nanosec into seconds', () => {
     assert.equal(clockSeconds({ clock: { sec: 12, nanosec: 500_000_000 } }), 12.5);
   });
 
-  it('trata mensagem vazia como zero em vez de NaN', () => {
-    // NaN nunca é !== NaN, então uma mensagem malformada congelaria o relógio
-    // em "mudou agora" para sempre e a simulação pareceria eternamente viva.
+  it('treats an empty message as zero instead of NaN', () => {
+    // `NaN !== NaN` is always true, so a
+    // malformed message would freeze the clock at "changed just now" forever
+    // and the simulation would look eternally alive.
     assert.equal(clockSeconds({}), 0);
     assert.equal(clockSeconds(undefined), 0);
   });
 });
 
 describe('createClockWatch', () => {
-  it('sem nenhuma amostra, não há simulador', () => {
+  it('with no sample at all, there is no simulator', () => {
     assert.equal(createClockWatch().state(1000), SimState.OFFLINE);
   });
 
-  it('relógio avançando é simulação rodando', () => {
+  it('an advancing clock means the simulation is running', () => {
     const watch = createClockWatch();
     watch.sample(1.0, 1000);
     watch.sample(1.4, 1400);
     assert.equal(watch.state(1500), SimState.RUNNING);
   });
 
-  it('amostras chegando com o MESMO tempo simulado é pausa', () => {
+  it('samples arriving with the SAME simulated time mean paused', () => {
     const watch = createClockWatch();
     watch.sample(1.0, 1000);
     watch.sample(1.0, 1400);
     watch.sample(1.0, 1800);
-    // A ponte está viva (as amostras chegam) mas o mundo não anda.
+    // The bridge is alive (samples arrive) but the world is not moving.
     assert.equal(watch.state(1000 + STALL_AFTER_MS + 1), SimState.PAUSED);
   });
 
-  it('parar de receber amostras é ausência de simulador, não pausa', () => {
+  it('no longer receiving samples means no simulator, not paused', () => {
     const watch = createClockWatch();
     watch.sample(1.0, 1000);
     watch.sample(1.4, 1400);
     assert.equal(watch.state(1400 + OFFLINE_AFTER_MS + 1), SimState.OFFLINE);
   });
 
-  it('a ausência vence a pausa quando as duas condições valem', () => {
-    // Um container morto satisfaz as duas: o tempo parou E as amostras
-    // pararam. O rótulo tem de ser o que manda o operador olhar o container.
+  it('absence beats pause when both conditions hold', () => {
+    // A dead container satisfies both: time stopped AND samples stopped. The
+    // label has to be the one that sends the operator to look at the
+    // container.
     const watch = createClockWatch();
     watch.sample(1.0, 1000);
     assert.equal(watch.state(1000 + OFFLINE_AFTER_MS + 1), SimState.OFFLINE);
   });
 
-  it('reset volta ao desconhecido', () => {
+  it('reset goes back to unknown', () => {
     const watch = createClockWatch();
     watch.sample(1.0, 1000);
     watch.reset();
     assert.equal(watch.state(1050), SimState.OFFLINE);
   });
 
-  it('a primeira amostra depois de um reset não conta como avanço', () => {
-    // Sem isto, reconectar com a simulação pausada mostraria "rodando" por
-    // STALL_AFTER_MS, que é exatamente o instante em que alguém decide clicar.
+  it('the first sample after a reset does not count as advance', () => {
+    // Without this, reconnecting with the simulation paused would show
+    // "running" for STALL_AFTER_MS, which is exactly the moment someone decides
+    // to click.
     const watch = createClockWatch();
     watch.sample(7.0, 1000);
     watch.reset();
@@ -84,9 +88,9 @@ describe('createClockWatch', () => {
     assert.equal(watch.state(5000 + STALL_AFTER_MS + 1), SimState.PAUSED);
   });
 
-  it('o limiar de pausa é maior que o intervalo entre amostras', () => {
-    // Guarda de regressão sobre a constante, não sobre o código: com amostras a
-    // cada 400 ms um limiar apertado piscaria "pausado" a cada jitter da rede.
+  it('the pause threshold is larger than the interval between samples', () => {
+    // Regression guard on the constant, not on the code: with samples every
+    // 400 ms a tight threshold would flash "paused" on every network jitter.
     assert.ok(STALL_AFTER_MS > 400 * 2);
     assert.ok(OFFLINE_AFTER_MS > STALL_AFTER_MS);
   });

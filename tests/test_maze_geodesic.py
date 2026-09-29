@@ -95,7 +95,7 @@ def test_patrol_goals_all_sit_behind_a_wall(geodesic):
     """O achado da secao 11. Se isto mudar, a secao 11 esta vencida."""
     data = geodesic.analyse_goals('maze11', MODELS, 0.002,
                                   geodesic.maze11_goals())
-    blocked = [row for row in data['goals'] if row['why'] == 'parede']
+    blocked = [row for row in data['goals'] if row['why'] == 'wall']
     assert len(blocked) == len(data['goals']), (
         'alguma meta de patrulha deixou de ter parede na reta -- releia a '
         'secao 11 de docs/ml35/proximos-passos-navegacao.md antes de seguir')
@@ -121,7 +121,7 @@ def test_chain_measures_from_the_previous_leg(geodesic):
     assert [row['straight'] for row in chained['goals'][1:]] != \
            [row['straight'] for row in absolute['goals'][1:]]
     # E o ponto do achado: encadeada, a rota nao tem parede na reta.
-    assert all(row['why'] == 'livre' for row in chained['goals'])
+    assert all(row['why'] == 'free' for row in chained['goals'])
     assert all(row['ratio'] < 1.2 for row in chained['goals'])
 
 

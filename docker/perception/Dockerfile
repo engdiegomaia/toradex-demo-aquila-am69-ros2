@@ -30,14 +30,14 @@ USER root
 # thin by design. It stays a separate image rather than reusing base directly so
 # the TIDL swap has an obvious place to land.
 #
-# image-transport + compressed-image-transport chegaram em 25/08/2026 para o
-# camera_decompressor de demo_bringup/launch/perception.launch.py. Esta imagem
-# nao tinha NENHUM dos dois: `ls /opt/ros/jazzy/lib/image_transport/` vinha
-# vazio. Sem o plugin o `republish` sobe e nao publica nada, sem erro legivel.
+# image-transport + compressed-image-transport were added on 25/08/2026 for the
+# camera_decompressor in demo_bringup/launch/perception.launch.py. This image
+# had NEITHER: `ls /opt/ros/jazzy/lib/image_transport/` came back empty. Without
+# the plugin `republish` starts and publishes nothing, with no readable error.
 #
-# Isto puxa OpenCV por cv_bridge, o que engorda a imagem. Nao viola a regra 1:
-# OpenCV e CPU, nao e stack de renderizacao -- mas a verificacao de regra 1 do
-# `module.sh build` continua sendo o que decide isso, e nao este comentario.
+# This pulls in OpenCV via cv_bridge, which fattens the image. It does not
+# violate rule 1: OpenCV is CPU, not a rendering stack -- but the rule 1 check
+# in `module.sh build` remains what decides that, not this comment.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         ros-${ROS_DISTRO}-vision-msgs \
         ros-${ROS_DISTRO}-image-transport \

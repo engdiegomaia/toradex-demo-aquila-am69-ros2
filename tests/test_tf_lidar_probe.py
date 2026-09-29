@@ -55,7 +55,7 @@ def _row(**overrides):
 
 
 # --------------------------------------------------------------------------
-# cálculo de idade
+# age computation
 # --------------------------------------------------------------------------
 
 def test_age_is_reported_in_milliseconds_and_signed() -> None:
@@ -78,7 +78,7 @@ def test_age_rejects_non_finite_timestamps(now_s, stamp_s) -> None:
 
 
 # --------------------------------------------------------------------------
-# detecção de timestamp futuro
+# future-timestamp detection
 # --------------------------------------------------------------------------
 
 def test_future_stamp_is_detected_from_a_negative_age() -> None:
@@ -185,14 +185,15 @@ def test_empty_summary_reports_no_samples_instead_of_raising() -> None:
 def test_empty_summary_renders_a_diagnosable_message() -> None:
     rendered = format_summary(summarise([]))
 
-    assert 'NENHUMA amostra' in rendered
+    assert 'NO samples' in rendered
 
 
 def test_odom_rate_comes_from_intervals_not_from_the_sampled_column() -> None:
-    # Ha uma linha por NUVEM (~10 Hz) e `odom_stamp_s` guarda o ultimo carimbo
-    # visto naquele instante. Derivar a taxa dessa coluna limita o resultado a
-    # taxa da nuvem: na bancada isso reportou 10,00 Hz para uma odometria de
-    # ~50 Hz. O intervalo, escrito no callback da odometria, nao tem esse teto.
+    # There is one row per CLOUD (~10 Hz) and `odom_stamp_s` holds the last
+    # stamp seen at that instant. Deriving the rate from that column caps the
+    # result at the cloud rate: on the bench it reported 10.00 Hz for an
+    # odometry of ~50 Hz. The interval, written in the odometry callback, has
+    # no such cap.
     rows = [
         _row(wall_s=0.0, sim_s=0.0, cloud_stamp_s=1.0, cloud_age_ms=10.0,
              odom_stamp_s=1.00, odom_interval_ms=20.0),
@@ -233,7 +234,7 @@ def test_odom_rate_is_absent_when_no_interval_was_ever_recorded() -> None:
 
 
 def test_rate_verdict_tolerates_jitter_around_the_nominal_band() -> None:
-    # 10,004 Hz nao e uma reprovacao de uma faixa nominal que termina em 10.
+    # 10.004 Hz is not a failure of a nominal band that ends at 10.
     rows = [_row(wall_s=0.1 * i, sim_s=0.1 * i,
                  cloud_stamp_s=1.0 + 0.09996 * i, cloud_age_ms=10.0,
                  odom_stamp_s=1.0 + 0.09996 * i, odom_interval_ms=20.0)
@@ -241,7 +242,7 @@ def test_rate_verdict_tolerates_jitter_around_the_nominal_band() -> None:
 
     rendered = format_summary(summarise(rows))
     rate_line = [line for line in rendered.splitlines()
-                 if 'taxa da nuvem' in line][0]
+                 if 'cloud rate' in line][0]
 
     assert 'XX' not in rate_line, rate_line
 
@@ -309,7 +310,7 @@ def test_stalled_simulation_clock_gives_a_zero_real_time_factor() -> None:
 
 
 # --------------------------------------------------------------------------
-# serialização CSV
+# CSV serialisation
 # --------------------------------------------------------------------------
 
 def test_csv_round_trips_through_summarise(tmp_path) -> None:
@@ -356,12 +357,13 @@ def test_csv_columns_match_the_documented_contract() -> None:
 
 
 # --------------------------------------------------------------------------
-# os três pares na mesma corrida
+# the three pairs in the same run
 # --------------------------------------------------------------------------
 
 def test_each_pair_is_reduced_independently() -> None:
-    # O caso que interessa: a estática passa sempre, a dinâmica falha às vezes,
-    # e a composta não pode passar mais do que a pior das duas.
+    # The case that matters: the static edge always passes, the dynamic one
+    # sometimes fails, and the composed one cannot pass more often than the
+    # worse of the two.
     rows = [
         _row(tf_base_lidar=1, tf_odom_base=1, tf_odom_lidar=1),
         _row(tf_base_lidar=1, tf_odom_base=0, tf_odom_lidar=0),
@@ -376,9 +378,9 @@ def test_each_pair_is_reduced_independently() -> None:
 
 def test_a_csv_written_before_the_three_pairs_reports_them_as_unmeasured(
 ) -> None:
-    # Os CSVs de 28/08 não têm essas colunas. Reduzi-las a 0% transformaria
-    # "não medido" em "reprovou 100% das vezes", que é uma regressão inventada
-    # -- e seria lida como tal na comparação A/B.
+    # The 28/08 CSVs do not have these columns. Reducing them to 0% would turn
+    # "not measured" into "failed 100% of the time", which is an invented
+    # regression -- and would be read as one in the A/B comparison.
     legacy = [{key: value for key, value in _row().items()
                if not key.startswith(('tf_', 'odom_tf_'))}]
     summary = summarise(legacy)
@@ -386,7 +388,7 @@ def test_a_csv_written_before_the_three_pairs_reports_them_as_unmeasured(
     assert summary['tf_odom_base_pct'] is None
     assert summary['tf_odom_lidar_pct'] is None
     assert summary['odom_tf_age_median_ms'] is None
-    # E o que a corrida antiga MEDIU continua sendo lido.
+    # And what the old run DID measure is still read.
     assert summary['transform_available_pct'] == pytest.approx(100.0)
 
 
@@ -417,10 +419,10 @@ def test_a_regular_publisher_shows_matching_stamp_and_arrival_series() -> None:
 
 def test_a_bursting_publisher_shows_a_tight_stamp_and_a_ragged_arrival(
 ) -> None:
-    # Esta é a assinatura que o A/B do TF precisa distinguir: o `odom_tf`
-    # carimba a cada 20 ms e ENTREGA em rajadas de cinco. A série de carimbos
-    # continua perfeita; só a de chegada acusa. Um resumo que colapsasse as duas
-    # num número só declararia o publicador saudável.
+    # This is the signature the TF A/B has to distinguish: `odom_tf` stamps
+    # every 20 ms and DELIVERS in bursts of five. The stamp series stays
+    # perfect; only the arrival series gives it away. A summary that collapsed
+    # the two into a single number would declare the publisher healthy.
     pairs = []
     for burst in range(10):
         arrival = burst * 0.100
@@ -449,8 +451,8 @@ def test_the_sampler_series_is_absent_by_default_and_says_so() -> None:
 
 
 def test_an_empty_run_still_carries_the_sampler_keys() -> None:
-    # `summarise([])` volta cedo; as chaves novas têm de existir mesmo assim,
-    # ou `format_summary` explode justamente na corrida que falhou.
+    # `summarise([])` returns early; the new keys must exist anyway, or
+    # `format_summary` blows up precisely on the run that failed.
     summary = summarise([])
     for key in ('tf_odom_base_pct', 'odom_tf_samples',
                 'odom_tf_arrival_interval_max_ms'):
@@ -460,5 +462,5 @@ def test_an_empty_run_still_carries_the_sampler_keys() -> None:
 def test_the_summary_renders_every_new_line_without_a_sampler() -> None:
     text = format_summary(summarise([_row()]))
     assert 'odom <- base' in text
-    assert 'intervalo por chegada' in text
-    assert 'n/d' in text
+    assert 'interval by arrival' in text
+    assert 'n/a' in text

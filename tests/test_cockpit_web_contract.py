@@ -717,7 +717,7 @@ def test_nav_map_has_bounded_zoom_controls_that_do_not_send_goals():
     # Defensive even though the controls are canvas siblings today: moving the
     # overlay during a layout refactor must not turn zoom into a navigation goal.
     zoom_handlers = source[source.index("zoomInButton?.addEventListener"):
-                           source.index('// --- reiniciar a navegação')]
+                           source.index('// --- restart navigation')]
     assert zoom_handlers.count('event.stopPropagation()') == 2
 
 

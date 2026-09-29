@@ -184,7 +184,7 @@ def test_a_ausencia_do_gait_nao_reprova_o_reset():
     e o cockpit passa a mostrar erro num reset que funcionou.
     """
     assert 'GAIT_TIMEOUT_S' in RELAY
-    assert 'nada a parar' in RELAY
+    assert 'nothing to stop' in RELAY
 
 
 def test_a_falha_de_teleporte_nao_deixa_o_robo_preso_em_fixed_stand():
@@ -203,4 +203,4 @@ def test_a_falha_de_teleporte_nao_deixa_o_robo_preso_em_fixed_stand():
 
 def test_a_falha_de_reancoragem_nao_pode_ser_silenciosa():
     """Um reset que teleporta e nao reancora deixa o robo se arrastando."""
-    assert 'o gait NAO foi reancorado' in RELAY
+    assert 'the gait was NOT re-anchored' in RELAY

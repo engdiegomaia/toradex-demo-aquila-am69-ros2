@@ -27,14 +27,14 @@ test('a wider element letterboxes with bars on the sides', () => {
   const fit = containRect(800, 480, 640, 480);
   near(fit.scale, 1, 'escala');
   near(fit.x, 80, 'barra esquerda');
-  near(fit.y, 0, 'sem barra em cima');
+  near(fit.y, 0, 'no bar on top');
   near(fit.width, 640, 'largura desenhada');
 });
 
 test('a taller element letterboxes with bars above and below', () => {
   const fit = containRect(640, 600, 640, 480);
   near(fit.scale, 1, 'escala');
-  near(fit.x, 0, 'sem barra lateral');
+  near(fit.x, 0, 'no side bar');
   near(fit.y, 60, 'barra superior');
 });
 

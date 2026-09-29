@@ -1,20 +1,20 @@
 /**
- * As cores dos canvas, lidas do CSS.
+ * The canvas colours, read from CSS.
  *
- * O mapa de navegação e as caixas de detecção não são desenhados por CSS, mas
- * respondem às MESMAS decisões de contraste que o resto da tela: quando o
- * cockpit trocou o fundo preto pelo branco da identidade Toradex, o ciano do
- * plano e o amarelo do laser sumiram junto. Manter esses valores duplicados em
- * JavaScript garante que a próxima troca de tema conserte quatro painéis e
- * esqueça dois.
+ * The navigation map and the detection boxes are not drawn by CSS, but they
+ * answer to the SAME contrast decisions as the rest of the screen: when the
+ * cockpit swapped the black background for the white of the Toradex identity,
+ * the plan cyan and the laser yellow vanished with it. Keeping those values
+ * duplicated in JavaScript guarantees that the next theme change fixes four
+ * panels and forgets two.
  *
- * Então tokens.css continua sendo a fonte única, inclusive para o canvas: os
- * tokens --map-* são lidos uma vez, na montagem do painel. Uma vez basta —
- * o tema não muda em tempo de execução, e chamar getComputedStyle a cada
- * quadro custaria um recálculo de estilo por repintura.
+ * So tokens.css remains the single source, canvas included: the --map-* tokens
+ * are read once, when the panel mounts. Once is enough — the theme does not
+ * change at run time, and calling getComputedStyle every frame would cost a
+ * style recalculation per repaint.
  *
- * Os fallbacks existem porque um canvas sem cor desenha em preto sobre um mapa
- * quase branco, o que é indistinguível de "funcionou".
+ * The fallbacks exist because a canvas with no colour draws in black over an
+ * almost-white map, which is indistinguishable from "it worked".
  */
 
 export const MAP_PALETTE_FALLBACK = Object.freeze({
@@ -35,7 +35,7 @@ const TOKENS = Object.freeze({
   label: '--bg-panel',
 });
 
-/** @param {Element} [element] elemento de onde herdar as variáveis. */
+/** @param {Element} [element] element to inherit the variables from. */
 export function readMapPalette(element) {
   const target = element ?? document.documentElement;
   const computed = window.getComputedStyle(target);

@@ -29,7 +29,7 @@ server {
     }
 
     # The bundle is plain ES modules with no build step (plano-cockpit-web.md
-    # Decisão 5), so the browser fetches every module by URL. Serving a stale
+    # Decision 5), so the browser fetches every module by URL. Serving a stale
     # .js after an edit is the classic "my change did nothing" of this setup —
     # cheap to prevent here, and the payload is a few tens of kB.
     location / {

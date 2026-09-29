@@ -17,11 +17,11 @@
 ARG REGISTRY=local
 ARG TAG=dev
 
-# Ubuntu empacota o runtime do slam_toolbox e seu plugin RViz no mesmo .deb.
-# Instalar o pacote normalmente arrasta rviz_common, rviz_rendering, OGRE e Qt
-# para o AM69, embora async_slam_toolbox_node nao ligue nenhuma dessas libs.
-# Extraimos o .deb e removemos apenas o plugin grafico; as dependencias CPU do
-# runtime sao declaradas explicitamente no estagio final abaixo.
+# Ubuntu packages the slam_toolbox runtime and its RViz plugin in the same .deb.
+# Installing the package normally drags rviz_common, rviz_rendering, OGRE and Qt
+# onto the AM69, even though async_slam_toolbox_node links none of those libs.
+# We extract the .deb and remove only the graphical plugin; the runtime's CPU
+# dependencies are declared explicitly in the final stage below.
 FROM ${REGISTRY}/demo-aquila-base:${TAG} AS slam-toolbox-runtime
 
 ARG ROS_DISTRO=jazzy
@@ -117,8 +117,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=slam-toolbox-runtime /slam-runtime/ /
 
-# Falha no build, nao na bancada: o executavel copiado deve resolver todas as
-# libs e o payload headless nao pode reintroduzir o plugin RViz removido acima.
+# Fail at build time, not on the bench: the copied executable must resolve all
+# its libs, and the headless payload must not reintroduce the RViz plugin
+# removed above.
 RUN . /opt/ros/${ROS_DISTRO}/setup.sh \
     && ! ldd /opt/ros/${ROS_DISTRO}/lib/slam_toolbox/async_slam_toolbox_node \
         | grep -q 'not found' \

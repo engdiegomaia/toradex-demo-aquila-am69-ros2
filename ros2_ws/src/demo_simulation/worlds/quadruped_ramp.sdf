@@ -1,31 +1,29 @@
 <?xml version="1.0"?>
 <!--
-  Cenario S1 -- rampa de 6 graus.
+  Scenario S1 -- 6 degree ramp.
 
-  Exercita: equilibrio da QP em inclinacao, o limite de tilt do supervisor
-  (RECOVER acima de 12 graus) e a estimativa de altura do corpo.
+  Exercises: the QP's balance on an incline, the supervisor's tilt limit
+  (RECOVER above 12 degrees) and the body height estimate.
 
-  Geometria: caixa de 4 m x 2 m x 0.2 m, inclinada 6 graus, com a
-  BORDA SUPERIOR PROXIMA exatamente em z = 0, x = 1.  Isso e o ponto todo do
-  calculo do pose abaixo: uma caixa simplesmente rotacionada em torno do proprio
-  centro deixa um degrau na entrada, e o robo tropeca nele em vez de subir a
-  rampa -- o teste passaria a medir a transposicao de um degrau, nao a
-  inclinacao.  A extremidade proxima da caixa afunda abaixo do plano do chao de
-  proposito, para nao haver labio nenhum.
+  Geometry: box of 4 m x 2 m x 0.2 m, inclined 6 degrees, with the NEAR UPPER
+  EDGE exactly at z = 0, x = 1.  That is the whole point of the pose calculation
+  below: a box simply rotated about its own centre leaves a step at the
+  entrance, and the robot trips on it instead of climbing the ramp -- the test
+  would end up measuring the crossing of a step, not the incline.  The near end
+  of the box sinks below the floor plane on purpose, so there is no lip at all.
 
-  Topo da rampa em x = 4.98 m, z = 0.42 m.
-  A 0,10 m/s o robo leva ~40 s para subir tudo.
+  Top of the ramp at x = 4.98 m, z = 0.42 m.
+  At 0.10 m/s the robot takes ~40 s to climb all of it.
 
-  6 graus e deliberadamente modesto: e a primeira inclinacao a medir, nao a
-  ultima.  Suba para 10 e 15 graus DEPOIS de esta passar, uma variavel por
-  corrida.
+  6 degrees is deliberately modest: it is the first incline to measure, not the
+  last.  Go up to 10 and 15 degrees AFTER this one passes, one variable per run.
 
-  O PLATO no topo nao e decoracao.  A primeira versao deste mundo terminava a
-  rampa numa face vertical, e a corrida de 20/08/2026 mostrou o robo subindo os
-  3.98 m com tilt abaixo de 0,5 grau e entao CAINDO de um
-  penhasco de 0.42 m na borda de cima -- tilt 155 graus, 84 RECOVER.  O
-  resultado parecia "nao sobe rampa" e era "nao tem onde chegar".  O plato vai de
-  x = 4.98 ate x = 12, na altura do topo.
+  The PLATEAU at the top is not decoration.  The first version of this world
+  ended the ramp at a vertical face, and the 2026-08-20 run showed the robot
+  climbing the 3.98 m with tilt below 0.5 degrees and then FALLING off a 0.42 m
+  cliff at the top edge -- tilt 155 degrees, 84 RECOVER.  The result looked like
+  "does not climb the ramp" and was "has nowhere to arrive".  The plateau runs
+  from x = 4.98 to x = 12, at the height of the top.
 -->
 <sdf version="1.9">
   <world name="quadruped_ramp">
@@ -34,9 +32,9 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
-    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
-         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
-         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <!-- Block identical to the one in quadruped_empty.sdf.  The Sensors system
+         with ogre2 is not optional: without it the Go2 camera and lidar exist in
+         the model but publish nothing, with no error naming the missing plugin. -->
     <plugin filename="gz-sim-physics-system"
             name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-user-commands-system"

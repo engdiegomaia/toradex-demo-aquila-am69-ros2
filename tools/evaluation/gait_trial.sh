@@ -24,8 +24,8 @@ csv_path="$1"
 shift
 
 if ! docker ps --format '{{.Names}}' | grep -qx "${container_name}"; then
-  echo "Container ${container_name} não está em execução. Suba a simulação com" \
-       "./scripts/run_quadruped_sim.sh primeiro." >&2
+  echo "Container ${container_name} is not running. Start the simulation with" \
+       "./scripts/run_quadruped_sim.sh first." >&2
   exit 1
 fi
 

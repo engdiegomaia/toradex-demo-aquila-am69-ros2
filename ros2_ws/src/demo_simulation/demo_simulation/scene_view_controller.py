@@ -413,19 +413,19 @@ class SceneViewController(Node):
             f'following={self._following} via {follow_topic} '
             f'with odom->world seed {self._seed}')
 
-    # --- entrada -----------------------------------------------------------
+    # --- input -----------------------------------------------------------
 
     def _on_command(self, message):
         requested = message.header.frame_id or 'scene_iso'
         name = ALIASES.get(requested)
         orbit = self._orbits.get(name) if name else None
         if orbit is None:
-            # Nomear as opções: um frame_id errado é um erro de digitação no
-            # cliente, e "câmera desconhecida" sem a lista manda a pessoa ler
-            # código para descobrir o nome certo.
+            # Name the options: a wrong frame_id is a typo in the client, and
+            # "unknown camera" without the list sends the person to read code
+            # to find out the right name.
             self.get_logger().warning(
-                f'câmera "{requested}" não existe; '
-                f'use uma de {", ".join(CAMERAS)}')
+                f'camera "{requested}" does not exist; '
+                f'use one of {", ".join(CAMERAS)}')
             return
         orbit.apply(message.twist, following=self._is_following())
         self._apply_follow(orbit)
@@ -438,17 +438,17 @@ class SceneViewController(Node):
             self._apply_follow(orbit)
             self._push(name, orbit)
         response.success = True
-        response.message = 'vistas de cena de volta ao enquadramento inicial'
+        response.message = 'scene views back to the initial framing'
         return response
 
     def _on_odom(self, message):
         """
-        Guarda a pose do robô já no referencial do mundo.
+        Store the robot pose already in the world frame.
 
-        A composição é `mundo = seed ∘ odom`, com o seed vindo dos parâmetros:
-        rotaciona o ponto pelo yaw de spawn e depois translada. Aplicar só a
-        translação estaria certo enquanto o spawn não gira — e é justamente o
-        maze11 que gira (`yaw:=1.5708`).
+        The composition is `world = seed ∘ odom`, with the seed coming from the
+        parameters: rotate the point by the spawn yaw, then translate. Applying
+        only the translation would be right as long as the spawn does not
+        rotate -- and maze11 is precisely the one that rotates (`yaw:=1.5708`).
         """
         position = message.pose.pose.position
         sx, sy, syaw = self._seed
@@ -464,23 +464,24 @@ class SceneViewController(Node):
         self._following = bool(request.data)
         self._announce_following()
         if not self._following:
-            # Desligar deixa as câmeras EXATAMENTE onde estão, mirando o último
-            # ponto seguido. Voltar ao enquadramento inicial é o que "recentrar"
-            # faz, e fazer as duas coisas neste botão tiraria do operador a
-            # única forma de congelar a vista que está boa.
+            # Switching off leaves the cameras EXACTLY where they are, aimed at
+            # the last followed point. Returning to the initial framing is what
+            # "recenter" does, and doing both on this button would take from the
+            # operator the only way to freeze a view that is good.
             response.success = True
-            response.message = 'vistas de cena paradas onde estão'
+            response.message = 'scene views frozen where they are'
             return response
 
-        # Ao religar, o pan acumulado no modo livre não tem sentido como offset
-        # em relação ao robô: ele foi medido contra o mundo. Zerar é o que faz
-        # "seguir" voltar a significar "robô no centro".
+        # When switching back on, the pan accumulated in free mode is
+        # meaningless as an offset relative to the robot: it was measured
+        # against the world. Zeroing it is what makes "follow" mean "robot at
+        # the centre" again.
         for name, orbit in self._orbits.items():
             orbit.follow_offset = (0.0, 0.0)
             self._apply_follow(orbit)
             self._push(name, orbit)
         response.success = True
-        response.message = 'vistas de cena seguindo o robô'
+        response.message = 'scene views following the robot'
         return response
 
     def _on_follow_tick(self):
@@ -490,36 +491,37 @@ class SceneViewController(Node):
             before = orbit.position()
             self._apply_follow(orbit)
             after = orbit.position()
-            # Banda morta sobre a POSIÇÃO DA CÂMERA e não sobre a do robô: na
-            # vista iso um passo do robô move a câmera do mesmo tanto, mas na de
-            # topo com pitch = pi/2 há razões para os dois números divergirem, e
-            # o que decide se vale uma chamada é o que a câmera faz.
+            # Deadband on the CAMERA POSITION, not on the robot's: in the iso
+            # view a robot step moves the camera by the same amount, but in the
+            # top view with pitch = pi/2 there are reasons for the two numbers
+            # to diverge, and what decides whether a call is worth it is what
+            # the camera does.
             if math.dist(before, after) < FOLLOW_DEADBAND_M:
                 continue
             self._push(name, orbit)
 
-    # --- estado ------------------------------------------------------------
+    # --- state ------------------------------------------------------------
 
     def _announce_following(self):
         self._following_pub.publish(Bool(data=self._following))
 
     def _is_following(self):
-        """Seguir de verdade exige alvo: sem odometria não há o que seguir."""
+        """Following for real needs a target: without odometry there is nothing to follow."""
         return self._following and self._anchor is not None
 
     def _apply_follow(self, orbit):
         if self._is_following():
             orbit.follow(self._anchor)
 
-    # --- saída -------------------------------------------------------------
+    # --- output -------------------------------------------------------------
 
     def _push(self, name, orbit):
         if not self._set_pose.service_is_ready():
-            # A ponte de serviços sobe junto com o Gazebo e pode demorar. Dizer
-            # isso é melhor que enfileirar chamadas que ninguém vai atender.
+            # The service bridge comes up along with Gazebo and may take a
+            # while. Saying so is better than queueing calls nobody will answer.
             self.get_logger().warning(
-                '/demo/sim/set_entity_pose ainda não existe; '
-                'a ponte ros_gz do controle da simulação subiu?')
+                '/demo/sim/set_entity_pose does not exist yet; '
+                'is the ros_gz simulation control bridge up?')
             return
 
         x, y, z = orbit.position()
@@ -541,14 +543,15 @@ class SceneViewController(Node):
     def _log_result(self, name, future):
         try:
             result = future.result()
-        except Exception as error:  # noqa: BLE001 - queremos qualquer falha no log
-            self.get_logger().error(f'set_pose de {name} falhou: {error}')
+        except Exception as error:  # noqa: BLE001 - we want any failure in the log
+            self.get_logger().error(f'set_pose for {name} failed: {error}')
             return
         if not result.success:
-            # O Gazebo devolve success=false quando o modelo não existe, e é
-            # exatamente o que acontece quando o mundo subiu sem as câmeras.
+            # Gazebo returns success=false when the model does not exist, which
+            # is exactly what happens when the world came up without the
+            # cameras.
             self.get_logger().warning(
-                f'o Gazebo recusou mover "{name}"; o modelo foi spawnado?')
+                f'Gazebo refused to move "{name}"; was the model spawned?')
 
 
 def main(args=None):

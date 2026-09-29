@@ -1,31 +1,31 @@
 """
-Fachada de controle da navegacao — o "resetar meta" do cockpit.
+Navigation control facade -- the cockpit's "reset goal".
 
-Roda em: Aquila AM69 (arm64) no modo hil, workstation x86 no modo learn. Sempre
-no MESMO container que o Nav2, porque o que ela faz e mexer no ciclo de vida
-dele.
+Runs on: Aquila AM69 (arm64) in hil mode, x86 workstation in learn mode. Always
+in the SAME container as Nav2, because what it does is manipulate Nav2's
+lifecycle.
 
-Fragmento COMPARTILHADO, includado por:
+SHARED fragment, included by:
 
-    demo_navigation/navigation.launch.py   caminho de mapa estatico + AMCL
-                                           (nav.launch.py e learn.launch.py)
-    demo_bringup/nav_quadruped.launch.py   caminho reativo do Go2
+    demo_navigation/navigation.launch.py   static-map path + AMCL
+                                           (nav.launch.py and learn.launch.py)
+    demo_bringup/nav_quadruped.launch.py   reactive path of the Go2
 
-Nao e entrypoint de container e nao aparece em compose — mesmo papel que
-demo_simulation/launch/scene_cameras.launch.py cumpre do lado do simulador.
+It is not a container entrypoint and does not appear in compose -- the same
+role demo_simulation/launch/scene_cameras.launch.py plays on the simulator side.
 
-POR QUE UM FRAGMENTO EM VEZ DE DUAS COPIAS DO Node
+WHY A FRAGMENT INSTEAD OF TWO COPIES OF THE Node
 
-Os dois caminhos de navegacao sao deliberadamente separados
-(nav_quadruped.launch.py explica por que), mas esta fachada e identica nos dois:
-ela fala com `lifecycle_manager_navigation`, que os dois sobem. Duplicar o bloco
-`Node` seria duas coisas para manter em sincronia, e o modo como isso quebra e o
-pior possivel — o botao do cockpit funciona num ROBOT_TYPE e nao no outro, sem
-erro em lugar nenhum.
+The two navigation paths are deliberately separate (nav_quadruped.launch.py
+explains why), but this facade is identical in both: it talks to
+`lifecycle_manager_navigation`, which both bring up. Duplicating the `Node`
+block would mean two things to keep in sync, and the way that breaks is the
+worst possible -- the cockpit button works on one ROBOT_TYPE and not the other,
+with no error anywhere.
 
     ros2 launch ... nav_control:=false
 
-desliga a fachada, para subir a navegacao sem nenhum servico de reinicio exposto.
+turns the facade off, to bring up navigation with no restart service exposed.
 """
 
 from launch import LaunchDescription
@@ -39,17 +39,18 @@ def generate_launch_description() -> LaunchDescription:
     enabled_arg = DeclareLaunchArgument(
         'nav_control',
         default_value='true',
-        description='Expor /demo/nav/{reset,cancel} para o cockpit.',
+        description='Expose /demo/nav/{reset,cancel} to the cockpit.',
     )
 
-    # O argumento use_sim_time FOI REMOVIDO em 25/08/2026, de proposito.
+    # The use_sim_time argument WAS REMOVED on 25/08/2026, on purpose.
     #
-    # Manter um argumento declarado que ninguem consome e falha silenciosa: quem
-    # passasse use_sim_time:=true veria o valor aceito e ignorado, sem uma linha
-    # de log. Removido, a mesma chamada falha ALTO -- "is not a valid launch
-    # argument" -- e quem chamou descobre na hora, nao numa medicao de CPU.
+    # Keeping a declared argument nobody consumes is a silent failure: whoever
+    # passed use_sim_time:=true would see the value accepted and ignored, with
+    # not a line of log. Removed, the same call fails LOUD -- "is not a valid
+    # launch argument" -- and the caller finds out at once, not in a CPU
+    # measurement.
     #
-    # Por que ninguem consome: ver o bloco no `relay` abaixo.
+    # Why nobody consumes it: see the block in `relay` below.
 
     relay = Node(
         package='demo_navigation',
@@ -57,22 +58,23 @@ def generate_launch_description() -> LaunchDescription:
         name='nav_control_relay',
         output='screen',
         condition=IfCondition(LaunchConfiguration('nav_control')),
-        # use_sim_time NAO, e a inversao e de 25/08/2026.
+        # use_sim_time is NOT set, and the reversal dates from 25/08/2026.
         #
-        # O comentario anterior dizia "SIM, para que o no viva no mesmo tempo que
-        # o resto da pilha" -- e admitia na frase seguinte que os timeouts internos
-        # NAO usam esse relogio (o docstring de `_wait` explica: um Nav2 desativado
-        # no meio de um RESET coexiste com um /clock parado, e medir timeout ali
-        # seria esperar para sempre). Isso continua verdade, e o resto tambem:
-        # este no nao tem UMA chamada a get_clock(), nem timer, nem stamp. Viver
-        # "no mesmo tempo" nao comprava nada, porque ele nunca pergunta as horas.
+        # The previous comment said "YES, so the node lives in the same time as
+        # the rest of the stack" -- and admitted in the next sentence that the
+        # internal timeouts do NOT use that clock (the docstring of `_wait`
+        # explains: a Nav2 deactivated in the middle of a RESET coexists with a
+        # stopped /clock, and measuring a timeout there would mean waiting
+        # forever). That is still true, and so is the rest: this node has NOT ONE
+        # call to get_clock(), no timer, no stamp. Living "in the same time"
+        # bought nothing, because it never asks what time it is.
         #
-        # O que comprava era custo: 35% de um nucleo no AM69 so recebendo /clock a
-        # ~870 Hz. Ver o bloco PISO OCIOSO DE CPU em
-        # demo_bringup/launch/nav_quadruped.launch.py para a medicao completa.
+        # What it did buy was cost: 35% of a core on the AM69 just receiving
+        # /clock at ~870 Hz. See the IDLE CPU FLOOR block in
+        # demo_bringup/launch/nav_quadruped.launch.py for the full measurement.
         #
-        # Vale para os DOIS robos, porque este launch e compartilhado. Nao ha
-        # caminho por modo aqui, e nao deve haver.
+        # It applies to BOTH robots, because this launch is shared. There is no
+        # per-mode path here, and there must not be.
         parameters=[{'use_sim_time': False}],
     )
 

@@ -1,45 +1,48 @@
 #!/usr/bin/env python3
 """
-Mede, offline, QUANTO o Nav2 nao sabe quando recebe uma meta neste labirinto.
+Measures, offline, HOW MUCH Nav2 does not know when it receives a goal in this maze.
 
-Roda no host x86, sem ROS e sem Gazebo. So leitura do STL.
+Runs on the x86 host, without ROS or Gazebo. Reads the STL only.
 
     python3 tools/maze/maze_geodesic.py --models ~/ros_maze_worlds/models maze11
 
-POR QUE ESTE SCRIPT EXISTE
+WHY THIS SCRIPT EXISTS
 
-`maze_fit.py` responde "este labirinto serve e as metas caem em corredor".
-`maze_route.py` responde "esta e a sequencia para SAIR". Nenhum dos dois responde
-a pergunta que a investigacao de F5 precisava:
+`maze_fit.py` answers "this maze is usable and the goals land in corridors".
+`maze_route.py` answers "this is the sequence to get OUT". Neither answers the
+question the F5 investigation needed:
 
-    a meta que o ensaio manda e alcancavel pela LINHA RETA, ou o planejador
-    global precisa inventar um caminho por espaco que o robo nunca viu?
+    is the goal the trial sends reachable along the STRAIGHT LINE, or does the
+    global planner have to invent a path through space the robot has never seen?
 
-A pergunta importa porque o costmap global do quadrupede e JANELA ROLANTE sem
-camada estatica e sem mapa (`nav2_params_go2.yaml`, global_costmap), e o NavFn
-roda com `allow_unknown: true`. As duas coisas juntas significam que uma meta
-atras de uma parede ainda nao observada produz um plano ATRAVES da parede, sem
-erro, sem aviso, e com aparencia perfeita em `/plan`.
+The question matters because the quadruped's global costmap is a ROLLING WINDOW
+with no static layer and no map (`nav2_params_go2.yaml`, global_costmap), and
+NavFn runs with `allow_unknown: true`. Together these mean a goal behind a
+not-yet-observed wall produces a plan THROUGH the wall, with no error, no
+warning, and a perfect appearance in `/plan`.
 
-O modo de falha e o pior deste projeto: nada acusa. O `compute_path_to_pose`
-devolve `SUCCEEDED`, o caminho aparece no RViz e no cockpit, e o controlador
-passa o ensaio inteiro tentando seguir uma reta que atravessa alvenaria.
+This is the worst failure mode in this project: nothing flags it.
+`compute_path_to_pose` returns `SUCCEEDED`, the path shows up in RViz and in the
+cockpit, and the controller spends the whole trial trying to follow a straight
+line that crosses masonry.
 
-O QUE ELE MEDE
+WHAT IT MEASURES
 
-  reta        distancia euclidiana spawn -> meta
-  geodesica   caminho mais curto pelo espaco NAVEGAVEL (erodido por robot_radius)
-  razao       geodesica / reta.  1.0 = a reta serve.  >1 = a reta mente.
-  1a parede   onde a reta encosta na primeira parede
-  visivel     fracao do espaco livre no alcance do lidar que o robo enxerga do
-              spawn, com oclusao.  E o tamanho da ignorancia no instante zero.
+  straight    Euclidean distance spawn -> goal
+  geodesic    shortest path through NAVIGABLE space (eroded by robot_radius)
+  ratio       geodesic / straight.  1.0 = the straight line works.  >1 = the
+              straight line lies.
+  1st wall    where the straight line first touches a wall
+  visible     fraction of the free space within lidar range that the robot sees
+              from the spawn, with occlusion.  It is the size of the ignorance
+              at time zero.
 
-CONVENCAO DE COORDENADAS
+COORDINATE CONVENTION
 
-A mesma de `maze_fit.py` e de `MAZE11_GOALS` em `nav_trial.py`: origem na celula
-de nascimento do robo, eixos do frame `map`. A verificacao no comeco de
-`analyse_goals` falha alto se essa relacao quebrar -- frame trocado em silencio
-e a classe de erro que este arquivo existe para nao cometer.
+Same as `maze_fit.py` and `MAZE11_GOALS` in `nav_trial.py`: origin at the
+robot's spawn cell, axes of the `map` frame. The check at the start of
+`analyse_goals` fails loudly if that relationship breaks -- a silently swapped
+frame is the class of error this file exists to avoid.
 """
 
 from __future__ import annotations
@@ -55,34 +58,35 @@ from scipy import ndimage
 import maze_fit
 
 
-# Raio circunscrito do tronco do Go2, igual ao `robot_radius` dos dois costmaps.
-# O espaco navegavel e o costmap erodido por ele, nao o espaco livre cru: uma
-# fresta de 0,20 m e livre e nao e navegavel, e uma geodesica que passasse por
-# ela seria uma rota que o planejador nunca escolhe.
+# Circumscribed radius of the Go2 trunk, equal to the `robot_radius` of both
+# costmaps. Navigable space is the costmap eroded by it, not raw free space: a
+# 0.20 m crack is free and not navigable, and a geodesic through it would be a
+# route the planner never picks.
 ROBOT_RADIUS_M = 0.383
 
-# `obstacle_max_range` do global_costmap. NAO e o alcance declarado do L1
-# (10 m): o que nao e marcado nao entra no costmap, entao o alcance que importa
-# aqui e o do costmap, nao o do sensor.
+# `obstacle_max_range` of the global_costmap. It is NOT the L1's declared range
+# (10 m): what is not marked does not enter the costmap, so the range that
+# matters here is the costmap's, not the sensor's.
 LIDAR_RANGE_M = 8.0
 
-# Resolucao dos dois costmaps. Medir noutra resolucao daria outra geodesica.
+# Resolution of both costmaps. Measuring at another resolution would give a
+# different geodesic.
 COSTMAP_RESOLUTION_M = 0.05
 
-# Raios do raycast de visibilidade. 2880 = um a cada 0,125 grau; a 8 m isso da
-# 1,7 cm de arco, abaixo da celula de 5 cm, entao nenhum corredor escapa por
-# amostragem angular esparsa.
+# Rays of the visibility raycast. 2880 = one every 0.125 degrees; at 8 m that
+# is 1.7 cm of arc, below the 5 cm cell, so no corridor escapes through sparse
+# angular sampling.
 VISIBILITY_RAYS = 2880
 
 
 def maze11_goals() -> list[tuple[float, float]]:
     """
-    Le `MAZE11_GOALS` do fonte de `nav_trial.py`, por AST e nao por import.
+    Read `MAZE11_GOALS` from the `nav_trial.py` source, via AST, not import.
 
-    `nav_trial` importa `geometry_msgs` na primeira linha util, entao importa-lo
-    aqui obrigaria este script a ter ROS -- e ele existe justamente para rodar
-    offline. Copiar a tupla criaria duas fontes da verdade que divergem em
-    silencio no dia em que alguem regenerar as metas com `maze_fit.py`.
+    `nav_trial` imports `geometry_msgs` on its first useful line, so importing
+    it here would force this script to have ROS -- and it exists precisely to
+    run offline. Copying the tuple would create two sources of truth that
+    silently diverge the day someone regenerates the goals with `maze_fit.py`.
     """
     import ast
 
@@ -92,17 +96,17 @@ def maze11_goals() -> list[tuple[float, float]]:
             names = [t.id for t in node.targets if isinstance(t, ast.Name)]
             if 'MAZE11_GOALS' in names:
                 return [tuple(v) for v in ast.literal_eval(node.value)]
-    raise SystemExit('MAZE11_GOALS nao encontrada em nav_trial.py')
+    raise SystemExit('MAZE11_GOALS not found in nav_trial.py')
 
 
 def navigable_mask(clearance: np.ndarray) -> np.ndarray:
-    """Celulas em que o centro do robo cabe."""
+    """Cells where the robot centre fits."""
     return clearance >= ROBOT_RADIUS_M
 
 
 def geodesic_field(mask: np.ndarray, row: int, col: int,
                    resolution: float) -> np.ndarray:
-    """Dijkstra 8-conectado sobre `mask`, em metros, a partir de (row, col)."""
+    """8-connected Dijkstra over `mask`, in metres, from (row, col)."""
     dist = np.full(mask.shape, np.inf)
     dist[row, col] = 0.0
     diag = math.sqrt(2.0)
@@ -126,7 +130,7 @@ def geodesic_field(mask: np.ndarray, row: int, col: int,
 
 def descend(dist: np.ndarray, mask: np.ndarray,
             row: int, col: int) -> list[tuple[int, int]]:
-    """Retrocaminha o gradiente da geodesica ate a origem."""
+    """Walk back down the geodesic gradient to the origin."""
     path = [(row, col)]
     rows, cols = dist.shape
     while math.isfinite(dist[row, col]) and dist[row, col] > 0.0:
@@ -146,7 +150,7 @@ def descend(dist: np.ndarray, mask: np.ndarray,
 
 def visibility(free: np.ndarray, to_rc, resolution: float, reach: float,
                x0: float = 0.0, y0: float = 0.0) -> np.ndarray:
-    """Raycast 2D com oclusao a partir de (x0, y0). Marca a celula batida."""
+    """2D raycast with occlusion from (x0, y0). Marks the cell that was hit."""
     seen = np.zeros_like(free)
     rows, cols = free.shape
     samples = int(reach / (resolution / 2.0))
@@ -167,7 +171,7 @@ def visibility(free: np.ndarray, to_rc, resolution: float, reach: float,
 def first_wall_from(free: np.ndarray, to_rc, resolution: float,
                     x0: float, y0: float,
                     x1: float, y1: float) -> tuple[float, str]:
-    """Distancia ate a primeira celula NAO livre na reta (x0,y0) -> (x1,y1)."""
+    """Distance to the first NON-free cell on the line (x0,y0) -> (x1,y1)."""
     dx, dy = x1 - x0, y1 - y0
     length = math.hypot(dx, dy)
     rows, cols = free.shape
@@ -176,24 +180,25 @@ def first_wall_from(free: np.ndarray, to_rc, resolution: float,
         t = i / samples
         r, c = to_rc(x0 + dx * t, y0 + dy * t)
         if not (0 <= r < rows and 0 <= c < cols):
-            return t * length, 'fora da grade'
+            return t * length, 'outside grid'
         if not free[r, c]:
-            return t * length, 'parede'
-    return length, 'livre'
+            return t * length, 'wall'
+    return length, 'free'
 
 
 def analyse_goals(name: str, models: Path, scale: float,
                   goals: list[tuple[float, float]],
                   chain: bool = False) -> dict:
     """
-    Mede cada meta a partir do spawn, ou -- com `chain` -- da meta anterior.
+    Measure each goal from the spawn, or -- with `chain` -- from the previous goal.
 
-    A distincao nao e cosmetica. `MAZE11_GOALS` e patrulha: cada meta e enviada
-    com o robo onde a anterior o deixou, mas elas foram escolhidas por
-    espalhamento e nao por conectividade, entao medir do spawn descreve bem a
-    primeira e mal as outras. Uma rota do `maze_route.py` e o oposto: so faz
-    sentido encadeada, e medi-la do spawn inventa paredes que a perna real nunca
-    encontra. Chamar o modo errado produz uma tabela plausivel e falsa.
+    The distinction is not cosmetic. `MAZE11_GOALS` is a patrol: each goal is
+    sent with the robot wherever the previous one left it, but they were chosen
+    for spread and not for connectivity, so measuring from the spawn describes
+    the first one well and the others badly. A `maze_route.py` route is the
+    opposite: it only makes sense chained, and measuring it from the spawn
+    invents walls the real leg never meets. Calling the wrong mode produces a
+    plausible and false table.
     """
     result = maze_fit.analyse(name, models, scale, COSTMAP_RESOLUTION_M,
                               start='se')
@@ -206,18 +211,18 @@ def analyse_goals(name: str, models: Path, scale: float,
     def to_map(r: int, c: int) -> tuple[float, float]:
         return (float(gx[c] - gx[col0]), float(gy[r] - gy[row0]))
 
-    # O spawn TEM de ser a origem do frame das metas. Se um dia `maze_fit`
-    # mudar de convencao, esta linha para o script em vez de publicar numeros
-    # medidos no frame errado -- que passariam despercebidos.
+    # The spawn MUST be the origin of the goals' frame. If `maze_fit` ever
+    # changes convention, this line stops the script instead of publishing
+    # numbers measured in the wrong frame -- which would go unnoticed.
     origin = to_map(row0, col0)
     if abs(origin[0]) > 1e-9 or abs(origin[1]) > 1e-9:
-        raise SystemExit(f'convencao de frame quebrou: spawn em {origin}, '
-                         'esperado (0, 0)')
+        raise SystemExit(f'frame convention broke: spawn at {origin}, '
+                         'expected (0, 0)')
 
     navigable = navigable_mask(clearance)
     if not navigable[row0, col0]:
-        raise SystemExit('spawn nao e navegavel para robot_radius '
-                         f'{ROBOT_RADIUS_M} m -- pose ou escala erradas')
+        raise SystemExit('spawn is not navigable for robot_radius '
+                         f'{ROBOT_RADIUS_M} m -- wrong pose or scale')
     labels, _ = ndimage.label(navigable)
     reachable = labels == labels[row0, col0]
 
@@ -247,10 +252,10 @@ def analyse_goals(name: str, models: Path, scale: float,
         straight = math.hypot(dx, dy)
         inside = 0 <= r < field.shape[0] and 0 <= c < field.shape[1]
         geo = float(field[r, c]) if inside else math.inf
-        # A reta e sempre medida da origem da PERNA, entao o raycast anda
-        # deslocado: `first_wall` percorre de (0,0) ate o delta, e o resultado
-        # so vale se a origem for o spawn. Para pernas encadeadas o raycast
-        # precisa partir da perna anterior.
+        # The straight line is always measured from the origin of the LEG, so
+        # the raycast is offset: `first_wall` walks from (0,0) to the delta, and
+        # the result only holds if the origin is the spawn. For chained legs the
+        # raycast has to start from the previous leg.
         wall_at, why = first_wall_from(free, to_rc, res,
                                        from_x, from_y, x, y)
         if math.isfinite(geo):
@@ -277,36 +282,36 @@ def analyse_goals(name: str, models: Path, scale: float,
 
 
 def report(data: dict) -> None:
-    print(f"== {data['name']} @ escala {data['scale']}  "
+    print(f"== {data['name']} @ scale {data['scale']}  "
           f"res {data['resolution']} m  robot_radius {ROBOT_RADIUS_M} m")
     seen_frac = 100.0 * data['seen_cells'] / max(1, data['in_range_cells'])
-    print(f"   espaco livre                {data['free_cells']} celulas")
-    print(f"   dentro de {LIDAR_RANGE_M:.0f} m do spawn      "
-          f"{data['in_range_cells']} celulas")
-    print(f"   VISIVEL do spawn            {data['seen_cells']} celulas "
-          f"({seen_frac:.1f}% do que esta no alcance)")
+    print(f"   free space                  {data['free_cells']} cells")
+    print(f"   within {LIDAR_RANGE_M:.0f} m of spawn       "
+          f"{data['in_range_cells']} cells")
+    print(f"   VISIBLE from spawn          {data['seen_cells']} cells "
+          f"({seen_frac:.1f}% of what is in range)")
     print()
-    origem = 'da meta anterior' if data['chain'] else 'do spawn'
-    print(f"   reta/geodesica/parede medidas {origem}")
-    print(f"   {'meta':>16} {'reta':>7} {'geodesica':>10} {'razao':>6} "
-          f"{'1a parede':>10}  {'rota visivel':>12}")
+    origin = 'the previous goal' if data['chain'] else 'the spawn'
+    print(f"   straight/geodesic/wall measured from {origin}")
+    print(f"   {'goal':>16} {'straight':>8} {'geodesic':>10} {'ratio':>6} "
+          f"{'1st wall':>10}  {'visible path':>12}")
     for row in data['goals']:
         x, y = row['goal']
         geo = row['geodesic']
-        geo_s = f'{geo:10.2f}' if math.isfinite(geo) else f"{'inalcanc.':>10}"
+        geo_s = f'{geo:10.2f}' if math.isfinite(geo) else f"{'unreach.':>10}"
         vis = row['visible_frac']
         vis_s = f'{100 * vis:11.1f}%' if vis == vis else f"{'-':>12}"
         print(f"   ({x:6.2f},{y:6.2f}) {row['straight']:7.2f} {geo_s} "
               f"{row['ratio']:6.2f} {row['wall_at']:8.2f} m {vis_s}")
     print()
     worst = max(r['ratio'] for r in data['goals'] if math.isfinite(r['ratio']))
-    blocked = sum(1 for r in data['goals'] if r['why'] == 'parede')
-    print(f"   VEREDITO: {blocked} de {len(data['goals'])} metas tem parede na "
-          f"reta; pior razao geodesica/reta {worst:.2f}x")
+    blocked = sum(1 for r in data['goals'] if r['why'] == 'wall')
+    print(f"   VERDICT: {blocked} of {len(data['goals'])} goals have a wall on the "
+          f"straight line; worst geodesic/straight ratio {worst:.2f}x")
     if blocked:
-        print("   -> com `allow_unknown: true` e costmap rolante sem mapa, o "
-              "plano global\n"
-              "      dessas metas atravessa parede nao observada, sem erro.")
+        print("   -> with `allow_unknown: true` and a rolling costmap without a "
+              "map, the global\n"
+              "      plan for these goals crosses an unobserved wall, with no error.")
 
 
 def main() -> int:
@@ -315,12 +320,12 @@ def main() -> int:
     parser.add_argument('--models', type=Path,
                         default=Path.home() / 'ros_maze_worlds' / 'models')
     parser.add_argument('--scale', type=float, default=0.002,
-                        help='mesma escala do SDF (0.002 no maze11)')
+                        help='same scale as the SDF (0.002 for maze11)')
     parser.add_argument('--goals', default='',
-                        help='"x,y;x,y;..."; vazio usa MAZE11_GOALS')
+                        help='"x,y;x,y;..."; empty uses MAZE11_GOALS')
     parser.add_argument('--chain', action='store_true',
-                        help='mede cada perna a partir da meta ANTERIOR; use '
-                             'para rotas do maze_route.py, nunca para patrulha')
+                        help='measure each leg from the PREVIOUS goal; use '
+                             'for maze_route.py routes, never for a patrol')
     args = parser.parse_args()
 
     if args.goals:

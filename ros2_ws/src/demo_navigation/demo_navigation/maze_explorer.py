@@ -149,6 +149,13 @@ class MazeExplorer(Node):
         # Histerese: a estimativa oscilou de 1,27 a 7,94 m na mesma corrida, e
         # uma amostra unica nao pode cancelar a exploracao.
         self.declare_parameter('homing_confirm_observations', 3)
+        # Fail-safe for the blind approach: a large body tilt means the Go2 is
+        # no longer in a trustworthy walking posture.  Cancel the active goal
+        # instead of continuing to command toward a latched marker pose.
+        # Normal trotting tilt is well below this value; the threshold is kept
+        # deliberately conservative because this guard is only active during
+        # homing and is not a navigation controller.
+        self.declare_parameter('homing_max_tilt_deg', 15.0)
         self.declare_parameter('blacklist_radius_m', 0.75)
         # Ciclos CONSECUTIVOS de selecao sem nenhum candidato viavel antes
         # de declarar falha. Existe porque aposentar fronteiras reprovadas
@@ -223,7 +230,7 @@ class MazeExplorer(Node):
         # substitui-lo nem capturar cada caso.
         self.declare_parameter('stall_window_s', 15.0)
         # Mesmo limiar de deslocamento que `find_stalled_navigating_windows`
-        # em `scripts/exploration_trial.py` ja usa contra dado real de R13 --
+        # em `tools/evaluation/exploration_trial.py` ja usa contra dado real de R13 --
         # os dois tem de concordar, ou o watchdog em campo e o diagnostico
         # offline classificariam a mesma corrida de jeitos diferentes.
         self.declare_parameter('stall_move_threshold_m', 0.05)
@@ -605,6 +612,15 @@ class MazeExplorer(Node):
         self._marker_distance_m = self._distance_to_pose(
             self._exit_candidate_pose_map)
 
+        if self._state == 'homing_exit':
+            tilt_deg = self._robot_tilt_deg()
+            if tilt_deg is not None and tilt_deg > float(
+                    self.get_parameter('homing_max_tilt_deg').value):
+                self._fail(
+                    'homing interrompido por inclinacao corporal: '
+                    f'{tilt_deg:.1f} graus')
+                return
+
         if self._state == 'waiting_map':
             if self._map is not None and self._robot_pose() is not None \
                     and self._path_client.server_is_ready() \
@@ -802,7 +818,7 @@ class MazeExplorer(Node):
             # R15: classificacao honesta de por que nao ha candidato, em vez
             # de um unico rotulo 'nenhuma fronteira segura alcancavel' para
             # tres causas distintas -- ver `classify_stop_reason` em
-            # `scripts/exploration_trial.py`, que ja separa estas contagens.
+            # `tools/evaluation/exploration_trial.py`, que ja separa estas contagens.
             if self._near_skipped:
                 self._message = ('todas as fronteiras estao dentro da '
                                  'tolerancia de chegada')
@@ -1251,6 +1267,20 @@ class MazeExplorer(Node):
         yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
                          1.0 - 2.0 * (q.y * q.y + q.z * q.z))
         return translation.x, translation.y, yaw
+
+    def _robot_tilt_deg(self) -> float | None:
+        """Return the body's tilt from the latest ``map -> base`` TF."""
+        try:
+            transform = self._tf_buffer.lookup_transform('map', 'base', Time())
+        except TransformException:
+            return None
+        q = transform.transform.rotation
+        # Angle between the body's +z axis and the world's +z axis.  Roll and
+        # pitch are intentionally combined: either direction can precede a
+        # fall, while yaw must not affect this safety check.
+        cos_tilt = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
+        cos_tilt = max(-1.0, min(1.0, cos_tilt))
+        return math.degrees(math.acos(cos_tilt))
 
     def _pose(self, x: float, y: float, yaw: float) -> PoseStamped:
         pose = PoseStamped()

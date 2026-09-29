@@ -11,7 +11,7 @@
  * tests at all.
  *
  * No test runner is installed and none is needed — node's built-in runner keeps
- * the "no npm, no build step" rule (plano-cockpit-web.md Decisão 5) intact.
+ * the "no npm, no build step" rule (plano-cockpit-web.md Decision 5) intact.
  */
 
 import assert from 'node:assert/strict';
@@ -378,7 +378,7 @@ describe('action goals', () => {
     const outcome = await handle.result;
     assert.equal(outcome.succeeded, false);
     assert.equal(outcome.status, 6);
-    assert.ok(!outcome.lost, 'aborto não é perda de link');
+    assert.ok(!outcome.lost, 'an abort is not a link loss');
   });
 
   it('routes feedback to the goal that asked for it', () => {
@@ -411,7 +411,7 @@ describe('action goals', () => {
     sockets.latest.deliver({ op: 'action_feedback', id: handle.id, values: {} });
 
     assert.equal(errors.length, 1);
-    assert.equal(client.activeGoalIds().length, 1, 'a meta continua viva');
+    assert.equal(client.activeGoalIds().length, 1, 'the goal stays alive');
   });
 
   it('cancel sends cancel_action_goal naming the action', () => {

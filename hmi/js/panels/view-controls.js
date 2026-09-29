@@ -1,36 +1,38 @@
 /**
- * Girar, mover e aproximar a câmera de cena.
+ * Rotate, move and zoom the scene camera.
  *
- * O NAVEGADOR NÃO SABE ONDE A CÂMERA ESTÁ, E ISSO É O DESENHO
+ * THE BROWSER DOES NOT KNOW WHERE THE CAMERA IS, AND THAT IS THE DESIGN
  *
- * Cada botão publica um DELTA em /demo/cockpit/scene/cmd_view. Quem guarda a
- * órbita (azimute, elevação, distância, alvo), satura os limites e escreve a
- * pose no Gazebo é o `scene_view_controller`, do lado do simulador.
+ * Each button publishes a DELTA on /demo/cockpit/scene/cmd_view. The one that
+ * holds the orbit (azimuth, elevation, distance, target), saturates the limits
+ * and writes the pose into Gazebo is the `scene_view_controller`, on the
+ * simulator side.
  *
- * A alternativa — o cliente calcular a pose e mandar pronta — quebra de três
- * jeitos que já estariam aqui: dois cockpits abertos brigam pela pose, um F5
- * zera o enquadramento, e a matemática de órbita (o quaternion de roll zero em
- * particular) passaria a existir em duas linguagens que precisam concordar.
- * Deste lado só existe "gire um pouco para a esquerda".
+ * The alternative — the client computing the pose and sending it ready-made —
+ * breaks in three ways that would already be here: two open cockpits fight
+ * over the pose, an F5 resets the framing, and the orbit math (the zero-roll
+ * quaternion in particular) would exist in two languages that have to agree.
+ * On this side there is only "turn a little to the left".
  *
- * O `header.frame_id` escolhe a câmera. Ele acompanha o botão iso/topo do
- * cabeçalho do painel: comandar a câmera que não está na tela é o tipo de erro
- * que parece "os botões não funcionam".
+ * `header.frame_id` picks the camera. It follows the iso/top button in the
+ * panel header: commanding the camera that is not on screen is the kind of
+ * error that looks like "the buttons do not work".
  *
- * SEGUIR O ROBÔ
+ * FOLLOW THE ROBOT
  *
- * O botão `seguir robô` é um SetBool, e vale para as duas vistas de uma vez —
- * o alvo da órbita é a pose do robô, e não há versão disso que faça sentido para
- * uma câmera só. Também não é o navegador que segue: quem lê /demo/odom e
- * reescreve a pose é o mesmo nó do simulador, pela mesma razão de sempre (o
- * cockpit não conhece geometria).
+ * The `follow robot` button is a SetBool, and applies to both views at once —
+ * the orbit target is the robot pose, and there is no version of that which
+ * makes sense for a single camera. It is not the browser that follows either:
+ * the one that reads /demo/odom and rewrites the pose is the same simulator
+ * node, for the usual reason (the cockpit knows no geometry).
  *
- * O estado do botão vem de /demo/cockpit/scene/following, publicado pelo nó, e
- * NÃO do próprio clique. Mesmo raciocínio do rótulo de simulação em
- * sim-controls.js: recarregar a página, abrir o cockpit numa segunda tela, ou
- * abri-lo depois de alguém ter desligado o seguimento por linha de comando são
- * três casos em que o clique local não sabe a resposta. O tópico é latched, então
- * uma aba nova recebe o valor sem esperar a próxima mudança.
+ * The button state comes from /demo/cockpit/scene/following, published by the
+ * node, and NOT from the click itself. Same reasoning as the simulation label
+ * in sim-controls.js: reloading the page, opening the cockpit on a second
+ * screen, or opening it after someone turned following off from the command
+ * line are three cases in which the local click does not know the answer. The
+ * topic is latched, so a new tab receives the value without waiting for the
+ * next change.
  */
 
 import { ConnectionState } from '../ros/rosbridge-client.js';
@@ -38,31 +40,31 @@ import { ConnectionState } from '../ros/rosbridge-client.js';
 export const CMD_VIEW_TOPIC = '/demo/cockpit/scene/cmd_view';
 export const CMD_VIEW_TYPE = 'geometry_msgs/msg/TwistStamped';
 
-/** std_srvs/Trigger, servido pelo scene_view_controller. */
+/** std_srvs/Trigger, served by the scene_view_controller. */
 export const RESET_VIEW_SERVICE = '/demo/cockpit/scene/reset_view';
 
-/** std_srvs/SetBool, mesmo nó. Liga e desliga o seguimento das duas vistas. */
+/** std_srvs/SetBool, same node. Turns following of both views on and off. */
 export const FOLLOW_VIEW_SERVICE = '/demo/cockpit/scene/follow';
 
-/** Estado do seguimento, publicado pelo nó. Latched — ver o cabeçalho. */
+/** Follow state, published by the node. Latched — see the header. */
 export const FOLLOWING_TOPIC = '/demo/cockpit/scene/following';
 export const FOLLOWING_TYPE = 'std_msgs/msg/Bool';
 
 /**
- * Enquanto o tópico não chega, o botão assume o default do nó (parâmetro
- * `follow`, true em scene_cameras.launch.py). Assumir `false` aqui pintaria um
- * botão desligado sobre uma câmera que já está seguindo, e o primeiro clique
- * mandaria o valor que já vale — sem efeito visível.
+ * Until the topic arrives, the button assumes the node default (parameter
+ * `follow`, true in scene_cameras.launch.py). Assuming `false` here would paint
+ * an off button over a camera that is already following, and the first click
+ * would send the value that already holds — with no visible effect.
  */
 export const FOLLOW_DEFAULT = true;
 
 /**
- * Passo de cada comando, na unidade que o controlador integra.
+ * Step of each command, in the unit the controller integrates.
  *
- * Medidos na cena, não escolhidos: com passo de órbita a 0,30 rad uma volta
- * completa leva ~21 cliques, o que dá para enquadrar sem contar cliques e sem
- * passar do ponto. O dolly é negativo para APROXIMAR porque `linear.x` é
- * variação de distância ao alvo.
+ * Measured on the scene, not chosen: with an orbit step of 0.30 rad a full
+ * turn takes ~21 clicks, which lets you frame without counting clicks and
+ * without overshooting. The dolly is negative to ZOOM IN because `linear.x` is
+ * the change in distance to the target.
  */
 export const VIEW_STEPS = Object.freeze({
   'orbit-left': { angular: { z: 0.3 } },
@@ -77,11 +79,11 @@ export const VIEW_STEPS = Object.freeze({
   'pan-back': { linear: { z: -0.8 } },
 });
 
-/** Segurar o botão repete: enquadrar de longe custaria dezenas de cliques. */
+/** Holding the button repeats: framing from far away would cost dozens of clicks. */
 export const HOLD_DELAY_MS = 340;
 export const HOLD_INTERVAL_MS = 130;
 
-/** Monta o TwistStamped completo — o rosbridge não preenche campos aninhados. */
+/** Builds the complete TwistStamped — rosbridge does not fill nested fields. */
 export function viewCommand(command, camera) {
   const step = VIEW_STEPS[command];
   if (!step) return null;
@@ -108,9 +110,9 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
     if (message) client.publish(CMD_VIEW_TOPIC, message);
   };
 
-  // --- segurar para repetir -------------------------------------------------
-  // Um timer só, compartilhado por todos os botões: dois botões pressionados ao
-  // mesmo tempo seria um comando ambíguo, não dois comandos.
+  // --- hold to repeat -------------------------------------------------------
+  // A single timer, shared by all buttons: two buttons pressed at the same time
+  // would be an ambiguous command, not two commands.
   let holdTimer = null;
   let holdRepeat = null;
 
@@ -125,8 +127,8 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
     const command = button.dataset.command;
 
     button.addEventListener('pointerdown', (event) => {
-      // Sem isto o botão continua repetindo depois que o ponteiro sai dele, e a
-      // câmera gira sozinha até alguém clicar em outro lugar.
+      // Without this the button keeps repeating after the pointer leaves it, and
+      // the camera spins on its own until someone clicks elsewhere.
       button.setPointerCapture?.(event.pointerId);
       publish(command);
       stopHold();
@@ -138,8 +140,9 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
     button.addEventListener('pointercancel', stopHold);
     button.addEventListener('lostpointercapture', stopHold);
 
-    // Teclado não gera pointerdown. Sem isto o pad é inalcançável por teclado,
-    // que é o modo como o kiosk sem mouse do M3 vai ser operado.
+    // The keyboard does not generate pointerdown. Without this the pad is
+    // unreachable by keyboard, which is how the mouseless M3 kiosk will be
+    // operated.
     button.addEventListener('keydown', (event) => {
       if (event.key === 'Enter' || event.key === ' ') publish(command);
     });
@@ -149,7 +152,7 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
     try {
       await client.callService(RESET_VIEW_SERVICE, {});
     } catch (error) {
-      onNotice?.(`falha ao recentrar a câmera: ${error.message}`);
+      onNotice?.(`failed to recentre the camera: ${error.message}`);
     }
   });
 
@@ -157,7 +160,7 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
     if (followButton) followButton.setAttribute('aria-pressed', String(following));
   };
 
-  // Quem escreve `following` é o nó, por este tópico. O clique abaixo só pede.
+  // The one that writes `following` is the node, through this topic. The click below only asks.
   const offFollowing = client.subscribe(
     FOLLOWING_TOPIC,
     FOLLOWING_TYPE,
@@ -171,23 +174,23 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
     const wanted = !following;
     try {
       const result = await client.callService(FOLLOW_VIEW_SERVICE, { data: wanted });
-      // success=false é o caminho útil aqui: o nó responde assim quando não
-      // conseguiu escrever a pose. Sem esta ramificação o botão fica silencioso
-      // justamente quando tem algo a dizer.
+      // success=false is the useful path here: the node answers that way when
+      // it could not write the pose. Without this branch the button stays
+      // silent exactly when it has something to say.
       if (result?.success === false) {
-        onNotice?.(`o simulador recusou seguir=${wanted}: ${result.message ?? ''}`);
+        onNotice?.(`the simulator refused follow=${wanted}: ${result.message ?? ''}`);
       }
     } catch (error) {
-      onNotice?.(`falha ao alternar o seguimento da câmera: ${error.message}`);
+      onNotice?.(`failed to toggle camera following: ${error.message}`);
     }
-    // Nada de `following = wanted` aqui: o valor pintado é o que o nó publicar.
+    // No `following = wanted` here: the painted value is whatever the node publishes.
   });
 
   paintFollow();
 
-  // O pad se apaga com o link. Um botão que publica no vazio não deve parecer
-  // vivo — e este é o único painel cujo efeito não aparece em lugar nenhum da
-  // tela quando falha, porque o resultado dele É a imagem que continua igual.
+  // The pad goes dim with the link. A button that publishes into the void must
+  // not look alive — and this is the only panel whose effect appears nowhere on
+  // screen when it fails, because its result IS the image that stays the same.
   const unregister = client.onStateChange((state) => {
     const up = state === ConnectionState.CONNECTED;
     pad.dataset.enabled = String(up);
@@ -195,12 +198,12 @@ export function createViewControls({ root, client, camera = 'scene_iso', onNotic
   });
 
   return {
-    /** Chamado pelo botão iso/topo: os comandos seguem a imagem visível. */
+    /** Called by the iso/top button: commands follow the visible image. */
     setCamera(name) {
       active = name;
     },
 
-    /** Exposto para teste: o botão pintado tem de refletir o nó, não o clique. */
+    /** Exposed for tests: the painted button must reflect the node, not the click. */
     isFollowing() {
       return following;
     },

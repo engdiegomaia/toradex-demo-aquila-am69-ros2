@@ -754,7 +754,7 @@ PYLISTEN
   # PATH — measured: `which ros2` returns nothing, PATH is the bare system one.
   #
   # This failed silently and convincingly. `ros2 topic list 2>/dev/null | grep
-  # /demo/ || echo "(nenhum topico visivel)"` prints the same "no topics" line
+  # /demo/ || echo "(no topics visible)"` prints the same "no topics" line
   # whether DDS found nothing or the ros2 binary was never found, because 2>/dev/null
   # swallowed "command not found". Two verification steps reported a discovery
   # failure that did not exist.
@@ -791,12 +791,12 @@ PYLISTEN
     local required_topic
     for required_topic in /clock /demo/odom /demo/scan /demo/camera/image_raw; do
       if ! grep -qx "${required_topic}" <<<"${seen}"; then
-        printf '    AUSENTE: %s\n' "${required_topic}"
+        printf '    MISSING: %s\n' "${required_topic}"
         verify_failed=1
       fi
     done
   else
-    printf '    o modulo nao ve nada publicado no dominio %s.\n' "${ROS_DOMAIN_ID}"
+    printf '    the module sees nothing published on domain %s.\n' "${ROS_DOMAIN_ID}"
     verify_failed=1
     # An empty list here is EXPECTED while the host side runs without the
     # rendered config, and saying only "no topics" sends the reader hunting the
@@ -805,19 +805,20 @@ PYLISTEN
     host_sim="$(docker ps --format '{{.Names}}' 2>/dev/null | grep -iE 'aquila-go2|demo-sim' || true)"
     if [[ -n "${host_sim}" ]]; then
       cat <<EOF
-    Ha simulacao rodando neste host (${host_sim}), e ela NAO usa o config
-    renderizado: sem CYCLONEDDS_URI o CycloneDDS default anuncia por multicast,
-    que o modulo ignora (AllowMulticast=false). O modulo nao tem como descobri-la.
+    A simulation is running on this host (${host_sim}), and it does NOT use the
+    rendered config: without CYCLONEDDS_URI the default CycloneDDS announces via
+    multicast, which the module ignores (AllowMulticast=false). The module has
+    no way to discover it.
 
-    Para o modulo ver a simulacao, o produtor do host precisa subir com:
+    For the module to see the simulation, the host producer must start with:
       -e CYCLONEDDS_URI=file:///cfg/cyclonedds.xml
       -v ${host_cfg:-docker/cyclonedds/host.rendered.xml}:/cfg/cyclonedds.xml:ro
-    ou, nativo no host, exportando CYCLONEDDS_URI para o mesmo arquivo.
+    or, native on the host, by exporting CYCLONEDDS_URI pointing at the same file.
 
-    A etapa 3 abaixo mede a outra direcao e nao depende disso.
+    Step 3 below measures the other direction and does not depend on this.
 EOF
     else
-      printf '    Nenhuma simulacao ativa neste host: nao ha o que descobrir.\n'
+      printf '    No active simulation on this host: nothing to discover.\n'
     fi
   fi
 
@@ -826,14 +827,14 @@ EOF
   # clock sample reached the module; wait_for_clock then held the entire Nav2
   # launch before SLAM and lifecycle_manager_navigation.  Require one payload
   # in the same direction as the simulated sensors.
-  say "2b/4 host publica, modulo recebe uma amostra real de /clock"
+  say "2b/4 host publishes, module receives a real /clock sample"
   if remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
     /usr/local/bin/entrypoint.sh timeout 12 ros2 topic echo --once /clock rosgraph_msgs/msg/Clock" \
       2>&1 | grep -q '^clock:'; then
-    printf '    /clock: OK (mensagem recebida no modulo)\n'
+    printf '    /clock: OK (message received on the module)\n'
   else
-    printf '    /clock: SEM MENSAGEM. A lista de topicos pode estar stale; verifique\n'
-    printf '    prioridade da interface no host.rendered.xml e erros retcode -3.\n'
+    printf '    /clock: NO MESSAGE. The topic list may be stale; check the\n'
+    printf '    interface priority in host.rendered.xml and retcode -3 errors.\n'
     verify_failed=1
   fi
 
@@ -860,10 +861,10 @@ EOF
   # image-wide (it would double-prefix the absolute /demo/* names everywhere
   # else). Without the remap the topic is /system/heartbeat and a subscriber on
   # /demo/system/heartbeat waits forever on a name nobody publishes.
-  say "3/4 modulo publica, host recebe (/demo/system/heartbeat)"
+  say "3/4 module publishes, host receives (/demo/system/heartbeat)"
 
   if [[ ! -f /opt/ros/jazzy/setup.bash ]]; then
-    printf '    ROS nativo ausente no host, etapa 3 nao executada\n'
+    printf '    Native ROS absent on the host, step 3 not run\n'
     return 1
   fi
 
@@ -892,7 +893,7 @@ EOF
   if ! remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -d tools \
       /usr/local/bin/entrypoint.sh timeout 70 ros2 run demo_tutorials heartbeat_publisher \
       --ros-args -r __ns:=/demo" >/dev/null; then
-    printf '    falha ao iniciar o publisher no modulo.\n'
+    printf '    failed to start the publisher on the module.\n'
     kill "${subscriber_pid}" >/dev/null 2>&1 || true
     wait "${subscriber_pid}" >/dev/null 2>&1 || true
     rm -f "${heartbeat_output}"
@@ -912,14 +913,14 @@ EOF
     sleep 1
   done
   if [[ ${publisher_ready} -eq 0 ]]; then
-    printf '    o publisher NAO subiu no modulo. Nada a concluir sobre o link DDS.\n'
+    printf '    the publisher did NOT come up on the module. Nothing to conclude about the DDS link.\n'
     verify_failed=1
     kill "${subscriber_pid}" >/dev/null 2>&1 || true
     wait "${subscriber_pid}" >/dev/null 2>&1 || true
     rm -f "${heartbeat_output}"
     return 1
   fi
-  printf '    publisher ativo no modulo\n'
+  printf '    publisher active on the module\n'
 
   set +e
   wait "${subscriber_pid}"
@@ -933,29 +934,29 @@ EOF
   remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools pkill -f heartbeat_publisher" >/dev/null 2>&1 || true
 
   if [[ ${subscriber_status} -eq 0 ]] && printf '%s' "${received}" | grep -q 'count='; then
-    printf '    host recebeu do modulo: %s\n' "$(printf '%s' "${received}" | grep -m1 'count=')"
+    printf '    host received from the module: %s\n' "$(printf '%s' "${received}" | grep -m1 'count=')"
   else
-    printf '    host NAO recebeu. Saida do echo:\n%s\n' "${received}"
+    printf '    host did NOT receive. Echo output:\n%s\n' "${received}"
     verify_failed=1
   fi
 
-  # --- 4/4: o Nav2 esta ATIVO, e nao apenas de pe --------------------------
+  # --- 4/4: Nav2 is ACTIVE, not merely up ---------------------------------
   #
-  # AS TRES ETAPAS ACIMA PASSAM COM O NAV2 MORTO. Medido em 26/08/2026: depois
-  # de um `up`, a aresta odom -> base demorou mais de 60 s para atravessar a
-  # fronteira, o local_costmap nao ativou, e o gerenciador de ciclo de vida
-  # ABORTOU o bringup em definitivo -- sem nova tentativa. O container ficou de
-  # pe, todos os topicos apareceram, `verify` retornou 0, e toda meta era
-  # recusada com "Action server is inactive. Rejecting the goal."
+  # THE THREE STEPS ABOVE PASS WITH NAV2 DEAD. Measured on 26/08/2026: after an
+  # `up`, the odom -> base edge took more than 60 s to cross the boundary, the
+  # local_costmap did not activate, and the lifecycle manager ABORTED the
+  # bringup for good -- with no retry. The container stayed up, all the topics
+  # appeared, `verify` returned 0, and every goal was refused with "Action
+  # server is inactive. Rejecting the goal."
   #
-  # Topico existir nao e servico funcionar. Esta etapa pergunta o estado de
-  # ciclo de vida, que e a unica coisa que separa os dois casos.
+  # A topic existing is not a service working. This step asks for the lifecycle
+  # state, which is the only thing that separates the two cases.
   #
-  # `ros2 lifecycle get` e nao `service call`: a forma com service call precisa
-  # de "{}" como argumento, e este bloco esta dentro de remote "...", uma string
-  # entre aspas duplas que o shell de fora expande antes de o ssh ver. Chaves e
-  # aspas ali dentro ja quebraram este arquivo uma vez.
-  say "4/4 Nav2 ativo no modulo (bt_navigator)"
+  # `ros2 lifecycle get` and not `service call`: the service-call form needs
+  # "{}" as an argument, and this block is inside remote "...", a double-quoted
+  # string that the outer shell expands before ssh sees it. Braces and quotes in
+  # there have broken this file once already.
+  say "4/4 Nav2 active on the module (bt_navigator)"
   local nav_state
   nav_state="$(remote "cd ${remote_dir} && docker compose -f compose.module.yml exec -T tools \
     /usr/local/bin/entrypoint.sh bash -c 'ros2 lifecycle get /bt_navigator'" 2>/dev/null \
@@ -964,12 +965,12 @@ EOF
   if printf '%s' "${nav_state}" | grep -Eq '^active([[:space:]]|$)'; then
     printf '    bt_navigator: %s\n' "${nav_state}"
   else
-    printf '    bt_navigator NAO esta ativo: %s\n' "${nav_state:-<sem resposta>}"
-    printf '    Toda meta sera recusada. Procure no log do nav:\n'
-    printf '      "Failed to bring up all requested nodes"  -> a subida abortou\n'
-    printf '      "did not become available before timeout" -> foi a TF odom -> base\n'
-    printf '    Destrave com STARTUP no gerenciador; conserte com o portao\n'
-    printf '    wait_for_tf em nav_quadruped.launch.py.\n'
+    printf '    bt_navigator is NOT active: %s\n' "${nav_state:-<no response>}"
+    printf '    Every goal will be refused. Look in the nav log for:\n'
+    printf '      "Failed to bring up all requested nodes"  -> the bringup aborted\n'
+    printf '      "did not become available before timeout" -> it was the odom -> base TF\n'
+    printf '    Unblock with STARTUP on the manager; fix with the\n'
+    printf '    wait_for_tf gate in nav_quadruped.launch.py.\n'
     verify_failed=1
   fi
 
@@ -985,25 +986,26 @@ cmd_shell() {
 }
 
 cmd_render_local() {
-  # Renderiza a config de DDS para o modo LEARN, sem modulo nenhum.
+  # Renders the DDS config for LEARN mode, with no module at all.
   #
-  # `sync` exige HOST_IP e MODULE_IP porque injeta o peer do Aquila e fixa a
-  # interface. Em learn nao existe modulo, e ainda assim o compose monta
-  # `host.rendered.xml` -- se o arquivo nao existir o Compose cria um DIRETORIO
-  # com esse nome e o CycloneDDS falha ao ler a config.
+  # `sync` requires HOST_IP and MODULE_IP because it injects the Aquila's peer
+  # and pins the interface. In learn there is no module, and yet compose mounts
+  # `host.rendered.xml` -- if the file does not exist Compose creates a
+  # DIRECTORY with that name and CycloneDDS fails to read the config.
   #
-  # Antes disto o unico caminho documentado era "rode module.sh sync antes do
-  # primeiro up", que em learn nao roda. O resultado era copiar o template a mao,
-  # e uma copia manual e a que fica velha: a correcao de loopback de 25/08/2026
-  # ficou commitada no template enquanto os containers rodavam a copia antiga.
+  # Before this, the only documented path was "run module.sh sync before the
+  # first up", which does not work in learn. The result was copying the template
+  # by hand, and a manual copy is the one that goes stale: the 25/08/2026
+  # loopback fix stayed committed in the template while the containers ran the
+  # old copy.
   local src dst
   src="${repo_dir}/docker/cyclonedds/host.xml"
   dst="${repo_dir}/docker/cyclonedds/host.rendered.xml"
   cp "${src}" "${dst}"
   python3 -c "import xml.dom.minidom; xml.dom.minidom.parse('${dst}')" \
-    || die "host.rendered.xml nao e XML valido"
-  say "host.rendered.xml renderizado para LEARN (sem peer de modulo)."
-  say "Recrie os containers para que a config nova seja lida:"
+    || die "host.rendered.xml is not valid XML"
+  say "host.rendered.xml rendered for LEARN (no module peer)."
+  say "Recreate the containers so the new config is read:"
   say "  docker compose -f docker/compose.host.yml up -d --force-recreate"
 }
 

@@ -1,14 +1,15 @@
 """
-A cadeia de subida do Nav2 quadrupede: ordem, nao tempo decorrido.
+The quadruped Nav2 startup chain: ordering, not elapsed time.
 
-Estruturais: leem launch e YAML com `ast`/`yaml`, nao sobem ROS.
+Structural: they read the launch file and YAML with `ast`/`yaml`, they do not
+bring up ROS.
 
-O que protegem custou bancada. Em 26/08/2026, no Aquila AM69, os cinco nos do
-`nav_quadruped.launch.py` eram emitidos JUNTOS. A aresta `odom -> base` demorou
-mais de 60 s para atravessar a fronteira de container, o `local_costmap` nao
-ativou, e o gerenciador de ciclo de vida ABORTOU o bringup em definitivo. O
-container ficou de pe, todos os topicos apareceram, `module.sh verify` retornou
-0, e toda meta foi recusada com "Action server is inactive".
+What they protect cost bench time. On 26/08/2026, on the Aquila AM69, the five
+nodes of `nav_quadruped.launch.py` were emitted TOGETHER. The `odom -> base`
+edge took more than 60 s to cross the container boundary, the `local_costmap`
+did not activate, and the lifecycle manager ABORTED the bringup for good. The
+container stayed up, all topics appeared, `module.sh verify` returned 0, and
+every goal was rejected with "Action server is inactive".
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ LAUNCH = SRC / 'demo_bringup' / 'launch' / 'nav_quadruped.launch.py'
 PARAMS = SRC / 'demo_navigation' / 'config' / 'nav2_params_go2.yaml'
 WAIT_FOR_TF = SRC / 'demo_bringup' / 'demo_bringup' / 'wait_for_tf.py'
 
-# Emitir estes junto com o resto e exatamente o defeito medido.
+# Emitting these together with the rest is exactly the measured defect.
 MUST_BE_GATED = (
     'cloud_to_scan', 'slam', 'nav2_container', 'navigation', 'nav_control',
 )
@@ -35,12 +36,12 @@ def _tree() -> ast.Module:
 
 
 def _launch_description_elements() -> list[str]:
-    """Nomes emitidos DIRETAMENTE em LaunchDescription([...])."""
+    """Names emitted DIRECTLY in LaunchDescription([...])."""
     for call in ast.walk(_tree()):
         if (isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
                 and call.func.id == 'LaunchDescription' and call.args):
             return [e.id for e in call.args[0].elts if isinstance(e, ast.Name)]
-    raise AssertionError('LaunchDescription([...]) nao encontrado')
+    raise AssertionError('LaunchDescription([...]) not found')
 
 
 def _node_params(executable: str) -> dict:
@@ -59,23 +60,23 @@ def _node_params(executable: str) -> dict:
                 if isinstance(key, ast.Constant):
                     params[key.value] = (value.value
                                          if isinstance(value, ast.Constant)
-                                         else 'dinamico')
+                                         else 'dynamic')
         return params
-    raise AssertionError(f'Node(executable={executable!r}) nao existe')
+    raise AssertionError(f'Node(executable={executable!r}) does not exist')
 
 
 def test_nav2_is_not_emitted_alongside_everything_else() -> None:
     emitted = _launch_description_elements()
     for name in MUST_BE_GATED:
         assert name not in emitted, (
-            f'{name} e emitido direto em LaunchDescription. Isso o coloca em '
-            f'corrida com a TF odom -> base: se ela demorar, o local_costmap '
-            f'nao ativa e o gerenciador aborta o bringup PARA SEMPRE.'
+            f'{name} is emitted directly in LaunchDescription. That races it '
+            f'against the odom -> base TF: if the TF is slow, the local_costmap '
+            f'does not activate and the manager aborts the bringup FOREVER.'
         )
 
 
 def test_the_edge_producer_starts_immediately() -> None:
-    """`odom_tf` PRODUZ a aresta que o portao espera; condiciona-lo trava tudo."""
+    """`odom_tf` PRODUCES the edge the gate waits for; gating it deadlocks everything."""
     assert 'odom_tf' in _launch_description_elements()
 
 
@@ -85,7 +86,7 @@ def test_nav2_is_gated_on_the_tf_gate_finishing() -> None:
         if isinstance(call, ast.Call) and isinstance(call.func, ast.Name)
         and call.func.id == 'OnProcessExit'
     ]
-    assert len(handlers) >= 2, 'a cadeia wait_for_clock -> wait_for_tf -> Nav2 sumiu'
+    assert len(handlers) >= 2, 'the wait_for_clock -> wait_for_tf -> Nav2 chain is gone'
 
     gated_on_tf = [
         h for h in handlers
@@ -93,20 +94,20 @@ def test_nav2_is_gated_on_the_tf_gate_finishing() -> None:
                for kw in h.keywords if kw.arg == 'target_action'
                for n in ast.walk(kw.value))
     ]
-    assert gated_on_tf, 'nada e condicionado ao wait_for_tf terminar'
+    assert gated_on_tf, 'nothing is gated on wait_for_tf finishing'
 
     following = ast.unparse(gated_on_tf[0])
     for name in MUST_BE_GATED:
-        assert name in following, f'{name} nao esta atras do portao de TF'
+        assert name in following, f'{name} is not behind the TF gate'
 
 
 def test_the_gate_watches_the_frames_the_costmap_demands() -> None:
     """
-    O portao tem de esperar a MESMA aresta que faz o costmap ativar.
+    The gate must wait for the SAME edge that makes the costmap activate.
 
-    Se alguem trocar `robot_base_frame` no YAML e nao aqui, o portao libera com
-    a aresta errada disponivel e o defeito volta inteiro, agora com um teste
-    verde por perto.
+    If someone changes `robot_base_frame` in the YAML and not here, the gate
+    releases with the wrong edge available and the defect comes back whole, now
+    with a green test nearby.
     """
     params = _node_params('wait_for_tf')
     costmap = yaml.safe_load(PARAMS.read_text(encoding='utf-8'))
@@ -117,7 +118,7 @@ def test_the_gate_watches_the_frames_the_costmap_demands() -> None:
 
 
 def test_tf_listener_and_polling_share_one_executor() -> None:
-    """O listener e o spin_once nao podem registrar o no em executores distintos."""
+    """The listener and spin_once must not register the node in distinct executors."""
     tree = ast.parse(WAIT_FOR_TF.read_text(encoding='utf-8'))
     listener = next(
         call for call in ast.walk(tree)
@@ -138,35 +139,35 @@ def test_tf_listener_and_polling_share_one_executor() -> None:
 
 def test_the_gate_fails_loud_instead_of_starting_nav2_anyway() -> None:
     """
-    `OnProcessExit` dispara em QUALQUER saida, inclusive erro.
+    `OnProcessExit` fires on ANY exit, including errors.
 
-    Pelo AST, e nao por `'returncode' in source`: a primeira versao deste teste
-    fazia isso e SOBREVIVEU a mutacao que trocava o `if` por `if True`, porque a
-    palavra continuava aparecendo na mensagem de log ao lado.
+    Via the AST, not `'returncode' in source`: the first version of this test
+    did that and SURVIVED the mutation that replaced the `if` with `if True`,
+    because the word kept appearing in the adjacent log message.
     """
     handler = next(
         (fn for fn in ast.walk(_tree())
          if isinstance(fn, ast.FunctionDef) and fn.name == '_on_exit'), None)
-    assert handler, 'o callable de saida do portao sumiu'
+    assert handler, 'the gate exit callable is gone'
 
     branch = next((n for n in ast.walk(handler) if isinstance(n, ast.If)), None)
-    assert branch, 'o portao nao ramifica: libera o Nav2 em qualquer saida'
+    assert branch, 'the gate does not branch: it releases Nav2 on any exit'
 
     condition = ast.unparse(branch.test)
     assert 'returncode' in condition and '0' in condition, (
-        f'a condicao do portao e {condition!r}. Ela tem de olhar o codigo de '
-        f'saida: um wait_for_tf que ESTOUROU o prazo nao pode liberar o Nav2, '
-        f'que e exatamente o defeito original.'
+        f'the gate condition is {condition!r}. It must look at the exit '
+        f'code: a wait_for_tf that TIMED OUT cannot release Nav2, which is '
+        f'exactly the original defect.'
     )
 
-    # O ramo de falha pode estar num `else` ou logo depois do `if` que retorna
-    # cedo. As duas formas sao corretas; o que nao pode e o Shutdown estar no
-    # caminho de SUCESSO, ou nao existir.
+    # The failure branch can be in an `else` or right after the `if` that returns
+    # early. Both forms are correct; what cannot be is the Shutdown being on the
+    # SUCCESS path, or not existing.
     success_path = ast.unparse(ast.Module(body=branch.body, type_ignores=[]))
     whole = ast.unparse(handler)
     assert 'Shutdown(' in whole, (
-        'o ramo de falha nao derruba o launch, entao a falha volta a ser muda'
+        'the failure branch does not bring the launch down, so failure is silent again'
     )
     assert 'Shutdown(' not in success_path, (
-        'o portao derruba o launch tambem quando o pre-requisito FOI satisfeito'
+        'the gate brings the launch down even when the prerequisite WAS satisfied'
     )

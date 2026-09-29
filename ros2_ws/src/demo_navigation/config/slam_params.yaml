@@ -10,15 +10,15 @@
 # which follow the project's topic contract, and `restamp_tf`, whose reason is
 # documented at the parameter itself.
 #
-# Essa frase ja foi falsa uma vez: ate 28/08/2026 `map_update_interval` estava em
-# 1.0 sob este cabecalho sem que o cabecalho dissesse. Naquele dia foi levado ao
-# default 5.0 do upstream
+# That sentence has been false once before: until 28/08/2026 `map_update_interval`
+# was at 1.0 under this header without the header saying so. That day it was
+# taken to the upstream default of 5.0
 # (`/opt/ros/jazzy/share/slam_toolbox/config/mapper_params_online_async.yaml:30`)
-# e, no mesmo dia, devolvido a 1.0 -- porque a economia de CPU que justificava a
-# mudanca foi medida e nao existia. Hoje 1.0 e de novo um DESVIO deliberado do
-# upstream, e a razao esta no parametro.
-# Se voce mudar um valor daqui, mude este paragrafo junto -- um cabecalho que
-# mente custa mais que o parametro que ele descreve.
+# and, the same day, put back to 1.0 -- because the CPU saving that justified
+# the change was measured and did not exist. Today 1.0 is again a deliberate
+# DEVIATION from upstream, and the reason is at the parameter.
+# If you change a value here, change this paragraph too -- a header that lies
+# costs more than the parameter it describes.
 
 slam_toolbox:
   ros__parameters:
@@ -48,45 +48,45 @@ slam_toolbox:
     # current simulation time so the distributed TF tree remains usable.
     restamp_tf: true
 
-    # De volta ao default do upstream (5.0) em 28/08/2026. Estava em 1.0.
+    # Back to the upstream default (5.0) on 28/08/2026. It was at 1.0.
     #
-    # O QUE ESTE PARAMETRO CONTROLA, E O QUE ELE NAO CONTROLA
+    # WHAT THIS PARAMETER CONTROLS, AND WHAT IT DOES NOT
     #
-    # Controla o periodo com que o pose-graph e RASTERIZADO na grade de ocupacao
-    # publicada em `/map`. NAO e a taxa de scan matching, NAO e a taxa de
-    # fechamento de laco e NAO reduz a otimizacao do pose-graph: nenhuma dessas
-    # passa por aqui. A pose do robo continua sendo estimada a cada scan, e
-    # `map -> odom` continua saindo a `transform_publish_period` (0.02).
+    # It controls the period at which the pose graph is RASTERIZED into the
+    # occupancy grid published on `/map`. It is NOT the scan-matching rate, NOT
+    # the loop-closure rate and does NOT reduce pose-graph optimization: none of
+    # those go through here. The robot pose is still estimated on every scan,
+    # and `map -> odom` is still published at `transform_publish_period` (0.02).
     #
-    # O CUSTO FOI MEDIDO, E NAO ESTAVA AQUI
+    # THE COST WAS MEASURED, AND IT WAS NOT HERE
     #
-    # O argumento para subir isto para 5.0 era que a rasterizacao percorre o
-    # grafo inteiro, cresce com a area mapeada, e estava sendo paga 5x mais
-    # vezes do que o upstream pratica -- CPU tirada do controller num modulo
-    # arm64 ja saturado. O argumento e bom e a medicao o desmentiu:
+    # The argument for raising this to 5.0 was that rasterization walks the whole
+    # graph, grows with the mapped area, and was being paid 5x more often than
+    # upstream does -- CPU taken from the controller on an arm64 module that is
+    # already saturated. The argument is sound and the measurement refuted it:
     #
-    #     async_slam_toolbox_node    31,4 %  ->  30,3 %     (1.0 -> 5.0)
-    #     demo-nav-1 (total)        493,6 %  ->  481-494 %
-    #     TF disponivel              78,11 % ->   79,13 %
+    #     async_slam_toolbox_node    31.4 %  ->  30.3 %     (1.0 -> 5.0)
+    #     demo-nav-1 (total)        493.6 %  ->  481-494 %
+    #     TF available               78.11 % ->   79.13 %
     #
-    # 1,1 ponto percentual, dentro do ruido (docs/results/ml35-f5-tf-cpu-
-    # baseline.md secao 4). A CPU do slam_toolbox nao estava na rasterizacao; o
-    # casamento de scans e onde ela esta, e ele roda a cada scan
-    # independentemente deste parametro. O criterio do proprio plano era
-    # "manter 5.0 somente se reduzir CPU sem piorar navegacao ou atualizacao do
-    # mapa". Nao reduziu. Revertido.
+    # 1.1 percentage points, within noise (docs/results/ml35-f5-tf-cpu-
+    # baseline.md section 4). The slam_toolbox CPU was not in rasterization;
+    # scan matching is where it is, and it runs on every scan regardless of this
+    # parameter. The plan's own criterion was "keep 5.0 only if it reduces CPU
+    # without worsening navigation or map updates". It did not reduce it.
+    # Reverted.
     #
-    # Para comparacao, o que de fato mexeu na CPU do modulo naquele dia foi
-    # decimar o joint_state_broadcaster: carga media 26,9 -> 18,5, `async_slam`
-    # 31,4 % -> 18,0 % (docs/results/ml35-f5-ab-joint-states.md). O gargalo era
-    # entrega de mensagem, nao rasterizacao de grade.
+    # For comparison, what actually moved the module's CPU that day was
+    # decimating the joint_state_broadcaster: mean load 26.9 -> 18.5, `async_slam`
+    # 31.4 % -> 18.0 % (docs/results/ml35-f5-ab-joint-states.md). The bottleneck
+    # was message delivery, not grid rasterization.
     #
-    # O QUE 1.0 COMPRA
+    # WHAT 1.0 BUYS
     #
-    # A `static_layer` do costmap global so enxerga o mapa quando ele e
-    # publicado. Com 5.0 o costmap global pode ficar ate 5 s atras da parede que
-    # o SLAM ja conhece -- 75 cm a 0,15 m/s. Com 1.0 esse atraso e de 15 cm.
-    # Sem economia de CPU do outro lado da balanca, nao ha o que pesar contra.
+    # The global costmap's `static_layer` only sees the map when it is published.
+    # With 5.0 the global costmap can lag up to 5 s behind a wall SLAM already
+    # knows about -- 75 cm at 0.15 m/s. With 1.0 that lag is 15 cm. With no CPU
+    # saving on the other side of the scale, there is nothing to weigh against.
     map_update_interval: 1.0
     resolution: 0.05
     min_laser_range: 0.12

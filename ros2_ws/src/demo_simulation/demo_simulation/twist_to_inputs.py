@@ -115,58 +115,60 @@ _START_TROT_HOLD_S = 0.5
 _START_TROT_TICKS = int(_START_TROT_HOLD_S / _CONTROL_PERIOD_S)
 
 
-# Serviço que reencena a subida da FSM depois de um teleporte.
+# Service that replays the FSM ramp-up after a teleport.
 #
-# POR QUE ISTO EXISTE
+# WHY THIS EXISTS
 #
-# O reset do cockpit teleporta o robô (sim_control_relay). O StateTrotting não
-# percebe: a referência de HOLD -- pcd_ e yaw_cmd_, ver
-# StateTrotting::captureBodyReference -- é capturada UMA vez atrás de um trinco
-# que só um comando de caminhada limpa. Depois do teleporte o controlador segue
-# perseguindo a pose que o robô tinha ANTES, e o eixo de guinada, limitado perto
-# de 5,3 N.m, não consegue servir esse alvo: medido em 26/08/2026, Mz no rail em
-# 100% dos ticks com resíduo constante, o robô arrastado 0,87 m para fora do
-# ponto de nascimento e terminando COLAPSADO a z=0,131 m contra 0,353 m de
-# altura de marcha. Nada em log nenhum acusa; o cockpit fica verde.
+# The cockpit reset teleports the robot (sim_control_relay). StateTrotting does
+# not notice: the HOLD reference -- pcd_ and yaw_cmd_, see
+# StateTrotting::captureBodyReference -- is captured ONCE behind a latch that
+# only a clean walking command releases. After the teleport the controller keeps
+# chasing the pose the robot had BEFORE, and the yaw axis, limited near 5.3 N.m,
+# cannot serve that target: measured on 2026-08-26, Mz on the rail on 100% of
+# ticks with a constant residual, the robot dragged 0.87 m away from the spawn
+# point and ending up COLLAPSED at z=0.131 m versus 0.353 m walking height.
+# Nothing in any log flags it; the cockpit stays green.
 #
-# StateTrotting::enter() reancora as duas coisas na pose corrente. Então a
-# correção é sair de TROTTING e voltar -- e o lugar disso é aqui, não no
-# controlador: /control_input tem UM escritor por projeto, e o motivo está
-# escrito sob _START_TROT_HOLD_S.
+# StateTrotting::enter() re-anchors both at the current pose. So the fix is to
+# leave TROTTING and come back -- and the place for that is here, not in the
+# controller: /control_input has ONE writer per project, and the reason is
+# written under _START_TROT_HOLD_S.
 #
-# POR QUE SÃO DOIS SERVIÇOS, E NÃO UM
+# WHY TWO SERVICES, NOT ONE
 #
-# A primeira versão reancorava DEPOIS de teleportar, num só serviço. Funciona
-# com o robô parado e falha com o Nav2 conduzindo, que é o caso real. Medido em
-# 26/08/2026, reset durante um fluxo de /demo/cmd_vel vivo a 10 Hz:
+# The first version re-anchored AFTER teleporting, in a single service. It works
+# with the robot at rest and fails with Nav2 driving, which is the real case.
+# Measured on 2026-08-26, reset during a live /demo/cmd_vel stream at 10 Hz:
 #
 #     t[s]      x        y       z   yaw[deg]
-#      0,1   0,215    0,031   0,337     84,2     <- reset pedido
-#      1,1   0,483   -0,024   0,162     90,6     <- COLAPSADO, e desliza 0,27 m
-#     40,0   0,307   -0,084   0,159     82,7     <- segue colapsado, contorcendo
+#      0.1   0.215    0.031   0.337     84.2     <- reset requested
+#      1.1   0.483   -0.024   0.162     90.6     <- COLLAPSED, and slides 0.27 m
+#     40.0   0.307   -0.084   0.159     82.7     <- still collapsed, writhing
 #
-# `SetEntityPose` reposiciona o corpo e PRESERVA A VELOCIDADE. Um robô andando a
-# ~0,2 m/s com as pernas em balanço é solto de 0,15 m ainda viajando, e cai.
+# `SetEntityPose` repositions the body and PRESERVES VELOCITY. A robot walking at
+# ~0.2 m/s with its legs mid-swing is dropped from 0.15 m still travelling, and
+# falls.
 #
-# Então a ordem correta é PARAR ANTES de teleportar, não reancorar depois:
+# So the correct order is to STOP BEFORE teleporting, not to re-anchor after:
 #
-#     hold   -> FIXEDSTAND, eixos centrados; o robô planta os pés e para
-#     (o sim_control_relay teleporta aqui, com o robô imóvel)
-#     resume -> assenta e volta a TROTTING, cujo enter() reancora na pose nova
+#     hold   -> FIXEDSTAND, axes centred; the robot plants its feet and stops
+#     (sim_control_relay teleports here, with the robot at rest)
+#     resume -> settles and returns to TROTTING, whose enter() re-anchors at
+#               the new pose
 HOLD_SERVICE = '/demo/gait/hold'
 RESUME_SERVICE = '/demo/gait/resume'
 
 
 class _RestandSequence:
     """
-    Segura o robô em FIXEDSTAND, e depois o devolve a TROTTING reancorado.
+    Hold the robot in FIXEDSTAND, then return it to TROTTING re-anchored.
 
-    Puro de propósito, como _CommandGate: `now` entra por argumento, então a
-    sequência é testável sem ROS.
+    Pure on purpose, like _CommandGate: `now` is passed as an argument, so the
+    sequence is testable without ROS.
 
-    O estado `holding` não tem prazo: quem o encerra é `resume`, chamado pelo
-    relay depois que o teleporte terminou. Um prazo aqui seria uma corrida
-    contra a chamada de serviço do outro processo.
+    The `holding` state has no deadline: it is ended by `resume`, called by the
+    relay after the teleport has finished. A deadline here would be a race
+    against the other process's service call.
     """
 
     def __init__(
@@ -182,20 +184,20 @@ class _RestandSequence:
 
     @property
     def active(self) -> bool:
-        """Enquanto verdadeiro, os eixos ficam centrados: ver next_command."""
+        """While true, the axes stay centred: see next_command."""
         return self._phase != 'idle'
 
     @property
     def holding(self) -> bool:
-        """Verdadeiro entre `hold` e `resume`: é a janela do teleporte."""
+        """Return True between `hold` and `resume`: the teleport window."""
         return self._phase in ('stand', 'holding')
 
     def hold(self) -> None:
-        """Sai de TROTTING para FIXEDSTAND e espera lá."""
+        """Leave TROTTING for FIXEDSTAND and wait there."""
         self._phase = 'stand'
 
     def resume(self, now: float) -> None:
-        """Assenta e volta a TROTTING. Ignorado se não houver hold em curso."""
+        """Settle and return to TROTTING. Ignored if no hold is in progress."""
         if not self.holding:
             return
         self._phase = 'settling'
@@ -203,18 +205,19 @@ class _RestandSequence:
         self._left = self._trot_ticks
 
     def next_command(self, now: float) -> int:
-        """Byte de comando deste tick, consumindo a sequência."""
+        """Command byte for this tick, consuming the sequence."""
         if self._phase == 'stand':
-            # Exatamente UM 2, nunca repetido. Mantido, ele leva FIXEDSTAND a
-            # FIXEDDOWN e o robô se DEITA -- StateFixedStand::checkChange,
-            # case 2. É a diferença entre reassentar e desmontar o robô.
+            # Exactly ONE 2, never repeated. If held, it takes FIXEDSTAND to
+            # FIXEDDOWN and the robot LIES DOWN -- StateFixedStand::checkChange,
+            # case 2. It is the difference between resettling and collapsing
+            # the robot.
             self._phase = 'holding'
             return _CMD_STAND_STEP
 
         if self._phase == 'holding':
-            # Zeros explícitos, não silêncio: o byte gravado no controlador
-            # persiste, e parar de publicar deixaria o `2` acima valendo até o
-            # próximo tick que publicasse alguma coisa.
+            # Explicit zeros, not silence: the byte stored in the controller
+            # persists, and ceasing to publish would leave the `2` above in
+            # force until the next tick that published anything.
             return _CMD_NONE
 
         if self._phase == 'settling':
@@ -311,11 +314,12 @@ class TwistToInputs(Node):
             _CONTROL_PERIOD_S, self._publish_control_input,
         )
 
-        # Quem chama é o sim_control_relay, um de cada lado do teleporte. Ver
-        # HOLD_SERVICE acima. Trigger e não tópico porque quem reseta precisa
-        # saber se houve alguém do outro lado: um reset que teleporta sem parar
-        # e reancorar o robô o deixa colapsado, e é exatamente esse o modo de
-        # falha silencioso que se quer evitar.
+        # The caller is sim_control_relay, one call on each side of the
+        # teleport. See HOLD_SERVICE above. Trigger and not a topic because the
+        # party doing the reset needs to know whether anyone was on the other
+        # end: a reset that teleports without stopping and re-anchoring the
+        # robot leaves it collapsed, and that is exactly the silent failure
+        # mode to be avoided.
         self._hold_service = self.create_service(
             Trigger, HOLD_SERVICE, self._on_hold,
         )
@@ -387,10 +391,10 @@ class TwistToInputs(Node):
         now = self._now()
 
         if self._restand.active:
-            # Eixos centrados durante toda a sequência. Injetar valor de eixo
-            # num robô que está se levantando é o que o derruba no meio da
-            # transição -- é a mesma razão pela qual comandos anteriores a
-            # TROTTING são descartados, e não enfileirados, em _on_twist.
+            # Axes centred throughout the sequence. Injecting an axis value
+            # into a robot that is standing up is what knocks it over mid
+            # transition -- the same reason commands received before TROTTING
+            # are discarded, not queued, in _on_twist.
             message = Inputs()
             message.command = self._restand.next_command(now)
             self._publisher.publish(message)
@@ -412,40 +416,41 @@ class TwistToInputs(Node):
 
     def _on_hold(self, request, response):
         """
-        Leva o robô a FIXEDSTAND e o mantém lá, imóvel, para o teleporte.
+        Take the robot to FIXEDSTAND and keep it there, still, for the teleport.
 
-        Responde na hora: quem espera o robô parar é o relay, que é quem sabe
-        quando vai teleportar.
+        Responds immediately: whoever waits for the robot to stop is the relay,
+        which is the one that knows when it will teleport.
         """
         del request
         response.success = True
         if self._stage != 'trotting':
-            # Nada a segurar: o robô ainda não entrou em TROTTING, e o enter()
-            # que vai acontecer quando entrar já captura a pose nova.
-            response.message = f'gait em {self._stage}: nada a segurar'
+            # Nothing to hold: the robot has not yet entered TROTTING, and the
+            # enter() that will happen when it does already captures the new
+            # pose.
+            response.message = f'gait in {self._stage}: nothing to hold'
             return response
 
         self._restand.hold()
-        response.message = 'gait: trotting -> fixed stand, robô imóvel'
+        response.message = 'gait: trotting -> fixed stand, robot still'
         self.get_logger().info(response.message)
         return response
 
     def _on_resume(self, request, response):
         """
-        Assenta e volta a TROTTING, cujo enter() reancora pcd_ e yaw_cmd_.
+        Settle and return to TROTTING, whose enter() re-anchors pcd_ and yaw_cmd_.
 
-        Responde na hora e executa nos ticks seguintes: a sequência leva
-        _TRANSITION_HOLD_S + _START_TROT_HOLD_S, e bloquear o serviço por isso
-        faria o botão de reset do cockpit parecer travado.
+        Responds immediately and executes on the following ticks: the sequence
+        takes _TRANSITION_HOLD_S + _START_TROT_HOLD_S, and blocking the service
+        for that long would make the cockpit reset button look stuck.
         """
         del request
         response.success = True
         if not self._restand.holding:
-            response.message = 'gait: nenhum hold em curso, nada a retomar'
+            response.message = 'gait: no hold in progress, nothing to resume'
             return response
 
         self._restand.resume(self._now())
-        response.message = 'gait: fixed stand -> trotting, pose reancorada'
+        response.message = 'gait: fixed stand -> trotting, pose re-anchored'
         self.get_logger().info(response.message)
         return response
 

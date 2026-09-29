@@ -33,7 +33,7 @@ test('map north is at the top of the canvas', () => {
   const view = createView(EXTENT, 216, 216, { padding: 8 });
   const top = view.toScreen(0, 5);
   const bottom = view.toScreen(0, -5);
-  assert.ok(top.y < bottom.y, 'y maior no mundo deve dar y menor na tela');
+  assert.ok(top.y < bottom.y, 'larger world y must give smaller screen y');
 });
 
 test('toWorld undoes toScreen exactly', () => {
@@ -52,7 +52,7 @@ test('both axes share one scale', () => {
   const view = createView(EXTENT, 400, 200);
   const oneMetreX = view.toScreen(1, 0).x - view.toScreen(0, 0).x;
   const oneMetreY = view.toScreen(0, 0).y - view.toScreen(0, 1).y;
-  near(oneMetreX, oneMetreY, 'metro em x vs em y');
+  near(oneMetreX, oneMetreY, 'one metre in x vs in y');
   near(oneMetreX, view.scale, 'escala publicada');
 });
 
@@ -61,7 +61,7 @@ test('the drawn map is centred in the leftover space', () => {
   // the 200 px of slack are split evenly, not dumped on one side.
   const view = createView(EXTENT, 400, 200, { padding: 8 });
   const rect = view.rasterRect();
-  near(rect.width, rect.height, 'raster quadrado para extensão quadrada');
+  near(rect.width, rect.height, 'square raster for a square extent');
   near(rect.x, (400 - rect.width) / 2, 'sobra horizontal dividida');
   near(rect.y, (200 - rect.height) / 2, 'sobra vertical dividida');
 });
@@ -137,7 +137,7 @@ test('the cost LUT separates unknown from free', () => {
   // space: allow_unknown is true, so the planner routes through it and the
   // operator has to be able to see where it did that.
   assert.notDeepEqual(rgba(255), rgba(0), 'desconhecido vs livre');
-  assert.equal(rgba(255)[3], 255, 'desconhecido é opaco');
+  assert.equal(rgba(255)[3], 255, 'unknown is opaque');
 });
 
 test('the cost LUT is fully opaque across the valid range', () => {

@@ -74,49 +74,52 @@ def generate_launch_description() -> LaunchDescription:
         }],
     )
 
-    # A IMAGEM CHEGA COMPRIMIDA E E ABERTA AQUI, DO LADO DE QUEM CONSOME.
+    # THE IMAGE ARRIVES COMPRESSED AND IS OPENED HERE, ON THE CONSUMER'S SIDE.
     #
-    # `sim.launch.py` publica /demo/camera/image_raw/compressed alem do RAW. Este
-    # no assina a comprimida e devolve sensor_msgs/Image em
-    # /demo/perception/image_in, que e local a esta maquina. O SetRemap abaixo
-    # religa o detection_stub a ela.
+    # `sim.launch.py` publishes /demo/camera/image_raw/compressed in addition to
+    # the RAW. This node subscribes to the compressed one and returns
+    # sensor_msgs/Image on /demo/perception/image_in, which is local to this
+    # machine. The SetRemap below rewires the detection_stub to it.
     #
-    # POR QUE O NOME MUDA, E POR QUE ISSO NAO E OPCIONAL: publicar o descomprimido
-    # de volta em /demo/camera/image_raw poria DOIS publicadores no mesmo topico
-    # do mesmo dominio -- o do bridge no host e este. Isso nao da erro nenhum: o
-    # assinante obedece a ultima mensagem que chegou, e o resultado e imagem
-    # alternando entre duas fontes sem nada em log. O projeto ja pagou por essa
-    # classe de falha em /demo/cmd_vel (ver o docstring de nav_trial.py).
+    # WHY THE NAME CHANGES, AND WHY THAT IS NOT OPTIONAL: publishing the
+    # decompressed image back on /demo/camera/image_raw would put TWO publishers
+    # on the same topic of the same domain -- the bridge's on the host and this
+    # one. That raises no error: the subscriber obeys the last message that
+    # arrived, and the result is an image alternating between two sources with
+    # nothing in the log. The project has already paid for this class of failure
+    # on /demo/cmd_vel (see the docstring of nav_trial.py).
     #
-    # O CONTRATO NAO MUDA. demo_perception continua consumindo sensor_msgs/Image
-    # e continua sem saber a origem do quadro (regra 6 do CLAUDE.md) -- ele nem e
-    # tocado: a religacao e por remap de launch, nao por edicao do no. Quando o
-    # TIDL substituir o stub, ele recebe o mesmo tipo no mesmo lugar.
+    # THE CONTRACT DOES NOT CHANGE. demo_perception keeps consuming
+    # sensor_msgs/Image and still does not know where the frame came from
+    # (CLAUDE.md rule 6) -- it is not even touched: the rewiring is by launch
+    # remap, not by editing the node. When TIDL replaces the stub, it receives
+    # the same type in the same place.
     #
-    # CUSTO QUE ISTO ACRESCENTA, DITO EXPLICITAMENTE: decodificar JPEG gasta CPU
-    # no modulo, que e justamente o recurso em falta. A aposta e que decodificar
-    # 640x480 custa menos que remontar 75 Mbit/s de RAW fragmentado, e ela e
-    # MEDIDA, nao assumida. Se a decodificacao comer a economia, o proximo passo e
-    # o stub assinar CompressedImage direto e tirar as dimensoes de
-    # /demo/camera/camera_info -- ele so usa header, width e height, nunca os
-    # pixels (detection_stub.py:91,100,119).
+    # COST THIS ADDS, STATED EXPLICITLY: decoding JPEG spends CPU on the module,
+    # which is precisely the scarce resource. The bet is that decoding 640x480
+    # costs less than reassembling 75 Mbit/s of fragmented RAW, and it is
+    # MEASURED, not assumed. If decoding eats the savings, the next step is for
+    # the stub to subscribe to CompressedImage directly and take the dimensions
+    # from /demo/camera/camera_info -- it only uses header, width and height,
+    # never the pixels (detection_stub.py:91,100,119).
     camera_decompressor = Node(
         package='image_transport',
         executable='republish',
         name='camera_decompressor',
-        # Parametros, nao posicionais -- ver a armadilha documentada em
-        # sim.launch.py, que custou um ciclo de build. Aqui out_transport vazio
-        # nao faz laco (o topico de saida tem outro nome), mas faz coisa pior de
-        # achar: o decompressor nao publica nada, o detection_stub fica sem
-        # imagem nenhuma, e a percepcao morre em silencio.
+        # Parameters, not positional -- see the trap documented in
+        # sim.launch.py, which cost a build cycle. Here an empty out_transport
+        # does not create a loop (the output topic has a different name), but
+        # does something harder to find: the decompressor publishes nothing, the
+        # detection_stub is left with no image at all, and perception dies
+        # silently.
         parameters=[{
             'in_transport': 'compressed',
             'out_transport': 'raw',
             'use_sim_time': LaunchConfiguration('use_sim_time'),
         }],
-        # `in` carrega o sufixo do transporte e `out` nao -- ver a armadilha
-        # documentada em sim.launch.py. Aqui os papeis se invertem em relacao ao
-        # compressor, porque aqui o comprimido e a ENTRADA.
+        # `in` carries the transport suffix and `out` does not -- see the trap
+        # documented in sim.launch.py. Here the roles are reversed relative to
+        # the compressor, because here the compressed image is the INPUT.
         remappings=[
             ('in/compressed', '/demo/camera/image_raw/compressed'),
             ('out', '/demo/perception/image_in'),
@@ -135,9 +138,9 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
-    # SetRemap vale para o escopo do grupo, e SO o include entra nele: o
-    # camera_decompressor fica de fora de proposito, senao o proprio `in` dele
-    # seria reescrito e ele passaria a assinar a si mesmo.
+    # SetRemap applies to the group's scope, and ONLY the include goes into it:
+    # camera_decompressor is deliberately left out, otherwise its own `in`
+    # would be rewritten and it would end up subscribing to itself.
     perception_group = GroupAction([
         SetRemap(src='/demo/camera/image_raw', dst='/demo/perception/image_in'),
         perception,

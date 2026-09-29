@@ -52,15 +52,15 @@ from launch_ros.substitutions import FindPackageShare
 
 class ScenarioPose(Substitution):
     """
-    Um campo da pose de nascimento: o argumento, senao a tabela do cenario.
+    One field of the spawn pose: the argument, otherwise the scenario table.
 
-    E uma Substituicao e nao um OpaqueFunction porque o destino e `arguments` de
-    um Node, que aceita substituicoes e NAO aceita acoes -- um OpaqueFunction ali
-    e aceito na montagem e falha na execucao, com erro que fala de tipos e nao do
-    argumento.
+    It is a Substitution and not an OpaqueFunction because the destination is a
+    Node's `arguments`, which accepts substitutions and does NOT accept actions
+    -- an OpaqueFunction there is accepted at assembly and fails at execution,
+    with an error that talks about types and not about the argument.
 
-    Resolver na hora da execucao tambem e o que permite `world:=` e `yaw:=`
-    chegarem de SIM_ARGS: nenhum dos dois existe quando a descricao e montada.
+    Resolving at execution time is also what lets `world:=` and `yaw:=` arrive
+    from SIM_ARGS: neither exists when the description is assembled.
     """
 
     def __init__(self, field: str) -> None:
@@ -77,63 +77,66 @@ class ScenarioPose(Substitution):
 
 def _check_external_models(context, *args, **kwargs) -> list:
     """
-    Falha ALTO quando o mundo pede uma malha que nao esta montada.
+    Fail LOUDLY when the world asks for a mesh that is not mounted.
 
-    Sem esta checagem o modo de falha e o pior possivel: o Gazebo carrega o
-    mundo, o modelo do labirinto fica sem visual e sem colisao, e o resultado e
-    um plano vazio. O lidar nao ve parede nenhuma, o Nav2 planeja em linha reta,
-    e a meta termina SUCCEEDED -- com numeros MELHORES que os reais. O ensaio
-    passa e ninguem descobre que o labirinto nao estava la.
+    Without this check the failure mode is the worst possible: Gazebo loads the
+    world, the maze model ends up with no visual and no collision, and the
+    result is an empty plane. The lidar sees no wall, Nav2 plans a straight
+    line, and the goal ends SUCCEEDED -- with numbers BETTER than the real ones.
+    The run passes and nobody discovers the maze was not there.
 
-    Mede-se aqui e nao no compose porque quem sabe de qual mundo se trata e o
-    launch, e porque o caminho default de `MAZE_MODELS:-./models-extra` faz o
-    Docker CRIAR um diretorio vazio em vez de recusar o mount.
+    It is checked here and not in compose because the launch is what knows which
+    world is involved, and because the default path of
+    `MAZE_MODELS:-./models-extra` makes Docker CREATE an empty directory instead
+    of refusing the mount.
     """
     world = LaunchConfiguration('world').perform(context)
-    faltando = missing_models(world)
-    if faltando:
+    missing = missing_models(world)
+    if missing:
         raise RuntimeError(
-            'o mundo %s carrega modelo(s) externo(s) ao repositorio que nao '
-            'estao montados: %s.\n'
-            'A malha do labirinto tem licenca TODO no upstream '
-            '(github.com/cafemesa/ros_maze_worlds) e por isso NAO e vendorizada '
-            '-- mesmo bloqueio que fez o projeto trocar o A1 pelo Go2.\n'
-            'Aponte MAZE_MODELS para o diretorio models/ daquele repositorio:\n'
-            '  MAZE_MODELS=/caminho/ros_maze_worlds/models '
+            'world %s loads model(s) external to the repository that are not '
+            'mounted: %s.\n'
+            'The maze mesh has a TODO licence upstream '
+            '(github.com/cafemesa/ros_maze_worlds) and therefore is NOT '
+            'vendored -- the same blocker that made the project swap the A1 for '
+            'the Go2.\n'
+            'Point MAZE_MODELS at the models/ directory of that repository:\n'
+            '  MAZE_MODELS=/path/to/ros_maze_worlds/models '
             'docker compose -f compose.host.yml up -d sim\n'
-            'Sem isso o Gazebo sobe um plano VAZIO sem acusar nada, e qualquer '
-            'medicao de navegacao feita nele e ficcao.'
-            % (world, ', '.join(faltando))
+            'Without it Gazebo starts an EMPTY plane without reporting anything, '
+            'and any navigation measurement taken on it is fiction.'
+            % (world, ', '.join(missing))
         )
     return []
 
 
 def generate_launch_description() -> LaunchDescription:
-    # O CENARIO OFICIAL do quadrupede e o labirinto, e nao o mundo vazio.
+    # The quadruped's OFFICIAL SCENARIO is the maze, not the empty world.
     #
-    # Era `quadruped_empty.sdf` desde o spike do F2, quando a imagem de simulacao
-    # nao tinha nem Nav2: o mundo vazio era o unico que subia. Ficou como default
-    # por inercia, e o efeito colateral e que o comando mais curto que existe
-    # (`ros2 launch ... quadruped.launch.py`) subia um chao infinito sem nada
-    # para navegar -- entao TODA medicao de navegacao exigia passar `world:=` a
-    # mao, e uma medicao feita sem passar media navegacao em campo aberto.
+    # It was `quadruped_empty.sdf` since the F2 spike, when the simulation image
+    # did not even have Nav2: the empty world was the only one that came up. It
+    # stayed as the default by inertia, and the side effect is that the shortest
+    # command there is (`ros2 launch ... quadruped.launch.py`) brought up an
+    # infinite floor with nothing to navigate -- so EVERY navigation measurement
+    # required passing `world:=` by hand, and a measurement taken without
+    # passing it measured navigation in open field.
     #
-    # Os mundos pequenos continuam a um argumento de distancia:
+    # The small worlds remain one argument away:
     #   ros2 launch demo_simulation quadruped.launch.py \
     #     world:=$(ros2 pkg prefix demo_simulation)/share/demo_simulation/\
     #       worlds/quadruped_empty.sdf
     #
-    # A pose de nascimento e o enquadramento das cameras acompanham o mundo por
-    # `scenarios.py`; nao ha como trocar de mundo e esquecer os outros nove
-    # numeros. Ver o cabecalho daquele arquivo.
+    # The spawn pose and the camera framing follow the world through
+    # `scenarios.py`; there is no way to switch worlds and forget the other nine
+    # numbers. See the header of that file.
     world_arg = DeclareLaunchArgument(
         'world',
         default_value=PathJoinSubstitution([
             FindPackageShare('demo_simulation'), 'worlds',
             'quadruped_maze11.sdf',
         ]),
-        description='Absolute path to the SDF world to load. O default e o '
-                    'cenario oficial (labirinto).',
+        description='Absolute path to the SDF world to load. The default is the '
+                    'official scenario (the maze).',
     )
 
     robot_name_arg = DeclareLaunchArgument(
@@ -157,28 +160,30 @@ def generate_launch_description() -> LaunchDescription:
                     'unitree_guide_controller before it is configured.',
     )
 
-    # Decimacao do joint_state_broadcaster, pelo mesmo mecanismo e pelo mesmo
-    # motivo de gait_params: o pacote que declara o controlador e vendorizado.
-    # O arquivo explica a medicao que motivou os 50 Hz; o resumo e que o
-    # broadcaster herdava os 1000 Hz do controller_manager e enchia /tf a 1090
-    # Hz para onze assinantes, dos quais os de navegacao estao do outro lado da
-    # Ethernet. Vazio desliga a decimacao e volta ao comportamento herdado.
+    # Decimation of the joint_state_broadcaster, by the same mechanism and for
+    # the same reason as gait_params: the package that declares the controller
+    # is vendored. The file explains the measurement that motivated the 50 Hz;
+    # in short, the broadcaster inherited the controller_manager's 1000 Hz and
+    # filled /tf at 1090 Hz for eleven subscribers, of which the navigation ones
+    # are on the other side of the Ethernet. Empty turns decimation off and goes
+    # back to the inherited behaviour.
     jsb_params_arg = DeclareLaunchArgument(
         'jsb_params',
         default_value=PathJoinSubstitution([
             FindPackageShare('demo_simulation'), 'config',
             'joint_state_broadcaster.yaml',
         ]),
-        description='Param file com a taxa do joint_state_broadcaster. Afeta '
-                    'SO o broadcaster: o laco de controle, a marcha e a fisica '
-                    'seguem em 1000/200/1000 Hz.',
+        description='Param file with the joint_state_broadcaster rate. Affects '
+                    'ONLY the broadcaster: the control loop, the gait and the '
+                    'physics stay at 1000/200/1000 Hz.',
     )
 
-    # Vazio = pega de scenarios.py pelo mundo. Um default numerico aqui e
-    # indistinguivel de uma escolha do operador, e foi assim que o robo passou a
-    # nascer olhando para a parede quando o cenario virou o labirinto: yaw 0 e
-    # correto no armazem e errado no maze11, e nada acusa a diferenca -- o robo
-    # so gasta os primeiros segundos girando dentro de um corredor de 1,20 m.
+    # Empty = taken from scenarios.py for the world. A numeric default here is
+    # indistinguishable from an operator choice, and that is how the robot came
+    # to spawn facing the wall when the scenario became the maze: yaw 0 is
+    # correct in the warehouse and wrong in maze11, and nothing flags the
+    # difference -- the robot just spends its first seconds turning inside a
+    # 1.20 m corridor.
     x_arg = DeclareLaunchArgument('x', default_value='')
     y_arg = DeclareLaunchArgument('y', default_value='')
     yaw_arg = DeclareLaunchArgument('yaw', default_value='')
@@ -315,11 +320,11 @@ def generate_launch_description() -> LaunchDescription:
     # Chained on spawn exit rather than on a timer: the timer would be
     # measuring container uptime, which is the F1 lesson (wait_for_clock).
     #
-    # `--param-file` aqui e o que decima o broadcaster para 50 Hz. Mesma razao
-    # de ser do `--param-file` do gait controller mais abaixo: o parametro
-    # `update_rate` mora no no do controlador dentro do processo do gz, e o
-    # spawner e quem o aplica antes do load_controller. Setar depois seria
-    # aceito e nunca lido.
+    # `--param-file` here is what decimates the broadcaster to 50 Hz. Same
+    # rationale as the gait controller's `--param-file` below: the `update_rate`
+    # parameter lives on the controller node inside the gz process, and the
+    # spawner is what applies it before load_controller. Setting it afterwards
+    # would be accepted and never read.
     joint_state_broadcaster = Node(
         package='controller_manager',
         executable='spawner',
@@ -395,11 +400,11 @@ def generate_launch_description() -> LaunchDescription:
         }],
     )
 
-    # Vistas externas do cockpit web (painel azul): duas cameras estaticas
-    # spawnadas no mundo, isometrica e de topo. Fragmento COMPARTILHADO com a
-    # planta diff-drive, para que o painel nao apague ao trocar ROBOT_TYPE.
-    # Toda a conta de enquadramento e o motivo de serem spawnadas em vez de
-    # escritas nos worlds/*.sdf estao em scene_cameras.launch.py.
+    # External views of the web cockpit (blue panel): two static cameras
+    # spawned into the world, isometric and top-down. Fragment SHARED with the
+    # diff-drive plant, so the panel does not go dark when ROBOT_TYPE changes.
+    # All the framing arithmetic and the reason they are spawned instead of
+    # written into worlds/*.sdf are in scene_cameras.launch.py.
     scene_cameras = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_simulation'), 'launch',
@@ -411,9 +416,9 @@ def generate_launch_description() -> LaunchDescription:
         }.items(),
     )
 
-    # Ponte de serviços do Gazebo: play/pause/reset do cockpit, e o set_pose que
-    # o scene_view_controller usa para mover as câmeras. Fragmento
-    # compartilhado, pela mesma razão do anterior.
+    # Gazebo service bridge: the cockpit's play/pause/reset, and the set_pose
+    # that scene_view_controller uses to move the cameras. Shared fragment, for
+    # the same reason as the previous one.
     sim_control = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(PathJoinSubstitution([
             FindPackageShare('demo_simulation'), 'launch',
@@ -432,8 +437,9 @@ def generate_launch_description() -> LaunchDescription:
         height_arg,
         gui_arg,
         scene_cameras_arg,
-        # ANTES de qualquer no: se a malha externa nao esta la, nao ha ensaio
-        # valido a fazer, e o modo de falha silenciosa e caro (ver o docstring).
+        # BEFORE any node: if the external mesh is not there, there is no valid
+        # run to make, and the silent failure mode is expensive (see the
+        # docstring).
         OpaqueFunction(function=_check_external_models),
         bridge,
         gz_sim,

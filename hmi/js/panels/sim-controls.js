@@ -1,43 +1,45 @@
 /**
- * Simulação: play, pause e reset, a partir do cockpit.
+ * Simulation: play, pause and reset, from the cockpit.
  *
- * O QUE ISTO É E O QUE NÃO É
+ * WHAT THIS IS AND WHAT IT IS NOT
  *
- * O Gazebo roda na workstation x86 e vai continuar rodando lá. O AM69 expõe
- * apenas OpenGL ES 3.2 e Vulkan 1.2, o OGRE 2 do Gazebo precisa de OpenGL de
- * desktop, e a regra 1 do CLAUDE.md existe exatamente para impedir que alguém
- * tente. Estes botões controlam a simulação PELO cockpit — no M3 o cockpit é
- * servido pelo Aquila, então o clique sai do módulo — mas quem executa o
- * simulador segue sendo o host. O que atravessa é uma chamada de serviço no
- * grafo ROS, igual à meta do Nav2 hoje.
+ * Gazebo runs on the x86 workstation and will keep running there. The AM69
+ * exposes only OpenGL ES 3.2 and Vulkan 1.2, Gazebo's OGRE 2 needs desktop
+ * OpenGL, and rule 1 of CLAUDE.md exists precisely to stop anyone from trying.
+ * These buttons control the simulation THROUGH the cockpit — in M3 the cockpit
+ * is served by the Aquila, so the click leaves the module — but whoever runs
+ * the simulator is still the host. What crosses over is a service call on the
+ * ROS graph, just like the Nav2 goal today.
  *
- * POR QUE O ESTADO VEM DO /clock E NÃO DO BOTÃO
+ * WHY THE STATE COMES FROM /clock AND NOT FROM THE BUTTON
  *
- * O caminho óbvio seria pintar "pausado" quando o operador clica em pausar.
- * Isso mente em todos os casos que importam: o container `sim` caiu, a chamada
- * expirou, alguém pausou pela GUI do Gazebo, o mundo foi resetado por outra
- * pessoa. O relógio simulado é a única testemunha que sabe se o simulador está
- * de fato andando, então é ele que escreve o rótulo — mesmo quando discorda do
- * último clique.
+ * The obvious path would be to paint "paused" when the operator clicks pause.
+ * That lies in every case that matters: the `sim` container went down, the call
+ * timed out, someone paused from the Gazebo GUI, the world was reset by someone
+ * else. The simulated clock is the only witness that knows whether the
+ * simulator is actually running, so it is the one that writes the label — even
+ * when it disagrees with the last click.
  *
- * /clock publica a ~1 kHz e nada disso precisa dessa resolução: a inscrição é
- * estrangulada no servidor (throttle_rate), não filtrada no cliente, para que o
- * tráfego nem chegue ao navegador.
+ * /clock publishes at ~1 kHz and none of that resolution is needed: the
+ * subscription is throttled on the server (throttle_rate), not filtered on the
+ * client, so the traffic never even reaches the browser.
  */
 
 /**
- * std_srvs/Trigger, um por ação, servidos pelo `sim_control_relay`.
+ * std_srvs/Trigger, one per action, served by `sim_control_relay`.
  *
- * NÃO é `/demo/sim/control` (ros_gz_interfaces/srv/ControlWorld), e a tentativa
- * de chamá-lo direto daqui é o que motivou a fachada. O rosbridge monta o
- * pedido importando o pacote de interfaces dentro do próprio container:
+ * It is NOT `/demo/sim/control` (ros_gz_interfaces/srv/ControlWorld), and
+ * trying to call it directly from here is what motivated the facade. rosbridge
+ * builds the request by importing the interface package inside its own
+ * container:
  *
  *     call_service InvalidModuleException: Unable to import
  *     ros_gz_interfaces.srv from package ros_gz_interfaces
  *
- * O container do cockpit não tem esse pacote — e no modo `deploy`, onde não
- * existe Gazebo nenhum, não faria sentido ter. A fronteira do navegador fala
- * std_srvs, que é núcleo do ROS; a tradução acontece do lado do simulador.
+ * The cockpit container does not have that package — and in `deploy` mode,
+ * where there is no Gazebo at all, it would make no sense to have it. The
+ * browser boundary speaks std_srvs, which is core ROS; the translation happens
+ * on the simulator side.
  */
 export const SIM_SERVICES = Object.freeze({
   play: '/demo/sim/play',
@@ -48,33 +50,34 @@ export const SIM_SERVICES = Object.freeze({
 export const CLOCK_TOPIC = '/clock';
 export const CLOCK_TYPE = 'rosgraph_msgs/msg/Clock';
 
-/** ~2,5 Hz: suficiente para "andou ou não andou", irrelevante no transporte. */
+/** ~2.5 Hz: enough for "moved or did not move", negligible on the wire. */
 export const CLOCK_THROTTLE_MS = 400;
 
 /**
- * Sem avanço do relógio simulado por este tempo, a simulação está pausada.
+ * With no advance of the simulated clock for this long, the simulation is
+ * paused.
  *
- * Precisa ser confortavelmente maior que CLOCK_THROTTLE_MS: com amostras a
- * cada 400 ms, um limiar apertado piscaria "pausado" a cada jitter da rede.
+ * It must be comfortably larger than CLOCK_THROTTLE_MS: with samples every
+ * 400 ms, a tight threshold would flash "paused" on every network jitter.
  */
 export const STALL_AFTER_MS = 1100;
 
-/** Sem NENHUMA amostra por este tempo, não há simulador do outro lado. */
+/** With NO sample at all for this long, there is no simulator on the other end. */
 export const OFFLINE_AFTER_MS = 3000;
 
-/** Segundos que o botão de reset fica armado esperando a confirmação. */
+/** Milliseconds the reset button stays armed waiting for confirmation. */
 export const RESET_ARM_MS = 4000;
 
 export const SimState = Object.freeze({
-  RUNNING: 'rodando',
-  PAUSED: 'pausado',
-  OFFLINE: 'sem simulador',
+  RUNNING: 'running',
+  PAUSED: 'paused',
+  OFFLINE: 'no simulator',
 });
 
 /**
- * Núcleo puro: recebe amostras do relógio simulado e responde em que estado a
- * simulação está. Separado do DOM porque é a única parte com lógica de verdade
- * e a única que dá para testar sem um navegador.
+ * Pure core: receives samples of the simulated clock and answers which state
+ * the simulation is in. Kept apart from the DOM because it is the only part
+ * with real logic and the only one that can be tested without a browser.
  */
 export function createClockWatch() {
   let lastSeconds = null;
@@ -82,11 +85,11 @@ export function createClockWatch() {
   let lastChangeAt = null;
 
   return {
-    /** @param {number} seconds tempo simulado @param {number} atMs relógio de parede */
+    /** @param {number} seconds simulated time @param {number} atMs wall clock */
     sample(seconds, atMs) {
-      // Só o AVANÇO conta como sinal de vida. Uma amostra repetida prova que a
-      // ponte está viva, não que o mundo está andando — e é justamente essa a
-      // diferença entre "pausado" e "sem simulador".
+      // Only ADVANCE counts as a sign of life. A repeated sample proves the
+      // bridge is alive, not that the world is running — and that is exactly
+      // the difference between "paused" and "no simulator".
       if (lastSeconds === null || seconds !== lastSeconds) {
         lastChangeAt = atMs;
       }
@@ -94,7 +97,7 @@ export function createClockWatch() {
       lastSampleAt = atMs;
     },
 
-    /** Volta ao desconhecido: usado quando o WebSocket cai. */
+    /** Back to unknown: used when the WebSocket drops. */
     reset() {
       lastSeconds = null;
       lastSampleAt = null;
@@ -110,7 +113,7 @@ export function createClockWatch() {
   };
 }
 
-/** Segundos de um rosgraph_msgs/Clock, tolerando campos ausentes. */
+/** Seconds of a rosgraph_msgs/Clock, tolerating missing fields. */
 export function clockSeconds(message) {
   const stamp = message?.clock ?? {};
   return (stamp.sec ?? 0) + (stamp.nanosec ?? 0) / 1e9;
@@ -142,14 +145,14 @@ export function createSimControls({ root, client, onNotice }) {
   async function send(command) {
     try {
       const result = await client.callService(SIM_SERVICES[command], {});
-      // Trigger responde success=false quando o Gazebo recusou ou a ponte não
-      // respondeu. Tratar isso como sucesso deixaria o botão silencioso na
-      // única situação em que ele tem algo a dizer.
+      // Trigger answers success=false when Gazebo refused or the bridge did
+      // not respond. Treating that as success would leave the button silent in
+      // the only situation in which it has something to say.
       if (result?.success === false) {
-        onNotice?.(`o simulador recusou ${command}: ${result.message ?? ''}`);
+        onNotice?.(`the simulator refused ${command}: ${result.message ?? ''}`);
       }
     } catch (error) {
-      onNotice?.(`falha ao ${command} a simulação: ${error.message}`);
+      onNotice?.(`failed to ${command} the simulation: ${error.message}`);
     }
   }
 
@@ -157,18 +160,19 @@ export function createSimControls({ root, client, onNotice }) {
     button.addEventListener('click', () => {
       const command = button.dataset.command;
 
-      // Reset cai no meio da demo e teleporta o robô para o ponto de
-      // nascimento — o Nav2 perde a meta em curso e vê o robô saltar. Não é
-      // destrutivo (o mundo e o relógio ficam), mas também não é algo que se
-      // queira por clique acidental. Dois cliques.
+      // Reset lands in the middle of the demo and teleports the robot to the
+      // spawn point — Nav2 loses the goal in progress and sees the robot jump.
+      // It is not destructive (the world and the clock stay), but it is not
+      // something you want from an accidental click either. Two clicks.
       //
-      // Num quadrúpede a chamada leva alguns segundos e é assim de propósito:
-      // o robô é PARADO antes do teleporte e reassentado depois. Teleportar um
-      // robô em marcha o derruba — ver GAIT_STOP_S em sim_control_relay.py.
+      // On a quadruped the call takes a few seconds, and that is on purpose:
+      // the robot is STOPPED before the teleport and resettled afterwards.
+      // Teleporting a moving robot knocks it over — see GAIT_STOP_S in
+      // sim_control_relay.py.
       if (command === 'reset' && Date.now() > armedUntil) {
         armedUntil = Date.now() + RESET_ARM_MS;
         button.dataset.armed = 'true';
-        button.textContent = 'confirmar';
+        button.textContent = 'confirm';
         window.setTimeout(disarm, RESET_ARM_MS);
         return;
       }

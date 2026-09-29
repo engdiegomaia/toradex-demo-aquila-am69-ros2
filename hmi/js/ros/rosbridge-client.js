@@ -1,7 +1,7 @@
 /**
  * Minimal rosbridge v2 protocol client.
  *
- * Why this exists instead of roslibjs: plano-cockpit-web.md Decisão 5. The
+ * Why this exists instead of roslibjs: plano-cockpit-web.md Decision 5. The
  * bundle has no build step and no node_modules, because the same files are
  * meant to be baked into an arm64 kiosk image for the Aquila in M3 and the npm
  * supply chain is exactly what should not travel there. The wire protocol is
@@ -76,7 +76,7 @@ export class RosbridgeClient {
     this._activeGoals = new Map();
 
     // PNG frames decode asynchronously, so two costmaps could in principle
-    // finish out of order and repaint an older map over a newer one. At 0,5 Hz
+    // finish out of order and repaint an older map over a newer one. At 0.5 Hz
     // with a ~5 ms decode that is close to impossible — and "close to
     // impossible" is the category of bug this project keeps paying for.
     this._pngSeq = 0;

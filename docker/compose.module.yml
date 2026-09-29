@@ -40,25 +40,25 @@ x-common: &common
   restart: unless-stopped
   volumes:
     - ./cyclonedds/module.xml:/cfg/cyclonedds.xml:ro
-    # Config do Nav2 vinda da arvore SINCRONIZADA, nao da copia embutida na
-    # imagem. Sem isto, mudar uma linha de YAML custa um `module.sh build`
-    # inteiro no modulo -- foi o que travou a campanha A/B da secao 3 de
-    # `docs/ml35/proximos-passos-navegacao.md`.
+    # Nav2 config taken from the SYNCED tree, not from the copy baked into the
+    # image. Without this, changing one line of YAML costs a full
+    # `module.sh build` on the module -- which is what blocked the A/B campaign
+    # in section 3 of `docs/ml35/proximos-passos-navegacao.md`.
     #
-    # O caminho de destino e o ALVO FINAL do symlink que o colcon instala, e nao
-    # o caminho instalado. Verificado no container em 27/08/2026:
+    # The destination path is the FINAL TARGET of the symlink that colcon
+    # installs, not the installed path. Verified in the container on 27/08/2026:
     #
     #   /ws/install/demo_navigation/share/demo_navigation/config/<f>.yaml
     #     -> /ws/build/demo_navigation/config/<f>.yaml
     #     -> /ws/src/demo_navigation/config/<f>.yaml
     #
-    # Montar sobre o caminho instalado nao funcionaria: ele e um symlink, e o
-    # que o Nav2 abre e o alvo. `tests/test_module_params_mount.py` trava os
-    # dois lados desse contrato.
+    # Mounting over the installed path would not work: it is a symlink, and what
+    # Nav2 opens is the target. `tests/test_module_params_mount.py` locks both
+    # sides of this contract.
     #
-    # NAO ha risco de a montagem mascarar um rebuild: `module.sh build` constroi
-    # a imagem A PARTIR da mesma arvore sincronizada, entao montagem e imagem
-    # saem sempre do mesmo arquivo. O que ela remove e a obrigacao de rebuildar.
+    # There is NO risk of the mount masking a rebuild: `module.sh build` builds
+    # the image FROM the same synced tree, so mount and image always come from
+    # the same file. What the mount removes is the obligation to rebuild.
     - ./ros2_ws/src/demo_navigation/config:/ws/src/demo_navigation/config:ro
     # Same trick, same reason, for the explorer's Python. `colcon
     # --symlink-install` makes the build tree a SYMLINK to the source tree, so
@@ -105,17 +105,18 @@ services:
     # Selecting only one side is silent: both launches start, but the robot does
     # not navigate because frames, maps and command units do not match.
     #
-    #   nav.launch.py           mapa estatico + AMCL, parametros nav2_params.yaml
-    #                           (que sao do TurtleBot 4), robot_base_frame
-    #                           `base_link` -- frame que o URDF do Go2 NAO tem.
-    #   nav_quadruped.launch.py sem mapa e sem AMCL, nav2_params_go2.yaml,
-    #                           robot_base_frame `base`, mais os dois nos que o
-    #                           quadrupede exige: `odom_tf`, que fecha a TF, e
-    #                           `cmd_vel_si_to_stick`, que converte SI para
-    #                           manche -- sem ele o robo anda a 40% do pedido.
+    #   nav.launch.py           static map + AMCL, nav2_params.yaml parameters
+    #                           (which are the TurtleBot 4's), robot_base_frame
+    #                           `base_link` -- a frame the Go2 URDF does NOT have.
+    #   nav_quadruped.launch.py no map and no AMCL, nav2_params_go2.yaml,
+    #                           robot_base_frame `base`, plus the two nodes the
+    #                           quadruped requires: `odom_tf`, which closes the
+    #                           TF, and `cmd_vel_si_to_stick`, which converts SI
+    #                           to stick units -- without it the robot moves at
+    #                           40% of the request.
     #
-    # Este launch e tambem quem carrega a arvore de comportamento com SmoothPath
-    # (ver docs/results/ml35-navegacao-maze11.md).
+    # This launch is also what loads the behavior tree with SmoothPath
+    # (see docs/results/ml35-navegacao-maze11.md).
     command: >
       ros2 launch demo_bringup nav_select.launch.py
       robot_type:=${ROBOT_TYPE:-quadruped}

@@ -381,8 +381,8 @@ def lateral_wall_clearance_m(grid: OccupancyGridInfo, data, robot_x: float,
     config (`bridge_quadruped.yaml`) documents that the one lidar ring
     exposed as a 2D `LaserScan` sees a wall ring close to the body and floor
     5-10 m out, and explicitly does NOT see what the robot needs to avoid --
-    "um costmap alimentado por ele nao veria justamente o que o robo precisa
-    desviar". The local costmap is built from the full point cloud Nav2
+    a costmap fed by it would not see precisely what the robot needs to
+    avoid. The local costmap is built from the full point cloud Nav2
     itself trusts for obstacle avoidance, so probing it answers "is the
     robot near a wall from Nav2's own point of view", the same technique
     already used for the footprint A/B experiment (own-cell cost reading).

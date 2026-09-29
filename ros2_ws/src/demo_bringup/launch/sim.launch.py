@@ -72,14 +72,15 @@ def _launch_plant(context, *args, **kwargs):
     """
     robot_type = LaunchConfiguration('robot_type').perform(context)
 
-    # O mundo e resolvido AQUI e passado explicitamente, e nao deixado para o
-    # default da planta. A razao e escopo de launch: `world` declarado neste
-    # arquivo entra no contexto, e um DeclareLaunchArgument na descricao incluida
-    # NAO sobrepoe um valor herdado -- o valor do pai vence. Se este arquivo
-    # declarasse `world` vazio e confiasse no default da planta, o fragmento
-    # scene_cameras.launch.py herdaria o vazio, cairia no enquadramento generico,
-    # e as cameras do cockpit apontariam para a origem num mundo cuja area util
-    # esta em (-4,855; 4,855). Sem erro, sem log: painel azul olhando para chao.
+    # The world is resolved HERE and passed explicitly, not left to the plant's
+    # default. The reason is launch scope: a `world` declared in this file enters
+    # the context, and a DeclareLaunchArgument in the included description does
+    # NOT override an inherited value -- the parent's value wins. If this file
+    # declared an empty `world` and trusted the plant's default, the
+    # scene_cameras.launch.py fragment would inherit the empty value, fall back
+    # to the generic framing, and the cockpit cameras would point at the origin
+    # in a world whose usable area is at (-4.855, 4.855). No error, no log: blue
+    # panel staring at the floor.
     world = LaunchConfiguration('world').perform(context)
     if not world:
         package, *parts = official_world(robot_type)
@@ -101,19 +102,19 @@ def _launch_plant(context, *args, **kwargs):
 
 
 def generate_launch_description() -> LaunchDescription:
-    # VAZIO = o cenario oficial do robot_type selecionado (robot_selection.py):
-    # labirinto para o quadrupede, armazem para o diff-drive.
+    # EMPTY = the official scenario of the selected robot_type
+    # (robot_selection.py): maze for the quadruped, warehouse for the diff-drive.
     #
-    # Era o armazem cravado aqui para os dois. O quadrupede passou a ser o robo
-    # padrao no F6 e a sintonia do Nav2 dele foi medida no labirinto, entao o
-    # default cravado deixou o caminho mais curto rodando o robo oficial no mundo
-    # errado -- com a inflacao de 0,85 pensada para corredor de 1,20 m aplicada
-    # num armazem aberto, e as cameras de cena enquadrando outro lugar.
+    # The warehouse used to be hard-coded here for both. The quadruped became the
+    # default robot in F6 and its Nav2 tuning was measured in the maze, so the
+    # hard-coded default left the shortest path running the official robot in the
+    # wrong world -- with the 0.85 inflation designed for a 1.20 m corridor
+    # applied in an open warehouse, and the scene cameras framing somewhere else.
     world_arg = DeclareLaunchArgument(
         'world',
         default_value='',
-        description='SDF world to load. Vazio = cenario oficial do robo '
-                    '(labirinto no quadrupede, armazem no diff-drive).',
+        description='SDF world to load. Empty = official scenario of the robot '
+                    '(maze for the quadruped, warehouse for the diff-drive).',
     )
 
     # Default true: the sim container gets /dev/dri and the X socket, so the
@@ -141,69 +142,73 @@ def generate_launch_description() -> LaunchDescription:
         ),
     )
 
-    # O MESMO QUADRO, COMPRIMIDO, PARA QUEM ESTIVER DO OUTRO LADO DO FIO.
+    # THE SAME FRAME, COMPRESSED, FOR WHOEVER IS ON THE OTHER END OF THE WIRE.
     #
-    # Medido em 25/08/2026 no HIL cabeado: a imagem RAW e 640x480 rgb8 a 10 Hz,
-    # 0,92 MB por mensagem, 9,3 MB/s -- cerca de 75 Mbit/s atravessando a rede
-    # para o Aquila. O enlace de 1 Gbit/s da conta da banda; o que NAO da conta
-    # e o custo de CPU de remontar esse fluxo no modulo. Com Nav2 (600-727% de
-    # 800%) e percepcao (~187%) no ar, o AM69 satura, a frescura do sensor
-    # colapsa, o collision_monitor recusa a nuvem do LiDAR com 1,0-1,2 s de
-    # defasagem, e a velocidade media cai 2,8x (0,0429 -> 0,0155 m/s).
-    # Evidencia: docs/results/ml35-f5-ethernet0-repeticao.md.
+    # Measured on 25/08/2026 on the wired HIL: the RAW image is 640x480 rgb8 at
+    # 10 Hz, 0.92 MB per message, 9.3 MB/s -- about 75 Mbit/s crossing the
+    # network to the Aquila. The 1 Gbit/s link covers the bandwidth; what does
+    # NOT add up is the CPU cost of reassembling that stream on the module. With
+    # Nav2 (600-727% of 800%) and perception (~187%) up, the AM69 saturates,
+    # sensor freshness collapses, the collision_monitor rejects the LiDAR cloud
+    # at 1.0-1.2 s of lag, and the mean speed drops 2.8x (0.0429 -> 0.0155 m/s).
+    # Evidence: docs/results/ml35-f5-ethernet0-repeticao.md.
     #
-    # ESTE NO NAO SUBSTITUI O TOPICO RAW. O contrato do CLAUDE.md continua sendo
-    # /demo/camera/image_raw em sensor_msgs/Image, e ele continua publicado aqui,
-    # que e onde o RViz e o web_video_server do cockpit o consomem -- de graca,
-    # porque e a mesma maquina. O que este no acrescenta e a transported
-    # /demo/camera/image_raw/compressed, e quem paga fio assina essa.
+    # THIS NODE DOES NOT REPLACE THE RAW TOPIC. The CLAUDE.md contract remains
+    # /demo/camera/image_raw as sensor_msgs/Image, and it is still published
+    # here, which is where RViz and the cockpit's web_video_server consume it --
+    # for free, because it is the same machine. What this node adds is the
+    # transported /demo/camera/image_raw/compressed, and whoever pays for the
+    # wire subscribes to that.
     #
-    # Roda nos DOIS modos, de proposito. Em learn ele custa um pouco de CPU do
-    # host sem beneficio, e essa e a troca certa: uma pilha que so comprime em
-    # hil seria codigo diferente por modo, que e exatamente o que o CLAUDE.md
-    # proibe. O caminho medido e o caminho executado.
+    # Runs in BOTH modes, on purpose. In learn it costs a bit of host CPU with
+    # no benefit, and that is the right trade: a stack that only compresses in
+    # hil would be different code per mode, which is exactly what CLAUDE.md
+    # forbids. The measured path is the executed path.
     #
-    # `republish` e do image_transport upstream: nada aqui e escrito a mao.
-    # O plugin vem de ros-${ROS_DISTRO}-compressed-image-transport, instalado no
-    # docker/sim/Dockerfile. Sem o plugin este no sobe e publica NADA, sem erro
-    # que alguem leia -- confira com `ros2 run image_transport list_transports`,
-    # que precisa declarar image_transport/compressed alem de /raw.
-    # in_transport/out_transport SAO PARAMETROS, NAO ARGUMENTOS POSICIONAIS.
+    # `republish` comes from upstream image_transport: nothing here is
+    # hand-written. The plugin comes from ros-${ROS_DISTRO}-compressed-image-
+    # transport, installed in docker/sim/Dockerfile. Without the plugin this
+    # node comes up and publishes NOTHING, with no error anyone reads -- check
+    # with `ros2 run image_transport list_transports`, which must declare
+    # image_transport/compressed in addition to /raw.
+    # in_transport/out_transport ARE PARAMETERS, NOT POSITIONAL ARGUMENTS.
     #
-    # ISTO CUSTOU UM CICLO DE BUILD EM 25/08/2026 e falha do pior jeito. Escrito
-    # como arguments=['raw', 'compressed'], o Jazzy consome o primeiro como
-    # in_transport e deixa out_transport VAZIO. O no sobe, nao acusa erro, e o
-    # log diz literalmente:
+    # THIS COST A BUILD CYCLE ON 25/08/2026 and fails in the worst way. Written
+    # as arguments=['raw', 'compressed'], Jazzy consumes the first as
+    # in_transport and leaves out_transport EMPTY. The node comes up, reports no
+    # error, and the log literally says:
     #
     #     The 'out_transport' parameter is set to:
     #
-    # com o valor em branco depois dos dois pontos -- que ninguem le como falha.
+    # with the value blank after the colon -- which nobody reads as a failure.
     #
-    # O ESTRAGO NO LADO DO HOST e pior que "nao publica": com out_transport vazio
-    # o republish vira raw->raw sobre o MESMO topico de entrada, e o no aparece
-    # como publicador E assinante de /demo/camera/image_raw ao mesmo tempo.
-    # Medido: a camera do contrato foi de 10 Hz para 118 Hz por realimentacao, com
-    # `Publisher count: 2`, e o detection_stub do modulo passou a receber esse
-    # fluxo inflado pelo fio. Confira com:
+    # THE DAMAGE ON THE HOST SIDE is worse than "does not publish": with an empty
+    # out_transport the republish becomes raw->raw over the SAME input topic, and
+    # the node appears as both publisher AND subscriber of /demo/camera/image_raw
+    # at once. Measured: the contract camera went from 10 Hz to 118 Hz through
+    # feedback, with `Publisher count: 2`, and the module's detection_stub began
+    # receiving that inflated stream over the wire. Check with:
     #
-    #     ros2 topic info -v /demo/camera/image_raw   # Publisher count deve ser 1
+    #     ros2 topic info -v /demo/camera/image_raw   # Publisher count must be 1
     camera_compressor = Node(
         package='image_transport',
         executable='republish',
         name='camera_compressor',
         parameters=[{'in_transport': 'raw', 'out_transport': 'compressed'}],
-        # O REMAP PRECISA CARREGAR O SUFIXO DO TRANSPORTE.
+        # THE REMAP MUST CARRY THE TRANSPORT SUFFIX.
         #
-        # SEGUNDA ARMADILHA DO MESMO NO, 25/08/2026. O image_transport cria o
-        # topico ja com o sufixo -- `out/compressed`, nao `out` -- entao uma
-        # regra de remap para `out` NAO casa e e simplesmente ignorada. O lado
-        # `in` aqui engana, porque `raw` nao tem sufixo e o remap simples pega.
+        # SECOND TRAP OF THE SAME NODE, 25/08/2026. image_transport creates the
+        # topic already with the suffix -- `out/compressed`, not `out` -- so a
+        # remap rule for `out` does NOT match and is simply ignored. The `in`
+        # side is deceptive here, because `raw` has no suffix and the plain remap
+        # matches.
         #
-        # Sintoma: o no sobe, loga os dois transportes certos, assina a camera
-        # (Subscription count 1 no topico do contrato) e publica em
-        # `/out/compressed` -- um topico no namespace raiz que ninguem procura.
-        # `ros2 topic list | grep camera` nao mostra nada de errado; so
-        # `ros2 node info /camera_compressor` denuncia, na lista de Publishers.
+        # Symptom: the node comes up, logs the two correct transports,
+        # subscribes to the camera (Subscription count 1 on the contract topic)
+        # and publishes on `/out/compressed` -- a root-namespace topic nobody
+        # looks for. `ros2 topic list | grep camera` shows nothing wrong; only
+        # `ros2 node info /camera_compressor` gives it away, in the Publishers
+        # list.
         remappings=[
             ('in', '/demo/camera/image_raw'),
             ('out/compressed', '/demo/camera/image_raw/compressed'),

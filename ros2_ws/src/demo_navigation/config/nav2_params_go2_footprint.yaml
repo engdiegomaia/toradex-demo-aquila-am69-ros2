@@ -843,7 +843,7 @@ global_costmap:
           #   t+30s   271 pts,  8.81 m, rumo inicial  18 deg
           #
           # Os 11,5 m batem com a geodesica real do maze11 medida offline
-          # (12,23 m, `scripts/maze_geodesic.py`). Os 8,6 m sao a reta por dentro
+          # (12,23 m, `tools/maze/maze_geodesic.py`). Os 8,6 m sao a reta por dentro
           # de parede nao observada, que so existe porque `allow_unknown: true`
           # torna o desconhecido barato.
           #
@@ -1193,7 +1193,8 @@ collision_monitor:
       type: "polygon"
       action_type: "approach"
       footprint_topic: "/local_costmap/published_footprint"
-      time_before_collision: 1.2
+      # Keep the safety margin consistent with the promoted Go2 profile.
+      time_before_collision: 1.5
       simulation_time_step: 0.1
       min_points: 6
       visualize: false

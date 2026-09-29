@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """
-Confere a integracao de lidar e odometria com o Nav2. Somente leitura.
+Checks the lidar and odometry integration with Nav2. Read-only.
 
-Responde tres perguntas que decidem se o robo esta travando por SENSOR ou por
-DECISAO do controlador:
+Answers three questions that decide whether the robot is stalling because of a
+SENSOR or because of a controller DECISION:
 
-1. O lidar acerta o proprio robo? Ponto de auto-colisao entra no costmap como
-   obstaculo colado no robo, e o MPPI conclui que esta emparedado. Isso apareceria
-   como recuo constante -- exatamente o sintoma reclamado.
-2. A odometria e coerente com a TF que o Nav2 consome? Aqui /demo/odom e ground
-   truth do Gazebo, entao o que se testa e a costura odom -> base, nao deriva.
-3. As taxas sustentam o laco de 10 Hz que o MPPI pede? Nuvem lenta faz o costmap
-   local envelhecer e o controlador planejar contra parede que ja saiu.
+1. Does the lidar hit the robot itself? A self-collision point enters the
+   costmap as an obstacle glued to the robot, and MPPI concludes it is boxed
+   in. That would show up as constant backing up -- exactly the reported
+   symptom.
+2. Is the odometry consistent with the TF that Nav2 consumes? Here /demo/odom
+   is Gazebo ground truth, so what is tested is the odom -> base seam, not
+   drift.
+3. Do the rates sustain the 10 Hz loop MPPI asks for? A slow cloud makes the
+   local costmap go stale and the controller plan against a wall that is
+   already gone.
 """
 import math
 import sys
@@ -27,14 +30,14 @@ from sensor_msgs.msg import LaserScan, PointCloud2
 from sensor_msgs_py import point_cloud2
 import tf2_ros
 
-# Raio circunscrito do tronco do Go2. Ponto de lidar mais perto do que isto, e
-# estavel em rumo, e candidato a auto-colisao.
+# Circumscribed radius of the Go2 trunk. A lidar point closer than this that is
+# also stable in bearing is a self-collision candidate.
 TRUNK_RADIUS_M = 0.383
 SECONDS = 20.0
 
 
 class Check(Node):
-    """Coleta nuvem, scan, odom e TF por alguns segundos."""
+    """Collects cloud, scan, odom and TF for a few seconds."""
 
     def __init__(self):
         super().__init__('sensor_check')
@@ -82,7 +85,7 @@ class Check(Node):
         near = rng < TRUNK_RADIUS_M
         if near.any():
             self.near_count += int(near.sum())
-            # Rumo dos pontos proximos: auto-colisao tem rumo FIXO, parede nao.
+            # Bearing of the near points: self-collision has a FIXED bearing, a wall does not.
             self.near_bearings.extend(
                 np.degrees(np.arctan2(pts[near, 1], pts[near, 0])).tolist())
 
@@ -116,8 +119,8 @@ def main():
         rclpy.spin_once(node, timeout_sec=0.05)
     dt = time.time() - start
 
-    print(f'janela de {dt:.1f} s de tempo real\n')
-    print('TAXAS')
+    print(f'{dt:.1f} s wall-clock window\n')
+    print('RATES')
     print(f'  /demo/scan_cloud   {node.cloud_n / dt:5.1f} Hz'
           f'  ({node.cloud_n} msgs)')
     print(f'  /demo/scan         {node.scan_n / dt:5.1f} Hz'
@@ -127,50 +130,50 @@ def main():
 
     print('\nLIDAR')
     if node.cloud_n:
-        print(f'  pontos por nuvem   {node.total_points // node.cloud_n}')
-        print(f'  z na nuvem         {node.z_lo:+.3f} .. {node.z_hi:+.3f} m')
-        print(f'  alcance minimo     {node.r_lo:.3f} m')
+        print(f'  points per cloud    {node.total_points // node.cloud_n}')
+        print(f'  z in cloud          {node.z_lo:+.3f} .. {node.z_hi:+.3f} m')
+        print(f'  minimum range      {node.r_lo:.3f} m')
     if node.scan_n:
-        print(f'  scan minimo        {node.scan_lo:.3f} m')
-        print(f'  scan sem retorno   '
+        print(f'  scan minimum       {node.scan_lo:.3f} m')
+        print(f'  scan no return     '
               f'{100.0 * node.scan_inf / max(1, node.scan_total):.0f}%')
 
-    print('\nAUTO-COLISAO')
+    print('\nSELF-COLLISION')
     print(f'  pontos com r < {TRUNK_RADIUS_M} m: {node.near_count}')
     if node.near_bearings:
         arr = np.array(node.near_bearings)
-        print(f'  rumo desses pontos : media {arr.mean():+.1f} deg,'
-              f' desvio {arr.std():.1f} deg')
-        print('  desvio pequeno (< 10 deg) com muitos pontos = auto-colisao;')
-        print('  desvio grande = parede vista de perto, que e legitimo.')
+        print(f'  bearing of points  : mean {arr.mean():+.1f} deg,'
+              f' std dev {arr.std():.1f} deg')
+        print('  small std dev (< 10 deg) with many points = self-collision;')
+        print('  large std dev = wall seen up close, which is legitimate.')
     else:
-        print('  nenhum. O lidar NAO ve o proprio robo.')
+        print('  none. The lidar does NOT see the robot itself.')
 
-    print('\nODOMETRIA E TF')
+    print('\nODOMETRY AND TF')
     if node.odom is not None:
         p = node.odom.pose.pose.position
         print(f'  /demo/odom frame   {node.odom.header.frame_id}'
               f' -> {node.odom.child_frame_id}')
-        print(f'  posicao            ({p.x:+.3f}, {p.y:+.3f}, {p.z:+.3f})')
+        print(f'  position           ({p.x:+.3f}, {p.y:+.3f}, {p.z:+.3f})')
         try:
             tf = node.buf.lookup_transform('odom', 'base', rclpy.time.Time())
             t = tf.transform.translation
             err = math.hypot(t.x - p.x, t.y - p.y)
             print(f'  TF odom->base      ({t.x:+.3f}, {t.y:+.3f}, {t.z:+.3f})')
-            print(f'  erro odom vs TF    {err:.4f} m'
-                  f'   {"OK" if err < 0.05 else "DIVERGENTE"}')
+            print(f'  odom vs TF error  {err:.4f} m'
+                  f'   {"OK" if err < 0.05 else "DIVERGENT"}')
         except Exception as exc:                            # noqa: BLE001
-            print(f'  TF odom->base      AUSENTE: {exc}')
+            print(f'  TF odom->base      MISSING: {exc}')
         for parent, child in (('map', 'odom'), ('odom', 'base')):
             ok = node.buf.can_transform(parent, child, rclpy.time.Time())
-            print(f'  {parent} -> {child:<5}      {"presente" if ok else "AUSENTE"}')
+            print(f'  {parent} -> {child:<5}      {"present" if ok else "MISSING"}')
 
-    print('\nCOMANDO (o sintoma reclamado)')
+    print('\nCOMMAND (the reported symptom)')
     if node.cmd_n:
         tot = node.cmd_n
-        print(f'  vx > 0 (frente)    {100.0 * node.cmd_pos / tot:3.0f}%')
-        print(f'  vx < 0 (re)        {100.0 * node.cmd_neg / tot:3.0f}%')
-        print(f'  vx = 0 (parado)    {100.0 * node.cmd_zero / tot:3.0f}%')
+        print(f'  vx > 0 (forward)   {100.0 * node.cmd_pos / tot:3.0f}%')
+        print(f'  vx < 0 (reverse)   {100.0 * node.cmd_neg / tot:3.0f}%')
+        print(f'  vx = 0 (stopped)   {100.0 * node.cmd_zero / tot:3.0f}%')
     node.destroy_node()
     rclpy.shutdown()
     return 0

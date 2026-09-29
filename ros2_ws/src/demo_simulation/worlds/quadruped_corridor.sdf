@@ -1,19 +1,20 @@
 <?xml version="1.0"?>
 <!--
-  Cenario S3 -- corredor com obstaculos, para o lidar.
+  Scenario S3 -- corridor with obstacles, for the lidar.
 
-  Exercita: /demo/scan, e o caminho que a F5 vai usar -- scan -> costmap do Nav2.
-  Nao exercita marcha: o chao e plano de proposito, para que qualquer coisa que
-  apareca nos numeros de marcha seja atribuivel ao mundo anterior e nao a este.
+  Exercises: /demo/scan, and the path F5 will use -- scan -> Nav2 costmap.
+  Does not exercise the gait: the floor is flat on purpose, so that anything
+  that shows up in the gait numbers is attributable to the previous world and
+  not to this one.
 
-  Paredes de 0,60 m de altura.  O lidar do Go2 fica no corpo, a ~0,33 m do chao,
-  entao 0,60 m garante retorno mesmo com o corpo balancando; uma parede de 0,30 m
-  entra e sai do plano de varredura conforme o tronco oscila e produz um scan
-  intermitente que parece defeito de bridge.
+  Walls 0.60 m high.  The Go2 lidar sits on the body, ~0.33 m above the floor,
+  so 0.60 m guarantees a return even with the body rocking; a 0.30 m wall moves
+  in and out of the scan plane as the trunk oscillates and produces an
+  intermittent scan that looks like a bridge defect.
 
-  Corredor de 1,5 m de largura por 7 m de comprimento, com dois obstaculos
-  desalinhados dentro -- largura suficiente para o Nav2 planejar, estreita o
-  bastante para as duas paredes aparecerem no mesmo scan.
+  Corridor 1.5 m wide by 7 m long, with two staggered obstacles inside --
+  wide enough for Nav2 to plan, narrow enough for both walls to appear in the
+  same scan.
 -->
 <sdf version="1.9">
   <world name="quadruped_corridor">
@@ -22,9 +23,9 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
-    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
-         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
-         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <!-- Block identical to the one in quadruped_empty.sdf.  The Sensors system
+         with ogre2 is not optional: without it the Go2 camera and lidar exist in
+         the model but publish nothing, with no error naming the missing plugin. -->
     <plugin filename="gz-sim-physics-system"
             name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-user-commands-system"

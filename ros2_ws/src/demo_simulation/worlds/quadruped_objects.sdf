@@ -1,20 +1,20 @@
 <?xml version="1.0"?>
 <!--
-  Cenario S4 -- objetos coloridos no campo de visao, para a camera.
+  Scenario S4 -- coloured objects in the field of view, for the camera.
 
-  Exercita: /demo/camera/image_raw e /demo/camera/camera_info, e o consumidor
-  desse contrato, demo_perception.
+  Exercises: /demo/camera/image_raw and /demo/camera/camera_info, and the
+  consumer of that contract, demo_perception.
 
-  ATENCAO ao ler qualquer resultado deste cenario: demo_perception hoje e um
-  stub de deteccao SINTETICA e deterministica (CLAUDE.md, contrato de topicos).
-  Ele nao olha a imagem.  Portanto este mundo NAO valida deteccao -- valida que
-  a imagem chega, com a geometria e a taxa certas, e que o contrato
-  /demo/perception/detections continua sendo publicado e consumido.  Confundir
-  as duas coisas e como o stub viraria "visao funcionando" num relatorio.
+  CAUTION when reading any result from this scenario: demo_perception today is a
+  SYNTHETIC, deterministic detection stub (CLAUDE.md, topic contract).  It does
+  not look at the image.  So this world does NOT validate detection -- it
+  validates that the image arrives, with the right geometry and rate, and that
+  the /demo/perception/detections contract keeps being published and consumed.
+  Confusing the two is how the stub would become "vision working" in a report.
 
-  Objetos a 1,5 / 3,0 / 4,5 m, em cores saturadas e distintas do chao cinza e do
-  fundo azul, para que a imagem seja inspecionavel a olho e para que uma futura
-  inferencia TIDL tenha alvos separaveis sem precisar de outro mundo.
+  Objects at 1.5 / 3.0 / 4.5 m, in saturated colours distinct from the grey floor
+  and the blue background, so the image can be inspected by eye and so a future
+  TIDL inference has separable targets without needing another world.
 -->
 <sdf version="1.9">
   <world name="quadruped_objects">
@@ -23,9 +23,9 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
-    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
-         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
-         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <!-- Block identical to the one in quadruped_empty.sdf.  The Sensors system
+         with ogre2 is not optional: without it the Go2 camera and lidar exist in
+         the model but publish nothing, with no error naming the missing plugin. -->
     <plugin filename="gz-sim-physics-system"
             name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-user-commands-system"
