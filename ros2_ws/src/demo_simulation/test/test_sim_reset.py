@@ -83,13 +83,13 @@ def _context(world: str, **overrides) -> LaunchContext:
 
 # --- guard 1: the WorldControl no longer accepts reset ----------------------
 
-def test_world_control_nao_monta_reset():
+def test_world_control_rejects_reset():
     with pytest.raises(ValueError):
         _request('reset')
 
 
 @pytest.mark.parametrize('action, paused', [('play', False), ('pause', True)])
-def test_play_e_pause_seguem_no_world_control(action, paused):
+def test_play_and_pause_still_use_world_control(action, paused):
     request = _request(action)
     assert request.world_control.pause is paused
     # What must never happen: pausing/resuming by restarting the world.
@@ -100,21 +100,21 @@ def test_play_e_pause_seguem_no_world_control(action, paused):
 
 # --- guard 2: the reset pose comes from the scenario table ------------------
 
-def test_reposicao_usa_a_pose_do_cenario_do_labirinto(sim_control):
+def test_reset_uses_the_maze_scenario_pose(sim_control):
     world = 'quadruped_maze11.sdf'
-    esperado = spawn_pose(str(WORLDS_DIR / world))
+    expected = spawn_pose(str(WORLDS_DIR / world))
     params = sim_control._reset_pose(_context(world))
 
-    assert params['spawn_x'] == pytest.approx(esperado['x'])
-    assert params['spawn_y'] == pytest.approx(esperado['y'])
+    assert params['spawn_x'] == pytest.approx(expected['x'])
+    assert params['spawn_y'] == pytest.approx(expected['y'])
     # The maze yaw is NOT zero: it is born facing the corridor. Resetting
     # with yaw 0 puts the robot facing the wall.
-    assert params['spawn_yaw'] == pytest.approx(esperado['yaw'])
+    assert params['spawn_yaw'] == pytest.approx(expected['yaw'])
     assert params['spawn_yaw'] != 0.0
     assert params['robot_name'] == 'demo_robot'
 
 
-def test_argumento_explicito_vence_a_tabela(sim_control):
+def test_explicit_arguments_override_the_table(sim_control):
     params = sim_control._reset_pose(
         _context('quadruped_maze11.sdf', x='2.5', y='-1.25', yaw='0.75'),
     )
@@ -123,7 +123,7 @@ def test_argumento_explicito_vence_a_tabela(sim_control):
     assert params['spawn_yaw'] == pytest.approx(0.75)
 
 
-def test_altura_de_reposicao_segue_a_da_planta(sim_control):
+def test_reset_height_matches_the_plant_height(sim_control):
     """The quadruped resets at its BIRTH height, not its gait height."""
     assert sim_control._reset_pose(
         _context('quadruped_maze11.sdf'))['spawn_z'] == pytest.approx(0.5)
@@ -132,7 +132,7 @@ def test_altura_de_reposicao_segue_a_da_planta(sim_control):
     )['spawn_z'] == pytest.approx(0.43)
 
 
-def test_planta_sem_height_cai_no_default_do_diffdrive(sim_control):
+def test_plant_without_height_uses_the_diffdrive_default(sim_control):
     """
     `height` only exists on the quadruped plant.
 
@@ -155,7 +155,7 @@ RELAY = (
 ).read_text(encoding='utf-8')
 
 
-def test_o_robo_para_antes_do_teleporte_e_retoma_depois():
+def test_robot_stops_before_teleport_and_resumes_afterward():
     """
     The order and content of this fix, not a matter of style.
 
@@ -167,24 +167,24 @@ def test_o_robo_para_antes_do_teleporte_e_retoma_depois():
     assert 'HOLD_SERVICE' in RELAY
     assert 'RESUME_SERVICE' in RELAY
 
-    parada = RELAY.index('gait = self._hold_gait()')
-    teleporte = RELAY.index('pose_request.entity.name')
-    retomada = RELAY.index('self._resume_gait(gait)}')
-    assert parada < teleporte < retomada
+    stop = RELAY.index('gait = self._hold_gait()')
+    teleport = RELAY.index('pose_request.entity.name')
+    resume = RELAY.index('self._resume_gait(gait)}')
+    assert stop < teleport < resume
 
 
-def test_o_reset_espera_o_robo_parar_de_verdade():
+def test_reset_waits_for_the_robot_to_stop():
     """Without a wait, the hold is just a call: the robot is still moving."""
     assert 'GAIT_STOP_S' in RELAY
     assert 'time.sleep(GAIT_STOP_S)' in RELAY
 
-    parada = RELAY.index('gait = self._hold_gait()')
-    espera = RELAY.index('time.sleep(GAIT_STOP_S)')
-    teleporte = RELAY.index('pose_request.entity.name')
-    assert parada < espera < teleporte
+    stop = RELAY.index('gait = self._hold_gait()')
+    wait = RELAY.index('time.sleep(GAIT_STOP_S)')
+    teleport = RELAY.index('pose_request.entity.name')
+    assert stop < wait < teleport
 
 
-def test_a_ausencia_do_gait_nao_reprova_o_reset():
+def test_missing_gait_does_not_fail_the_reset():
     """
     On the differential-drive plant there is no gait, and that is a normal path.
 
@@ -195,20 +195,20 @@ def test_a_ausencia_do_gait_nao_reprova_o_reset():
     assert 'nothing to stop' in RELAY
 
 
-def test_a_falha_de_teleporte_nao_deixa_o_robo_preso_em_fixed_stand():
+def test_teleport_failure_does_not_leave_the_robot_in_fixed_stand():
     """
     Every exit path after the hold must resume.
 
     A robot left in FIXEDSTAND accepts no command at all, and nothing in the
     log says why the demo stopped responding.
     """
-    saidas = RELAY.count('self._resume_gait(gait)')
-    assert saidas == 3, (
+    resume_paths = RELAY.count('self._resume_gait(gait)')
+    assert resume_paths == 3, (
         f'expected 3 resume paths (timeout, refusal, success), '
-        f'found {saidas}'
+        f'found {resume_paths}'
     )
 
 
-def test_a_falha_de_reancoragem_nao_pode_ser_silenciosa():
+def test_reanchoring_failure_must_not_be_silent():
     """A reset that teleports and does not re-anchor leaves the robot dragging."""
     assert 'the gait was NOT re-anchored' in RELAY

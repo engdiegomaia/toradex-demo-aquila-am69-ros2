@@ -139,7 +139,7 @@ def main():
               f'{100.0 * node.scan_inf / max(1, node.scan_total):.0f}%')
 
     print('\nSELF-COLLISION')
-    print(f'  pontos com r < {TRUNK_RADIUS_M} m: {node.near_count}')
+        print(f'  points with r < {TRUNK_RADIUS_M} m: {node.near_count}')
     if node.near_bearings:
         arr = np.array(node.near_bearings)
         print(f'  bearing of points  : mean {arr.mean():+.1f} deg,'

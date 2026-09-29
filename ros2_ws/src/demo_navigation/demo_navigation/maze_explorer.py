@@ -1193,7 +1193,7 @@ class MazeExplorer(Node):
         self._release_goal()
         if self._homing_failures >= 3:
             self._state = 'selecting'
-            self._message = f'{message}; retomando exploracao'
+            self._message = f'{message}; resuming exploration'
             self._homing_failures = 0
             self._exit_pose_map = None
             self._near_marker_streak = 0
@@ -1202,7 +1202,7 @@ class MazeExplorer(Node):
             self._message = message
 
     def _note_barren_selection(self) -> None:
-        """A selection cycle that produced no goal. Fails if it becomes habit."""
+        """Fail a selection cycle that produces no goal repeatedly."""
         self._barren_cycles += 1
         if self._barren_cycles >= int(
                 self.get_parameter('barren_selections_limit').value):

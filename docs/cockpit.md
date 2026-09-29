@@ -33,8 +33,8 @@ To point the page at a different backend, use query parameters:
 
 ## Layout
 
-The interface labels are currently in Portuguese (for example *Navegação*,
-*Câmera*, *Cena*, *iniciar busca*). The table gives the English meaning.
+The interface labels are in English. The table describes each panel and its
+available controls.
 
 The layout reference is [images/cockpit-layout.png](images/cockpit-layout.png).
 

@@ -32,63 +32,63 @@ def campaign():
     return _load()
 
 
-def test_a_ordem_intercala_e_nao_bloca(campaign):
+def test_order_is_interleaved_not_blocked(campaign):
     conditions = [('baseline', None), ('align8', 'cmd')]
-    nomes = [name for _, name, _ in campaign.leg_order(conditions, 3)]
-    assert nomes == ['baseline', 'align8'] * 3
+    names = [name for _, name, _ in campaign.leg_order(conditions, 3)]
+    assert names == ['baseline', 'align8'] * 3
     # The opposite of what is wanted, written so it doesn't pass by accident:
-    assert nomes != ['baseline'] * 3 + ['align8'] * 3
+    assert names != ['baseline'] * 3 + ['align8'] * 3
 
 
-def test_toda_condicao_recebe_o_mesmo_n(campaign):
+def test_every_condition_gets_the_same_number_of_replicates(campaign):
     conditions = [('a', None), ('b', 'x'), ('c', 'y')]
-    nomes = [name for _, name, _ in campaign.leg_order(conditions, 4)]
-    assert len(nomes) == 12
-    assert {nomes.count(n) for n in ('a', 'b', 'c')} == {4}
+    names = [name for _, name, _ in campaign.leg_order(conditions, 4)]
+    assert len(names) == 12
+    assert {names.count(n) for n in ('a', 'b', 'c')} == {4}
 
 
-def test_as_replicatas_sao_numeradas_em_ordem(campaign):
+def test_replicates_are_numbered_in_order(campaign):
     reps = [rep for rep, _, _ in campaign.leg_order([('a', None)], 3)]
     assert reps == [1, 2, 3]
 
 
-@pytest.mark.parametrize('raw, esperado', [
+@pytest.mark.parametrize('raw, expected', [
     ('baseline', ('baseline', None)),
     ('align8=ros2 param set /x y 8.0', ('align8', 'ros2 param set /x y 8.0')),
     # An empty `=` means "apply an empty command", which is different from
     # "apply nothing" — and the difference has to survive the parse.
-    ('vazio=', ('vazio', '')),
+    ('empty=', ('empty', '')),
 ])
-def test_parse_de_condicao(campaign, raw, esperado):
-    assert campaign.parse_condition(raw) == esperado
+def test_parse_condition(campaign, raw, expected):
+    assert campaign.parse_condition(raw) == expected
 
 
-def test_condicao_sem_nome_e_erro(campaign):
+def test_condition_without_name_is_an_error(campaign):
     with pytest.raises(Exception):
-        campaign.parse_condition('=comando')
+        campaign.parse_condition('=command')
 
 
-def test_comparacao_exige_reaplicar_todas_as_condicoes(campaign):
+def test_comparison_requires_reapplying_every_condition(campaign):
     with pytest.raises(ValueError, match='baseline'):
         campaign.validate_conditions([
             ('baseline', None),
-            ('align8', 'aplica-align8'),
+            ('align8', 'apply-align8'),
         ])
 
 
-def test_comparacao_aceita_comandos_explicitos(campaign):
+def test_comparison_accepts_explicit_commands(campaign):
     campaign.validate_conditions([
-        ('baseline', 'aplica-baseline'),
-        ('align8', 'aplica-align8'),
+        ('baseline', 'apply-baseline'),
+        ('align8', 'apply-align8'),
     ])
 
 
-def test_condicao_unica_pode_usar_estado_atual(campaign):
+def test_single_condition_can_use_current_state(campaign):
     campaign.validate_conditions([('smoke', None)])
 
 
-def test_rota_com_coordenada_negativa_e_repassada_com_equals(campaign, monkeypatch,
-                                                              tmp_path):
+def test_route_with_negative_coordinate_is_forwarded_with_equals(campaign, monkeypatch,
+                                                                  tmp_path):
     calls = []
 
     monkeypatch.setattr(campaign, 'reset_between_legs', lambda **_: True)
@@ -130,7 +130,7 @@ def test_goal_timeout_is_forwarded_to_each_trial(campaign, monkeypatch, tmp_path
     assert trial[-2:] == ['--goal-timeout', '300.0']
 
 
-def test_o_reset_do_simulador_e_obrigatorio(campaign, monkeypatch):
+def test_simulator_reset_is_required(campaign, monkeypatch):
     """
     A refusal during the reset has to ABORT, not just warn.
 
@@ -141,27 +141,27 @@ def test_o_reset_do_simulador_e_obrigatorio(campaign, monkeypatch):
     monkeypatch.setattr(campaign, 'SETTLE_S', 0.0)
     monkeypatch.setattr(
         campaign, 'call_trigger',
-        lambda service, timeout=30.0: (False, 'recusado'),
+        lambda service, timeout=30.0: (False, 'refused'),
     )
     assert campaign.reset_between_legs(skip_nav=True, verbose=False) is False
 
 
-def test_reposicao_ok_devolve_true(campaign, monkeypatch):
+def test_successful_reset_returns_true(campaign, monkeypatch):
     monkeypatch.setattr(campaign, 'SETTLE_S', 0.0)
-    chamados = []
+    calls = []
 
     def fake(service, timeout=30.0):
-        chamados.append(service)
+        calls.append(service)
         return True, 'success=True'
 
     monkeypatch.setattr(campaign, 'call_trigger', fake)
     assert campaign.reset_between_legs(skip_nav=False, verbose=False) is True
     # Both, and in this order: reset the robot before clearing the costmap,
     # so the new costmap is already born from the new pose.
-    assert chamados == [campaign.SIM_RESET, campaign.NAV_RESET]
+    assert calls == [campaign.SIM_RESET, campaign.NAV_RESET]
 
 
-def test_success_false_nao_conta_como_aceito(campaign, monkeypatch):
+def test_success_false_does_not_count_as_accepted(campaign, monkeypatch):
     """
     `ros2 service call` exits 0 even when the service responded success=False.
 
@@ -172,8 +172,8 @@ def test_success_false_nao_conta_como_aceito(campaign, monkeypatch):
         campaign, '_run',
         lambda command, timeout: (0, 'response:\nTrigger_Response(success=False'),
     )
-    aceito, _ = campaign.call_trigger('/demo/sim/reset')
-    assert aceito is False
+    accepted, _ = campaign.call_trigger('/demo/sim/reset')
+    assert accepted is False
 
 
 # --- readiness gate: waits for the managed nodes before collecting --------
@@ -183,98 +183,98 @@ def test_success_false_nao_conta_como_aceito(campaign, monkeypatch):
 # that, the campaign measures "Action server is inactive" instead of the
 # condition's behavior -- and nothing in the CSV tells the two apart.
 
-def test_lifecycle_state_le_a_primeira_palavra_da_saida(campaign, monkeypatch):
+def test_lifecycle_state_reads_the_first_output_word(campaign, monkeypatch):
     monkeypatch.setattr(campaign, '_run', lambda cmd, timeout: (0, 'active [3]\n'))
     assert campaign.lifecycle_state('/bt_navigator') == 'active'
 
 
-def test_lifecycle_state_reconhece_inactive(campaign, monkeypatch):
+def test_lifecycle_state_recognizes_inactive(campaign, monkeypatch):
     monkeypatch.setattr(campaign, '_run', lambda cmd, timeout: (0, 'inactive [2]\n'))
     assert campaign.lifecycle_state('/bt_navigator') == 'inactive'
 
 
-def test_lifecycle_state_vazio_quando_comando_falha(campaign, monkeypatch):
+def test_lifecycle_state_is_empty_when_command_fails(campaign, monkeypatch):
     monkeypatch.setattr(campaign, '_run', lambda cmd, timeout: (1, ''))
     assert campaign.lifecycle_state('/bt_navigator') == ''
 
 
-def test_readiness_pronta_quando_todos_nodes_ativos(campaign, monkeypatch):
+def test_readiness_is_ready_when_all_nodes_are_active(campaign, monkeypatch):
     monkeypatch.setattr(campaign, 'lifecycle_state', lambda node, timeout=10.0: 'active')
-    pronto, decorrido = campaign.wait_for_managed_nodes(
+    ready, elapsed = campaign.wait_for_managed_nodes(
         ('/bt_navigator', '/controller_server'), timeout=1.0, poll_interval=0.01,
         verbose=False)
-    assert pronto is True
-    assert decorrido >= 0.0
+    assert ready is True
+    assert elapsed >= 0.0
 
 
-def test_readiness_timeout_quando_node_fica_inactive(campaign, monkeypatch):
+def test_readiness_times_out_when_node_stays_inactive(campaign, monkeypatch):
     monkeypatch.setattr(campaign, 'lifecycle_state', lambda node, timeout=10.0: 'inactive')
-    pronto, decorrido = campaign.wait_for_managed_nodes(
+    ready, elapsed = campaign.wait_for_managed_nodes(
         ('/bt_navigator',), timeout=0.05, poll_interval=0.01, verbose=False)
-    assert pronto is False
-    assert decorrido >= 0.05
+    assert ready is False
+    assert elapsed >= 0.05
 
 
-def test_readiness_espera_node_lento_ate_ativar(campaign, monkeypatch):
+def test_readiness_waits_for_a_slow_node_to_activate(campaign, monkeypatch):
     """A node that takes its time but activates before the timeout must not
     count as a failure -- giving up too early is as wrong as never giving up."""
-    estados = iter(['inactive', 'inactive', 'active'])
+    states = iter(['inactive', 'inactive', 'active'])
     monkeypatch.setattr(campaign, 'lifecycle_state',
-                         lambda node, timeout=10.0: next(estados))
-    pronto, _ = campaign.wait_for_managed_nodes(
+                         lambda node, timeout=10.0: next(states))
+    ready, _ = campaign.wait_for_managed_nodes(
         ('/bt_navigator',), timeout=5.0, poll_interval=0.0, verbose=False)
-    assert pronto is True
+    assert ready is True
 
 
-def test_readiness_verifica_os_tres_managed_nodes_por_padrao(campaign):
+def test_readiness_checks_three_managed_nodes_by_default(campaign):
     assert campaign.READINESS_NODES == (
         '/bt_navigator', '/controller_server', '/planner_server')
 
 
-def test_trial_nao_comeca_antes_do_readiness_gate(campaign, monkeypatch, tmp_path):
+def test_trial_does_not_start_before_the_readiness_gate(campaign, monkeypatch, tmp_path):
     """If the lifecycle never confirms active, neither reset nor nav_trial may
     have run -- otherwise the leg collects data from a still-inactive Nav2."""
     monkeypatch.setattr(campaign, 'wait_for_managed_nodes',
                          lambda *a, **k: (False, 90.0))
-    chamado = {'reset': False, 'trial': False}
+    called = {'reset': False, 'trial': False}
 
     def fake_reset(**_):
-        chamado['reset'] = True
+        called['reset'] = True
         return True
     monkeypatch.setattr(campaign, 'reset_between_legs', fake_reset)
 
     def fake_run(command, timeout):
         if 'nav_trial.py' in ' '.join(command):
-            chamado['trial'] = True
+            called['trial'] = True
         return 0, ''
     monkeypatch.setattr(campaign, '_run', fake_run)
 
-    resultado = campaign.main([
+    result = campaign.main([
         str(tmp_path), '--condition', 'baseline=noop', '--reps', '1',
         '--seconds', '1',
     ])
-    assert resultado == 1
-    assert chamado['reset'] is False
-    assert chamado['trial'] is False
+    assert result == 1
+    assert called['reset'] is False
+    assert called['trial'] is False
 
 
-def test_comando_de_condicao_que_falha_aborta_antes_do_readiness(campaign, monkeypatch,
-                                                                   tmp_path):
-    chamado_readiness = []
+def test_failed_condition_command_aborts_before_readiness(campaign, monkeypatch,
+                                                          tmp_path):
+    readiness_calls = []
     monkeypatch.setattr(
         campaign, 'wait_for_managed_nodes',
-        lambda *a, **k: chamado_readiness.append(1) or (True, 0.0))
+        lambda *a, **k: readiness_calls.append(1) or (True, 0.0))
     monkeypatch.setattr(campaign, '_run', lambda command, timeout: (1, 'boom'))
 
-    resultado = campaign.main([
-        str(tmp_path), '--condition', 'baseline=comando-que-falha', '--reps', '1',
+    result = campaign.main([
+        str(tmp_path), '--condition', 'baseline=command-that-fails', '--reps', '1',
         '--seconds', '1',
     ])
-    assert resultado == 1
-    assert chamado_readiness == []
+    assert result == 1
+    assert readiness_calls == []
 
 
-def test_campanha_completa_grava_readiness_no_manifesto(campaign, monkeypatch, tmp_path):
+def test_full_campaign_records_readiness_in_manifest(campaign, monkeypatch, tmp_path):
     monkeypatch.setattr(campaign, 'wait_for_managed_nodes',
                          lambda *a, **k: (True, 7.5))
     monkeypatch.setattr(campaign, 'reset_between_legs', lambda **_: True)
@@ -286,11 +286,11 @@ def test_campanha_completa_grava_readiness_no_manifesto(campaign, monkeypatch, t
         return 0, ''
     monkeypatch.setattr(campaign, '_run', fake_run)
 
-    resultado = campaign.main([
+    result = campaign.main([
         str(tmp_path), '--condition', 'baseline=aplica-baseline', '--reps', '1',
         '--seconds', '1',
     ])
-    assert resultado == 0
+    assert result == 0
 
     linhas = (tmp_path / 'manifesto.jsonl').read_text(encoding='utf-8').strip().splitlines()
     assert len(linhas) == 1
@@ -301,16 +301,16 @@ def test_campanha_completa_grava_readiness_no_manifesto(campaign, monkeypatch, t
     }
 
 
-def test_manifesto_registra_perna_que_abortou_por_timeout(campaign, monkeypatch, tmp_path):
+def test_manifest_records_leg_aborted_by_timeout(campaign, monkeypatch, tmp_path):
     monkeypatch.setattr(campaign, 'wait_for_managed_nodes',
                          lambda *a, **k: (False, 90.0))
     monkeypatch.setattr(campaign, '_run', lambda command, timeout: (0, ''))
 
-    resultado = campaign.main([
+    result = campaign.main([
         str(tmp_path), '--condition', 'baseline=aplica-baseline', '--reps', '1',
         '--seconds', '1',
     ])
-    assert resultado == 1
+    assert result == 1
 
     linhas = (tmp_path / 'manifesto.jsonl').read_text(encoding='utf-8').strip().splitlines()
     registro = json.loads(linhas[0])

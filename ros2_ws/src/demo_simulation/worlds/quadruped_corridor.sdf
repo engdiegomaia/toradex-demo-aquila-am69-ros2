@@ -72,7 +72,7 @@
       </link>
     </model>
 
-    <model name="parede_esq">
+    <model name="left_wall">
       <static>true</static>
       <pose>4.0  0.75 0.30 0 0 0</pose>
       <link name="link">
@@ -89,7 +89,7 @@
       </link>
     </model>
 
-    <model name="parede_dir">
+    <model name="right_wall">
       <static>true</static>
       <pose>4.0 -0.75 0.30 0 0 0</pose>
       <link name="link">
@@ -106,7 +106,7 @@
       </link>
     </model>
 
-    <model name="parede_fundo">
+    <model name="back_wall">
       <static>true</static>
       <pose>7.5 0.0 0.30 0 0 0</pose>
       <link name="link">

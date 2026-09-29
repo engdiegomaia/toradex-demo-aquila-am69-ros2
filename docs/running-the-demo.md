@@ -48,7 +48,7 @@ Open <http://localhost:8081>. Before starting, check that:
 
 ## 5. Explore
 
-Press **iniciar busca** (start search) in the navigation panel. The equivalent CLI command is:
+Press **Start search** in the navigation panel. The equivalent CLI command is:
 
 ```bash
 ros2 service call /demo/exploration/start std_srvs/srv/Trigger '{}'
@@ -59,7 +59,7 @@ Follow the explorer state in the navigation panel. The robot:
 1. picks frontier goals on the live SLAM map and walks to them;
 2. backtracks along breadcrumbs when a region is exhausted;
 3. switches to homing when the exit AprilTag is confirmed by perception;
-4. shows **SAÍDA CONFIRMADA** (exit confirmed) once the escape validator sees
+4. shows **EXIT CONFIRMED** once the escape validator sees
    it leave the maze.
 
 To stop at any time:

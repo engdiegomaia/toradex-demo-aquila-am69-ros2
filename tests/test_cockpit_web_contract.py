@@ -352,7 +352,7 @@ def test_sim_control_relay_serves_the_three_actions():
     assert "'/demo/sim/reset'" in relay, 'reset is not served by the facade'
 
 
-def test_o_reset_nao_pode_voltar_a_apagar_o_robo():
+def test_reset_must_not_delete_the_robot_again():
     """
     `reset.all` DELETES the plant, and the cockpit has no way to notice.
 

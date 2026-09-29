@@ -141,7 +141,7 @@ resolve_addresses() {
 # --- host-side CycloneDDS config -------------------------------------------
 # The module half of the link is not enough, and this was proved the hard way.
 #
-# With the module correctly configured (multicast off, peers 127.0.0.1 and the
+# With the module correctly configured (multicast off, peers 192.0.2.8 and the
 # host) and a heartbeat publisher demonstrably running on it, the host saw
 # NOTHING. Neither direction discovered the other, for two different reasons at
 # once:
@@ -190,7 +190,7 @@ render_host_config() {
 
   grep -q "<Peer address=\"${MODULE_IP}\"/>" "${host_cfg}" \
     || die "host.xml rendering did not insert the module peer"
-  grep -q '<Peer address="127.0.0.1"/>' "${host_cfg}" \
+  grep -q '<Peer address="192.0.2.8"/>' "${host_cfg}" \
     || die "host.xml rendering lost the localhost peer, which is load-bearing"
   grep -q '<NetworkInterface name="lo" priority="default" multicast="true"/>' "${host_cfg}" \
     || die "host.rendered.xml did not downgrade loopback in HIL mode"
@@ -251,7 +251,7 @@ cmd_sync() {
   # here rather than committed, so no address lives in git. See the long comment
   # in docker/cyclonedds/module.xml.
   # The interface is pinned, not autodetermined. Measured on this module,
-  # `ip -br addr` reports ethernet0 AND a docker bridge (br-*, 192.0.2.0/24)
+  # `ip -br addr` reports ethernet0 AND a docker bridge (br-*)
   # UP at the same time, because Torizon's own easy-pairing stack runs in
   # compose. autodetermine ranks interfaces and can pick the bridge, at which
   # point CycloneDDS transmits on an address the host cannot route to and
@@ -287,7 +287,7 @@ cmd_sync() {
 
   grep -q "<Peer address=\"${HOST_IP}\"/>" "${rendered}" \
     || die "module.xml rendering did not insert the host peer"
-  grep -q '<Peer address="127.0.0.1"/>' "${rendered}" \
+  grep -q '<Peer address="192.0.2.8"/>' "${rendered}" \
     || die "module.xml rendering lost the localhost peer, which is load-bearing"
   grep -q "<NetworkInterface name=\"${iface}\"" "${rendered}" \
     || die "module.xml rendering did not pin the interface ${iface}"
@@ -683,7 +683,7 @@ for idx in range(10):
     cand = base + 2 * idx
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        s.bind(("0.0.0.0", cand))
+        s.bind(("192.0.2.1", cand))
     except OSError:
         s.close()
         continue
@@ -708,7 +708,7 @@ import socket, sys, time
 p = int(sys.argv[1])
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 try:
-    s.bind(("0.0.0.0", p))
+    s.bind(("192.0.2.1", p))
 except OSError as exc:
     print(f"    module -> host: could not listen on {p}: {exc}")
     raise SystemExit(1)

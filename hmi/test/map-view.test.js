@@ -26,7 +26,7 @@ const EXTENT = { originX: -5, originY: -5, widthM: 10, heightM: 10 };
 const near = (actual, expected, message) =>
   assert.ok(
     Math.abs(actual - expected) < 1e-9,
-    `${message}: esperado ${expected}, veio ${actual}`,
+    `${message}: expected ${expected}, received ${actual}`,
   );
 
 test('map north is at the top of the canvas', () => {
@@ -53,7 +53,7 @@ test('both axes share one scale', () => {
   const oneMetreX = view.toScreen(1, 0).x - view.toScreen(0, 0).x;
   const oneMetreY = view.toScreen(0, 0).y - view.toScreen(0, 1).y;
   near(oneMetreX, oneMetreY, 'one metre in x vs in y');
-  near(oneMetreX, view.scale, 'escala publicada');
+  near(oneMetreX, view.scale, 'published scale');
 });
 
 test('the drawn map is centred in the leftover space', () => {
@@ -70,7 +70,7 @@ test('the navigation default zoom draws the map at half the fitted scale', () =>
   const fitted = createView(EXTENT, 300, 200);
   const overview = createView(EXTENT, 300, 200, { zoom: DEFAULT_MAP_ZOOM });
   near(overview.scale, fitted.scale * 0.5, 'zoom inicial');
-  near(overview.rasterRect().width, fitted.rasterRect().width * 0.5, 'largura');
+  near(overview.rasterRect().width, fitted.rasterRect().width * 0.5, 'width');
 });
 
 test('a custom focus remains at the exact canvas centre at every zoom', () => {
@@ -81,8 +81,8 @@ test('a custom focus remains at the exact canvas centre at every zoom', () => {
     near(screen.x, 160, `centro x em ${zoom}`);
     near(screen.y, 90, `centro y em ${zoom}`);
     const back = view.toWorld(screen.x, screen.y);
-    near(back.x, robot.x, `round-trip x em ${zoom}`);
-    near(back.y, robot.y, `round-trip y em ${zoom}`);
+    near(back.x, robot.x, `round-trip x at ${zoom}`);
+    near(back.y, robot.y, `round-trip y at ${zoom}`);
   }
 });
 
@@ -98,8 +98,8 @@ test('the raster rect and toScreen agree on the corners', () => {
   const view = createView(EXTENT, 320, 240);
   const rect = view.rasterRect();
   const topLeft = view.toScreen(EXTENT.originX, EXTENT.originY + EXTENT.heightM);
-  near(topLeft.x, rect.x, 'canto x');
-  near(topLeft.y, rect.y, 'canto y');
+  near(topLeft.x, rect.x, 'top-left x');
+  near(topLeft.y, rect.y, 'top-left y');
 });
 
 test('a degenerate extent does not produce NaN', () => {

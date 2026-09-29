@@ -1,92 +1,93 @@
 <?xml version="1.0"?>
 <!--
-  Cenario S6 - labirinto maze11, para a navegacao reativa continua.
+  Scenario S6 - maze11 for continuous reactive navigation.
 
-  O RACIONAL COMPLETO ESTA EM quadruped_maze.sdf (maze10), e nao e repetido
-  aqui: por que a malha nao e versionada, por que <scale>0.002</scale> e nao
-  0.001, por que este arquivo referencia a malha DIRETO em vez de usar
-  <include>, e por que MAZE_MODELS ausente e uma falha silenciosa.  Leia
-  aquele cabecalho antes de editar este arquivo.
+  THE FULL RATIONALE IS IN quadruped_maze.sdf (maze10), and is not repeated
+  here: why the mesh is not versioned, why <scale>0.002</scale> instead of
+  0.001, why this file references the mesh DIRECTLY instead of using <include>,
+  and why a missing MAZE_MODELS fails silently. Read that header before editing
+  this file.
 
-  Como executar:
+  How to run:
 
-      export MAZE_MODELS=/caminho/para/ros_maze_worlds/models
+      export MAZE_MODELS=/path/to/ros_maze_worlds/models
       ./scripts/run_quadruped_sim.sh quadruped_maze11.sdf
 
-  ==================== por que 0.002 vale igual no maze11 ====================
+  ==================== why 0.002 still applies to maze11 ====================
 
-  Medido em 21/08/2026 rasterizando as faces horizontais dos dois STL (que sao
-  o topo e a base das caixas de parede, logo a pegada) e rodando transformada
-  de distancia contra o raio circunscrito do tronco do Go2, 0.383 m.  Numeros e
-  metodo reproduzivel em docs/results/ml35-labirinto.md.
+  Measured on 21/08/2026 by rasterizing the horizontal faces of both STL files
+  (the tops and bottoms of the wall boxes, hence the footprint) and computing a
+  distance transform against the Go2 trunk's circumscribed radius, 0.383 m.
+  Numbers and a reproducible method are in docs/results/ml35-labirinto.md.
 
                                 maze10 @0.002   maze11 @0.002
-    pegada                      8.40 x 8.40 m   11.60 x 11.60 m
-    corredor (mediana)          1.20 m          1.20 m
-    altura da parede            0.60 m          0.60 m
-    margem por lado             21.7 cm         21.7 cm
-    area navegavel (R=0.383)    18.4 m2         35.4 m2
-    componentes conectados      1               1
+    footprint                   8.40 x 8.40 m   11.60 x 11.60 m
+    corridor (median)           1.20 m          1.20 m
+    wall height                 0.60 m          0.60 m
+    clearance per side          21.7 cm         21.7 cm
+    navigable area (R=0.383)    18.4 m2         35.4 m2
+    connected components       1               1
 
-  O maze11 tem o MESMO passo de celula do maze10 (600 unidades brutas de STL);
-  o que muda e o tamanho da grade, 5800 contra 4200.  Por isso os dois
-  criterios que dimensionaram a escala do maze10 valem verbatim:
+  maze11 has the SAME cell pitch as maze10 (600 raw STL units); only the grid
+  size changes, 5800 versus 4200. Therefore, the two criteria that set maze10's
+  scale still apply verbatim:
 
-  1. corredor de 1.20 m contra os 0.77 m que o tronco precisa para passar;
-  2. parede de 0.60 m contra o lidar L1 assentado a ~0.306 m do chao - parede
-     na altura do plano de varredura entra e sai do scan conforme o tronco
-     oscila, e isso parece defeito de bridge.
+  1. a 1.20 m corridor versus the 0.77 m the trunk needs to pass;
+  2. a 0.60 m wall versus the L1 lidar mounted ~0.306 m above the ground — a wall
+     at scan-plane height enters and leaves the scan as the trunk rocks, which
+     looks like a bridge defect.
 
-  NAO reajuste escala, robot_radius, inflation_radius nem o costmap ao trocar
-  de maze10 para maze11.  A geometria que esses parametros enxergam e a mesma.
+  Do NOT retune scale, robot_radius, inflation_radius, or the costmap when
+  switching from maze10 to maze11. The geometry those parameters see is the same.
 
-  ==================== a pose, medida e nao herdada ====================
+  ==================== measured pose, not inherited ====================
 
-  A pose do maze10 (-2.670 3.061) NAO serve aqui: reaproveitar pose entre
-  labirintos coloca o robo dentro de uma parede.  Esta foi medida por
-  tools/maze/maze_fit.py, no modo de partida "se", com quatro metas pedidas.  A
-  linha de comando exata esta em docs/guides/cenarios/s6-labirinto.md (nao cabe
-  aqui: comentario XML nao aceita hifen duplo, que e o prefixo dos flags).
+  The maze10 pose (-2.670 3.061) does NOT work here: reusing a pose between
+  mazes puts the robot inside a wall. This pose was measured by
+  tools/maze/maze_fit.py, in "se" spawn mode, with four requested goals. The
+  exact command line is in docs/guides/cenarios/s6-labirinto.md (it does not fit
+  here: XML comments cannot contain double hyphens, the prefix used by flags).
 
-  A partida e o CANTO INFERIOR DIREITO do labirinto, para que a demonstracao
-  comece numa ponta e atravesse tudo, em vez de nascer no meio.  A celula sai
-  do conjunto com folga >= 0.55 m, ou seja centro de corredor.
+  The spawn is at the maze's LOWER RIGHT CORNER, so the demonstration starts at
+  one end and crosses the whole maze instead of starting in the middle. The
+  selected cell has clearance >= 0.55 m, meaning it is at a corridor center.
 
-    robo nasce em (0,0)  ->  folga lateral 0.55 m
-    componente navegavel, em coordenadas do ROBO:
+    robot spawns at (0,0)  ->  lateral clearance 0.55 m
+    navigable component, in ROBOT coordinates:
         x[-9.87 ... +0.16]   y[-0.94 ... +9.87]
 
-  ==================== POR QUE ESTE MUNDO EXIGE yaw:=1.5708 ==================
+  ==================== WHY THIS WORLD REQUIRES yaw:=1.5708 ==================
 
-  O robo nasce olhando para +x, e a primeira coisa que ele faz e andar para
-  frente.  No canto inferior direito a pista livre medida e:
+  The robot spawns facing +x, and its first action is to walk forward. At the
+  lower right corner, measured free space is:
 
       +y = 3.47 m     -x = 3.47 m     +x = 0.16 m     -y = 0.16 m
 
-  Ou seja +x e parede a 16 cm.  Nascer com yaw 0 aqui poe o robo de cara na
-  parede, e sair dessa situacao exige girar parado - exatamente o que este
-  robo faz pior, com teto de guinada de ~0.13 rad/s e o eixo no batente.
+  In other words, there is a wall 16 cm along +x. Spawning here with yaw 0 faces
+  the robot into the wall, and escaping requires a stationary turn — exactly
+  what this robot does worst, with a yaw-rate ceiling of ~0.13 rad/s and the
+  joint at its limit.
 
-  Portanto este mundo declara o proprio yaw, na linha `go2_spawn_yaw` logo
-  abaixo deste comentario.  `run_quadruped_sim.sh` le essa linha e passa o valor
-  como `yaw:=` para o launch - nao ha nada a lembrar na linha de comando, e o
-  numero fica ao lado da geometria que o justifica.  `GO2_SPAWN_YAW=<rad>`
-  sobrepoe, para experimentar outro rumo sem editar o mundo.
+  This world therefore declares its own yaw in the `go2_spawn_yaw` line just
+  below this comment. `run_quadruped_sim.sh` reads that line and passes the
+  value as `yaw:=` to the launch — nothing to remember on the command line, and
+  the number sits beside the geometry that justifies it. `GO2_SPAWN_YAW=<rad>`
+  overrides it to try another heading without editing the world.
 
-  O `map` continua alinhado com o mundo do Gazebo (odom_tf publica
-  map -> odom identidade), logo as metas em coordenadas do robo abaixo seguem
-  valendo com qualquer yaw de nascimento.
+  `map` remains aligned with the Gazebo world (`odom_tf` publishes an identity
+  map -> odom transform), so the robot-coordinate goals below remain valid for
+  any spawn yaw.
 
-  Metas de patrulha medidas junto com a pose, em coordenadas do robo:
+  Patrol goals measured with the pose, in robot coordinates:
 
       (0.00, 8.00)  (-8.00, 0.00)  (-1.60, 1.60)  (-5.83, 4.91)
 
-  Todas dentro de MAX_GOAL_RADIUS_M = 8.0, que e o raio que patrol_commander
-  aceita - meta alem disso e REJEITADA na entrada, e a extensao acima passa
-  desse raio nas duas pontas.
+  All are within MAX_GOAL_RADIUS_M = 8.0, the radius accepted by
+  patrol_commander — a goal beyond that is REJECTED on receipt, and the extent
+  above exceeds that radius at both ends.
 
-  rpy do labirinto fica 0 0 0.  Os STL dos labirintos 8 a 11 ja estao com Z
-  para cima (os de 1 a 7 precisam de roll 1.5708), e maze11 esta nessa faixa.
+  The maze rpy remains 0 0 0. The STL files for mazes 8 to 11 already have Z
+  pointing up (mazes 1 to 7 need roll 1.5708), and maze11 is in that group.
 -->
 <!-- go2_spawn_yaw: 1.5708 -->
 <sdf version="1.9">
@@ -96,9 +97,9 @@
       <real_time_factor>1.0</real_time_factor>
     </physics>
 
-    <!-- Bloco identico ao de quadruped_empty.sdf.  O sistema Sensors com ogre2
-         nao e opcional: sem ele a camera e o lidar do Go2 existem no modelo e
-         nao publicam nada, sem nenhum erro nomeando o plugin que falta. -->
+    <!-- Identical block to quadruped_empty.sdf. The Sensors system with ogre2
+         is required: without it, the Go2 camera and lidar exist in the model
+         but publish nothing, with no error naming the missing plugin. -->
     <plugin filename="gz-sim-physics-system"
             name="gz::sim::systems::Physics"/>
     <plugin filename="gz-sim-user-commands-system"
@@ -145,10 +146,10 @@
       </link>
     </model>
 
-    <!-- maze11 a 2x.  Pegada 11.60 x 11.60 m, corredor 1.20 m, parede 0.40 m
-         de espessura por 0.60 m de altura.  35.4 m2 navegaveis num unico
-         componente conectado.  A translacao poe o robo no canto inferior
-         direito; ver "a pose" no cabecalho, e o yaw obrigatorio. -->
+    <!-- maze11 at 2x. Footprint 11.60 x 11.60 m, 1.20 m corridor, 0.40 m wall
+         thickness and 0.60 m wall height. 35.4 m2 navigable in one connected
+         component. Translation places the robot at the lower right corner; see
+         "measured pose" in the header and the required yaw. -->
     <model name="labirinto">
       <static>true</static>
       <pose>-11.672 11.649 0 0 0 0</pose>

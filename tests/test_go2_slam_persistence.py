@@ -104,10 +104,10 @@ def test_global_costmap_retains_slam_free_and_occupied_space() -> None:
         # non-rolling StaticLayer resizes the master to that crop and can leave
         # the robot footprint on the last row/column (`worldToMap failed`).
         assert params['rolling_window'] is True
-        # A GEOMETRIA da janela (40 m em 10 cm desde 28/08/2026) e verificada em
-        # tests/test_maze_exploration_contract.py, junto com a razao de ela ter
-        # de acompanhar a diagonal do labirinto sem crescer a grade mestre.
-        # Aqui o assunto e a PERSISTENCIA: quem lembra do mapa e a static_layer.
+        # The window GEOMETRY (40 m at 10 cm since 28/08/2026) is checked in
+        # tests/test_maze_exploration_contract.py, along with why it must cover
+        # the maze diagonal without expanding the master grid.
+        # This test is about PERSISTENCE: static_layer retains the map.
         assert params['plugins'][0] == 'static_layer'
         static = params['static_layer']
         assert static['map_subscribe_transient_local'] is True

@@ -24,16 +24,17 @@
   <depend>tf2_ros</depend>
   <depend>action_msgs</depend>
   <depend>nav2_msgs</depend>
-  <!-- RewrittenYaml, usado em nav_quadruped.launch.py para injetar o caminho
-       absoluto da arvore de comportamento com SmoothPath. -->
+  <!-- RewrittenYaml injects the absolute path to the SmoothPath behavior tree
+       in nav_quadruped.launch.py. -->
   <depend>nav2_common</depend>
   <exec_depend>demo_navigation</exec_depend>
   <exec_depend>demo_perception</exec_depend>
   <exec_depend>demo_simulation</exec_depend>
   <exec_depend>nav2_bringup</exec_depend>
   <exec_depend>ros2launch</exec_depend>
-  <!-- republish (raw->compressed no host, compressed->raw no modulo) e o plugin
-       que o registra. Sem o plugin o no sobe e publica nada, sem erro legivel. -->
+  <!-- republish (raw->compressed on the host, compressed->raw on the module)
+       and the plugin that registers it. Without the plugin, the node starts and
+       publishes nothing, with no readable error. -->
   <exec_depend>image_transport</exec_depend>
   <exec_depend>compressed_image_transport</exec_depend>
   <exec_depend>rviz2</exec_depend>

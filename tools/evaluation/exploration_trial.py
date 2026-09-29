@@ -260,7 +260,7 @@ def find_stalled_navigating_windows(rows: list, min_stall_s: float = 10.0,
 
     A window is `state == 'navigating'` with a nonzero command where the
     robot's own odometry barely moved, for at least `min_stall_s` seconds.
-    This is the 'navigating com comando mas sem movimento' branch of the
+    This is the 'navigating with a command but no movement' branch of the
     R13 stop classification -- distinct from a goal timeout (which fires
     regardless of whether the robot was actually stuck) and from a barren
     selection cycle (no goal was ever sent, `state` is `selecting`). A
@@ -316,7 +316,7 @@ def find_stalled_navigating_windows(rows: list, min_stall_s: float = 10.0,
 def _selecting_no_candidate_s(rows: list) -> float:
     """Sim-time spent in `selecting` with zero candidate frontiers.
 
-    Directly answers the 'selecting sem candidato' stop-classification
+    Directly answers the 'selecting with no candidate' stop-classification
     branch; `frontier_count`/`frontier_clusters_raw` on the same row already
     say whether that emptiness was "no raw cluster" or "filtered away", so
     this is deliberately just the duration, not a further split.

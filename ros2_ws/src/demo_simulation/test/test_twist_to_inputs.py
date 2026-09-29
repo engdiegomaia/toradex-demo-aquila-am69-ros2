@@ -163,7 +163,7 @@ def _drain(sequence, now, ticks):
     return [sequence.next_command(now) for _ in range(ticks)]
 
 
-def test_a_sequencia_e_inerte_antes_do_hold():
+def test_sequence_is_inactive_before_hold():
     sequence = _RestandSequence()
 
     assert not sequence.active
@@ -171,7 +171,7 @@ def test_a_sequencia_e_inerte_antes_do_hold():
     assert sequence.next_command(0.0) == _CMD_NONE
 
 
-def test_o_hold_sai_de_trotting_com_o_comando_de_stand():
+def test_hold_leaves_trotting_with_the_stand_command():
     sequence = _RestandSequence()
     sequence.hold()
 
@@ -180,7 +180,7 @@ def test_o_hold_sai_de_trotting_com_o_comando_de_stand():
     assert sequence.next_command(0.0) == _CMD_STAND_STEP
 
 
-def test_o_comando_de_stand_sai_exatamente_uma_vez():
+def test_stand_command_is_sent_exactly_once():
     """
     A HELD `2` takes FIXEDSTAND to FIXEDDOWN and the robot lies down.
 
@@ -197,7 +197,7 @@ def test_o_comando_de_stand_sai_exatamente_uma_vez():
     assert _CMD_STAND_STEP not in emitted[1:]
 
 
-def test_o_hold_publica_zeros_em_vez_de_ficar_calado():
+def test_hold_publishes_zeros_instead_of_staying_silent():
     """
     Silence does not work: the byte written to the controller persists.
 
@@ -211,7 +211,7 @@ def test_o_hold_publica_zeros_em_vez_de_ficar_calado():
     assert _drain(sequence, 2.5, 5) == [_CMD_NONE] * 5
 
 
-def test_o_hold_nao_tem_prazo_proprio():
+def test_hold_has_no_own_deadline():
     """
     The teleport window closes via `resume`, never via time.
 
@@ -226,7 +226,7 @@ def test_o_hold_nao_tem_prazo_proprio():
     assert sequence.holding
 
 
-def test_o_resume_so_volta_a_trotting_depois_de_assentar():
+def test_resume_returns_to_trotting_after_settling():
     sequence = _RestandSequence(settle_s=5.0, trot_ticks=3)
     sequence.hold()
     sequence.next_command(0.0)
@@ -237,7 +237,7 @@ def test_o_resume_so_volta_a_trotting_depois_de_assentar():
     assert sequence.next_command(5.0) == _CMD_START_TROT
 
 
-def test_o_resume_repete_o_comando_de_trote_na_janela():
+def test_resume_repeats_the_trot_command_during_the_window():
     """
     Publishing `4` just once is the failure mode measured on 18/08/2026.
 
@@ -254,7 +254,7 @@ def test_o_resume_repete_o_comando_de_trote_na_janela():
     assert _drain(sequence, 1.0, 4) == [_CMD_START_TROT] * 4
 
 
-def test_a_sequencia_fica_inerte_no_fim():
+def test_sequence_becomes_inactive_when_finished():
     sequence = _RestandSequence(settle_s=1.0, trot_ticks=2)
     sequence.hold()
     sequence.next_command(0.0)
@@ -265,7 +265,7 @@ def test_a_sequencia_fica_inerte_no_fim():
     assert not sequence.active
 
 
-def test_um_resume_sem_hold_nao_faz_nada():
+def test_resume_without_hold_does_nothing():
     """
     Otherwise a stray resume would inject `4` into a robot that was never stopped.
 
@@ -278,7 +278,7 @@ def test_um_resume_sem_hold_nao_faz_nada():
     assert _drain(sequence, 5.0, 5) == [_CMD_NONE] * 5
 
 
-def test_a_sequencia_serve_um_segundo_reset():
+def test_sequence_supports_a_second_reset():
     sequence = _RestandSequence(settle_s=1.0, trot_ticks=1)
     sequence.hold()
     sequence.next_command(0.0)
@@ -291,7 +291,7 @@ def test_a_sequencia_serve_um_segundo_reset():
     assert sequence.next_command(10.0) == _CMD_STAND_STEP
 
 
-def test_o_assentamento_nao_avanca_com_o_tempo_simulado_parado():
+def test_settling_does_not_advance_while_sim_time_is_paused():
     """
     A paused world must not make the sequence progress.
 

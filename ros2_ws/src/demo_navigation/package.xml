@@ -17,16 +17,16 @@
   <!-- Transition constants for the slam_toolbox lifecycle autostart. -->
   <depend>lifecycle_msgs</depend>
   <!--
-    nav_control_relay: a fachada std_srvs do "resetar meta" do cockpit.
-    nav2_msgs traz o ManageLifecycleNodes e action_msgs o CancelGoal; std_srvs é
-    a fronteira que o navegador fala.
+    nav_control_relay: the std_srvs façade for the cockpit's "reset goal" action.
+    nav2_msgs provides ManageLifecycleNodes and action_msgs provides CancelGoal;
+    std_srvs is the interface used by the browser.
 
-    Os três já estavam na imagem por outros caminhos (nav2_msgs e action_msgs
-    vêm de demo_bringup, que os declara), mas este pacote passou a IMPORTÁ-los em
-    código. Uma dependência que existe só por herança é a que desaparece sem
-    aviso no dia em que o pacote que a trazia muda — e o docker/nav/Dockerfile
-    monta a lista de apt a partir do que os launches e os parâmetros nomeiam,
-    então uma dependência não declarada não tem como chegar lá.
+    All three were already in the image through other paths (nav2_msgs and
+    action_msgs come from demo_bringup, which declares them), but this package
+    now IMPORTS them in code. A dependency present only through inheritance can
+    disappear silently when the package that brought it changes — and
+    docker/nav/Dockerfile builds its apt list from the packages named by the
+    launches and parameters, so an undeclared dependency cannot be available.
   -->
   <depend>rclpy</depend>
   <depend>nav2_msgs</depend>

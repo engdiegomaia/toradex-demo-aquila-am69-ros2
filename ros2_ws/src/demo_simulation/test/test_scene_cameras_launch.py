@@ -100,7 +100,7 @@ def test_maze_framing_reaches_the_view_controller(scene_cameras):
     receives them. The warehouse framing in a maze world would point the
     blue panel at empty ground, with no error and no log.
     """
-    params = _params(scene_cameras, '/algum/lugar/quadruped_maze11.sdf')
+    params = _params(scene_cameras, '/some/path/quadruped_maze11.sdf')
     assert params['top_x'] == pytest.approx(-4.855)
     assert params['top_y'] == pytest.approx(4.855)
     assert params['top_z'] == pytest.approx(13.0)
