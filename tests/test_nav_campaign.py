@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts' / 'nav_campaign.py'
+SCRIPT = Path(__file__).resolve().parents[1] / 'tools' / 'evaluation' / 'nav_campaign.py'
 
 
 def _load():

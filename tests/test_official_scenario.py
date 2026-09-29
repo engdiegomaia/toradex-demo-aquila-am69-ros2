@@ -25,7 +25,7 @@ SCENE_CAMERAS = SIMULATION / 'launch' / 'scene_cameras.launch.py'
 SIM_LAUNCH = BRINGUP / 'launch' / 'sim.launch.py'
 ROBOT_SELECTION = BRINGUP / 'demo_bringup' / 'robot_selection.py'
 COMPOSE_HOST = REPO_ROOT / 'docker' / 'compose.host.yml'
-MODELS_EXTRA_README = REPO_ROOT / 'models-extra' / 'README.md'
+MODELS_EXTRA_README = REPO_ROOT / 'docker' / 'models-extra' / 'README.md'
 
 MAZE_WORLD = 'quadruped_maze11.sdf'
 
@@ -117,7 +117,7 @@ def test_maze_framing_matches_the_measured_geometry(scenarios):
     Os numeros do labirinto sao os medidos, nao arredondamentos novos.
 
     Centro (-4,855; 4,855) saiu da bbox do STL lida do binario e multiplicada
-    pela escala 0,002 (scripts/maze_fit.py), nao do nome do arquivo. A vista de
+    pela escala 0,002 (tools/maze/maze_fit.py), nao do nome do arquivo. A vista de
     topo a 13 m cobre 17,8 x 13,3 m, os 11,6 m do labirinto com margem.
     """
     top = scenarios.camera_pose(MAZE_WORLD, 'top')

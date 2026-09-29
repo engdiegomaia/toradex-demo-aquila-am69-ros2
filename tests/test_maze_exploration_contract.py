@@ -162,7 +162,7 @@ def test_public_exploration_interfaces_are_stable():
 
 
 def test_short_goal_gate_is_connected_and_bounded():
-    source = (ROOT / 'scripts/nav_trial.py').read_text()
+    source = (ROOT / 'tools/evaluation/nav_trial.py').read_text()
     assert 'MAZE11_SHORT_GOALS' in source
     assert "args.goals == 'maze11-short'" in source
 
@@ -197,7 +197,7 @@ def test_cockpit_owns_start_cancel_and_ground_truth_display():
 
 def test_gate_persists_outcome_and_error_code_per_goal():
     """O veredito do portao nao pode viver so no stdout de quem rodou."""
-    source = (ROOT / 'scripts/nav_trial.py').read_text()
+    source = (ROOT / 'tools/evaluation/nav_trial.py').read_text()
     # Desfecho, codigo de erro do Nav2 e trocas de rota, por meta.
     for field in ('outcome', 'error_code', 'error_msg', 'plan_switches'):
         assert f"'{field}'" in source
@@ -209,7 +209,7 @@ def test_gate_persists_outcome_and_error_code_per_goal():
 
 def test_telemetry_rows_carry_the_goal_they_belong_to():
     """Sem o carimbo, as tres metas do portao viram uma serie so."""
-    source = (ROOT / 'scripts/nav_trial.py').read_text()
+    source = (ROOT / 'tools/evaluation/nav_trial.py').read_text()
     assert "'goal_index'" in source
 
 

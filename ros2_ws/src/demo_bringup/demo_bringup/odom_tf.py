@@ -8,7 +8,7 @@ gráfica nem de arquitetura.
 
 ## Por que este nó existe
 
-Medido em 20/08/2026 com `scripts/scenario_check.py`: a árvore TF do Go2 tem 20
+Medido em 20/08/2026 com `tools/diagnostics/scenario_check.py`: a árvore TF do Go2 tem 20
 arestas, 8 estáticas, com raiz em `base` — `base` -> `trunk` -> `lidar`,
 `imu_link`, `front_camera`, e as quatro pernas até os pés. A árvore do robô é
 completa. Faltam exatamente **duas arestas no topo**:

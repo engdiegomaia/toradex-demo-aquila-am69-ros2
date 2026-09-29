@@ -1,4 +1,4 @@
-"""Guards for ``scripts/maze_geodesic.py``.
+"""Guards for ``tools/maze/maze_geodesic.py``.
 
 The script exists to answer one question — is the goal reachable by the straight
 line the planner would draw? — and the two ways it can lie are both silent:
@@ -23,7 +23,7 @@ import pytest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPTS = ROOT / 'scripts'
+SCRIPTS = ROOT / 'tools' / 'maze'
 MODELS = Path.home() / 'ros_maze_worlds' / 'models'
 MAZE11_STL = MODELS / 'maze11' / 'meshes' / 'maze11.stl'
 
@@ -46,7 +46,7 @@ def test_goals_are_read_from_nav_trial_not_copied(geodesic):
     no dia em que alguem regenerar as metas com ``maze_fit.py`` -- e a tabela
     continuaria imprimindo, medindo metas que o ensaio nao manda mais.
     """
-    source = (SCRIPTS / 'nav_trial.py').read_text(encoding='utf-8')
+    source = (ROOT / 'tools' / 'evaluation' / 'nav_trial.py').read_text(encoding='utf-8')
     literal = None
     for node in ast.walk(ast.parse(source)):
         if isinstance(node, ast.Assign):

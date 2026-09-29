@@ -44,7 +44,7 @@
 
   A pose do maze10 (-2.670 3.061) NAO serve aqui: reaproveitar pose entre
   labirintos coloca o robo dentro de uma parede.  Esta foi medida por
-  scripts/maze_fit.py, no modo de partida "se", com quatro metas pedidas.  A
+  tools/maze/maze_fit.py, no modo de partida "se", com quatro metas pedidas.  A
   linha de comando exata esta em docs/guides/cenarios/s6-labirinto.md (nao cabe
   aqui: comentario XML nao aceita hifen duplo, que e o prefixo dos flags).
 
@@ -199,7 +199,7 @@
              the maze interior (+y), which is the side the robot approaches
              from before crossing the opening at y=-0.90; see
              maze_escape_validator.py's BOUNDARY_Y/OPENING_X. Generated
-             deterministically by scripts/generate_maze_exit_marker.py;
+             deterministically by tools/maze/generate_maze_exit_marker.py;
              regenerate with that script, never hand-edit the PNG. -->
         <visual name="tag">
           <pose>0 0.016 0 0 0 0</pose>

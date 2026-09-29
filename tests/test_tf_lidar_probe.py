@@ -1,4 +1,4 @@
-"""Unit tests for the pure helpers of scripts/tf_lidar_probe.py.
+"""Unit tests for the pure helpers of tools/diagnostics/tf_lidar_probe.py.
 
 These run WITHOUT ROS. That is the reason `tf_lidar_probe` imports `rclpy`
 inside `build_probe()` instead of at module scope — importing the module here
@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 
-SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
+SCRIPTS = Path(__file__).resolve().parents[1] / 'tools' / 'diagnostics'
 sys.path.insert(0, str(SCRIPTS))
 
 from tf_lidar_probe import (  # noqa: E402

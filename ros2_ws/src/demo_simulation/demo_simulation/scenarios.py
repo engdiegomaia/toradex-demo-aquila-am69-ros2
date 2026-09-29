@@ -36,7 +36,7 @@ Nenhum foi escolhido: todos foram medidos ou calculados, e as contas estao em
   de prateleiras; topo a 6 m porque a 12 m a camera fica ACIMA das vigas do
   telhado e a imagem inteira vira uma viga laranja;
 - maze11: centro e extensao vieram da bbox do STL lida do binario e multiplicada
-  pela escala 0,002 (ver `scripts/maze_fit.py`), nao do nome do arquivo.
+  pela escala 0,002 (ver `tools/maze/maze_fit.py`), nao do nome do arquivo.
 
 O maze11 e o cenario OFICIAL do quadrupede. O armazem continua sendo o do
 diff-drive, que e o fallback e foi validado la -- ver `robot_selection.py`.

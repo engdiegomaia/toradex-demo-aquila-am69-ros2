@@ -219,10 +219,6 @@ services:
     volumes:
       - ./cyclonedds/host.rendered.xml:/cfg/cyclonedds.xml:ro
       - /tmp/.X11-unix:/tmp/.X11-unix:rw
-      # Host-only cockpit control bridge. Mounted read-only so the UI can run a
-      # persistent rclpy publisher without baking workstation orchestration
-      # into the visualization image.
-      - ../scripts:/cockpit:ro
     devices:
       - /dev/dri:/dev/dri
     # Same reason as sim: without the host's render gid, RViz2 falls back to
@@ -314,15 +310,13 @@ services:
     # A service-level `volumes:` REPLACES the one `*common` carries (YAML merge
     # keys do not merge list values), so the cyclonedds mount is repeated here.
     #
-    # docs/results is the only host path this container's documented workflow
-    # (scripts/exploration_trial.py's own docstring: `python3 - out.csv ...`
-    # with a repo-root-relative out_csv) ever writes to. Without this mount the
-    # recorder runs an entire HIL round in memory and then crashes on the final
-    # write with FileNotFoundError, losing every sample -- see
-    # docs/results/ml35-f5-exploration-r9.md §0.
+    # artifacts/ (gitignored) is where the evaluation recorders write, e.g.
+    # `python3 - artifacts/run1.csv < tools/evaluation/exploration_trial.py`.
+    # Without this mount the recorder holds an entire HIL round in memory and
+    # then fails on the final write with FileNotFoundError, losing every sample.
     volumes:
       - ./cyclonedds/host.rendered.xml:/cfg/cyclonedds.xml:ro
-      - ../docs/results:/ws/docs/results
+      - ../artifacts:/ws/artifacts
     # Must not exit — this service exists to be exec'd into (guia §9 uses
     # `compose exec tools`). The Dockerfile CMD already sleeps; stated here so
     # the behaviour is visible from the compose file.

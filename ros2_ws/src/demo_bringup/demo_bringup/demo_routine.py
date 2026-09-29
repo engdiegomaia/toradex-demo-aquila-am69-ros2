@@ -12,7 +12,7 @@ WHAT IT IS FOR
 
 An exhibition loop: the robot walks a repeating pattern indefinitely so the demo
 can be left running in front of an audience. It is not a test harness -- for
-measurement use `scripts/gait_trial.sh`, which records evidence and aborts on a
+measurement use `tools/evaluation/gait_trial.sh`, which records evidence and aborts on a
 fallen robot.
 
 THREE CONSTRAINTS THAT ARE NOT OBVIOUS

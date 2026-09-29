@@ -1,4 +1,4 @@
-"""Unit tests for timing recorded by scripts/nav_trial.py."""
+"""Unit tests for timing recorded by tools/evaluation/nav_trial.py."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import sys
 import pytest
 
 
-SCRIPTS = Path(__file__).resolve().parents[1] / 'scripts'
+SCRIPTS = Path(__file__).resolve().parents[1] / 'tools' / 'evaluation'
 sys.path.insert(0, str(SCRIPTS))
 
 from trial_timing import (  # noqa: E402

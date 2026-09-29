@@ -14,7 +14,7 @@ import pathlib
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 _spec = importlib.util.spec_from_file_location(
-    'analyse_exploration', ROOT / 'scripts' / 'analyse_exploration.py')
+    'analyse_exploration', ROOT / 'tools' / 'evaluation' / 'analyse_exploration.py')
 analyse = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(analyse)
 

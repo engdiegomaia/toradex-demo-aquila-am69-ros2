@@ -72,7 +72,7 @@ def test_tag_visual_references_the_installed_texture() -> None:
 
 def test_tag_texture_is_shipped_next_to_the_world_not_downloaded() -> None:
     assert TAG_PNG.is_file(), (
-        f'{TAG_PNG} ausente -- rode scripts/generate_maze_exit_marker.py')
+        f'{TAG_PNG} ausente -- rode tools/maze/generate_maze_exit_marker.py')
 
 
 def test_tag_texture_decodes_to_the_id_the_detector_expects() -> None:

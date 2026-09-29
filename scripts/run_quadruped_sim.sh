@@ -2,7 +2,15 @@
 set -euo pipefail
 
 # Usage: ./scripts/run_quadruped_sim.sh [world.sdf] [launch_arg:=value...]
-# The default is the image's built-in empty.sdf. Keep this terminal open.
+#
+# Developer shortcut: runs only the Go2 plant in a standalone container named
+# aquila-go2, rebuilding the simulation packages from the working tree so that
+# local edits apply without an image rebuild. The default world is
+# quadruped_empty.sdf. Keep this terminal open. The Compose `sim` service is the
+# supported path for the demo itself.
+#
+# SIM_IMAGE overrides the image (default: the Compose sim image,
+# ${REGISTRY:-local}/demo-aquila-sim:${TAG:-dev}; build it first).
 #
 # MAZE_MODELS=<dir> monta um diretorio de modelos EXTERNO ao repositorio em
 # /maze/models e aponta GZ_SIM_RESOURCE_PATH para ele. E o que os mundos
@@ -142,15 +150,15 @@ xhost +local:docker >/dev/null
 
 docker run --rm --name "${container_name}" --network=host \
   -e DISPLAY="${DISPLAY:-:0}" -e QT_X11_NO_MITSHM=1 \
-  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -e ROS_DOMAIN_ID=69 \
+  -e RMW_IMPLEMENTATION=rmw_cyclonedds_cpp -e ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-69}" \
   -e GO2_WORLD="${world_path}" -e GO2_SPAWN_YAW="${spawn_yaw}" \
   -e LAUNCH_ARGS="${launch_args[*]}" \
   "${maze_env[@]}" "${maze_mount[@]}" \
   "${dds_env[@]}" "${dds_mount[@]}" \
   -v /tmp/.X11-unix:/tmp/.X11-unix:rw \
-  --device /dev/dri:/dev/dri --group-add 992 \
+  --device /dev/dri:/dev/dri --group-add "${RENDER_GID:-992}" \
   -v "${repo_dir}/ros2_ws/src:/proj/src:ro" \
-  --entrypoint bash demo-sim:spike-go2 -c '
+  --entrypoint bash "${SIM_IMAGE:-${REGISTRY:-local}/demo-aquila-sim:${TAG:-dev}}" -c '
     set -e
     . /opt/ros/jazzy/setup.sh
     mkdir -p /test/src
